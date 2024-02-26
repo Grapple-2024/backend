@@ -1,0 +1,214 @@
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/ContentGuide/format-version-structure.html
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Grapple Backend Service
+# Transform section specifies one or more macros that AWS CloudFormation uses to process your template
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/ContentGuide/transform-section-structure.html
+Transform:
+  - AWS::Serverless-2016-10-31
+
+# Resources declares the AWS resources that you want to include in the stack
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/ContentGuide/resources-section-structure.html
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 200
+    Runtime: go1.x
+    Environment:
+
+Parameters:
+    GymsTableName:
+        Description: 'Name of the Gyms table'
+        Type: 'String'
+        Default: 'grapple-gyms' 
+    GymRequestsTableName:
+        Description: 'Name of the Gym Requests table'
+        Type: 'String'
+        Default: 'grapple-gym-requests' 
+
+Resources:
+  Gateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowOrigin: "'*'"
+        AllowMethods: "'POST, GET, DELETE, PUT, HEAD, OPTIONS'"
+        AllowHeaders: "'*'"
+      Auth:
+        AddDefaultAuthorizerToCorsPreflight: false
+        DefaultAuthorizer: MyCognitoAuth # OPTIONAL
+        Authorizers:
+          MyCognitoAuth:
+            UserPoolArn: arn:aws:cognito-idp:us-west-1:381491926210:userpool/us-west-1_HT5oR6AwO # Can also accept an array
+            Identity: # OPTIONAL
+              Header: Authorization # OPTIONAL; Default: 'Authorization'
+  GymsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref GymsTableName
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  GymRequestsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref GymRequestsTableName
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        # - AttributeName: requestor_id
+        #   AttributeType: S
+        - AttributeName: gym_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      GlobalSecondaryIndexes:
+        - IndexName: "GymIndex"
+          KeySchema: 
+          - AttributeName: gym_id
+            KeyType: HASH
+          Projection: 
+            ProjectionType: "ALL"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+        # - IndexName: "RequestorIndex"
+        #   KeySchema: 
+        #   - AttributeName: requestor_id
+        #     KeyType: HASH
+        #   Projection: 
+        #     ProjectionType: "ALL"
+        #   ProvisionedThroughput:
+        #     ReadCapacityUnits: 1
+        #     WriteCapacityUnits: 1
+
+
+
+  Function:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: grapple-backend
+      CodeUri: ./cmd/backend
+      Handler: main
+      Environment:
+        Variables:
+          DYNAMODB_ENDPOINT: !Sub "https://dynamodb.${AWS::Region}.amazonaws.com"
+          GYMS_TABLE_NAME: !Ref GymsTableName
+          GYM_REQUESTS_TABLE_NAME: !Ref GymRequestsTableName
+
+      Tracing: Active
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GymsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GymRequestsTable
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminAddUserToGroup
+              Resource: '*'
+      Events:
+        # Gyms
+        GetGym:
+          Type: Api
+          Properties:
+            Path: /gyms/{id}
+            Method: GET
+            RestApiId: !Ref Gateway
+            
+        GetGyms:
+          Type: Api
+          Properties:
+            Path: /gyms
+            Method: GET
+            RestApiId: !Ref Gateway
+
+        CreateGym:
+          Type: Api
+          Properties:
+            Path: /gyms
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        UpdateGym:
+          Type: Api
+          Properties:
+            Path: /gyms/{id}
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        DeleteGym:
+          Type: Api
+          Properties:
+            Path: /gyms/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
+
+        # Gym Requests
+        GetGymRequest:
+          Type: Api
+          Properties:
+            Path: /gym-requests/{id}
+            Method: GET
+            RestApiId: !Ref Gateway
+            
+        GetGymRequests:
+          Type: Api
+          Properties:
+            Path: /gym-requests
+            Method: GET
+            RestApiId: !Ref Gateway
+
+        CreateGymRequest:
+          Type: Api
+          Properties:
+            Path: /gym-requests
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        UpdateGymRequest:
+          Type: Api
+          Properties:
+            Path: /gym-requests/{id}
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        DeleteGymRequest:
+          Type: Api
+          Properties:
+            Path: /gym-requests/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
+
+
+
+Outputs:
+  API:
+    Description: "API Gateway endpoint URL for the Lambda function"
+    Value: !Sub "https://${Gateway}.execute-api.${AWS::Region}.amazonaws.com/"
+  FunctionARN:
+    Description: "Content Service Function ARN"
+    Value: !GetAtt Function.Arn
+  FunctionIAMRole:
+    Description: "Implicit IAM Role created for Grapple Backend Lambda function"
+    Value: !GetAtt FunctionRole.Arn

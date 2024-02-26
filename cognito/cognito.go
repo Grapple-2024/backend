@@ -126,9 +126,15 @@ func (c *Client) Login(username, password, refresh, refreshToken string) (*cip.A
 	if err != nil {
 		return nil, err
 	}
+	log.Info().Msgf("InitiateAuth: %+v", res)
 
-	return *&res.AuthenticationResult, nil
+	if res.AuthenticationResult != nil {
+		return res.AuthenticationResult, nil
+	}
+
+	return nil, fmt.Errorf("error authenticating, response: %v", res)
 }
+
 func (c *Client) newSecretHash(username string) string {
 	// create a new HMAC by defining the hash type and the key
 	data := []byte(fmt.Sprintf("%s%s", username, c.clientID))

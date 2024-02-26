@@ -2,16 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"time"
 
-	"github.com/Grapple-2024/backend/cognito"
-	"github.com/Grapple-2024/backend/handlers/auth"
-	"github.com/Grapple-2024/backend/handlers/gym"
-
-	"github.com/Grapple-2024/backend/mongo"
-	"github.com/gin-gonic/gin"
+	"github.com/Grapple-2024/backend/handlers"
+	lambdaext "github.com/Grapple-2024/backend/lambda"
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -21,47 +17,26 @@ func init() {
 }
 
 func main() {
-	// create mongo client
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	mongoUser := "root"
-	mongoPass := "local"
-	mongoHost := "localhost"
-	mongoPort := 27017
-	mongoURI := fmt.Sprintf("mongodb://%s:%s@%s:%d/", mongoUser, mongoPass, mongoHost, mongoPort)
-	mongoClient, err := mongo.NewClient(ctx, mongoURI, "grapple")
-	if err != nil {
-		log.Fatal().Err(err).Msgf("error establishing connection to mongo")
-	}
-	log.Info().Msgf("mongoClient: %v", mongoClient)
-
-	// Create Cognito Client
-	clientID := "19e853hg83ddqvbq160fh6j8i6"
-	clientSecret := "1fteublmrhdehckmva7u6lqf96hgcl4tgg4dt32iqvd7f00nru9"
-	region := "us-west-1"
-	cClient, err := cognito.NewClient(region, cognito.WithClientID(clientID), cognito.WithClientSecret(clientSecret))
-	if err != nil {
-		log.Fatal().Err(err).Msgf("error creating cognito client")
+	dynamoEndpoint := os.Getenv("DYNAMODB_ENDPOINT")
+	gh, err := handlers.NewGymHandler(ctx, dynamoEndpoint)
+	if err != err {
+		panic(err)
 	}
 
-	// Create handler(s)
-	authHandler := auth.Handler{
-		CognitoClient: cClient,
-	}
-	gymHandler := gym.Handler{
-		MongoClient: mongoClient,
+	grh, err := handlers.NewGymRequestHandler(ctx, dynamoEndpoint)
+	if err != err {
+		panic(err)
 	}
 
-	// Register routes and start web server
-	r := gin.Default()
-	r.POST("/login", authHandler.Login)
-	r.POST("/register", authHandler.Register)
+	lambdas := map[string]lambdaext.Lambda{
+		"gyms":         gh,
+		"gym-requests": grh,
+	}
 
-	// Students
-	r.GET("/gyms/:id", gymHandler.GetGym)
-	r.POST("/gyms", gymHandler.CreateGym)
-	r.GET("/gyms", gymHandler.GetGyms)
-
-	r.Run()
+	lambda.Start(
+		lambdaext.NewRouter(lambdas),
+	)
 }
