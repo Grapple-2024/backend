@@ -26,28 +26,26 @@ type GymRequestHandler struct {
 	*dynamodbsdk.Client
 }
 
-type GetResponse struct {
-	Data             any     `json:"data"`
-	LastEvaluatedKey *string `json:"lastEvaluatedKey"`
-	Count            int32   `json:"count"`
-}
-
 type GymRequest struct {
 	PK string `json:"pk" dynamodbav:"pk"`
 
-	Requestor string `json:"requestor_id" dynamodbav:"requestor_id"`
-	GymID     string `json:"gym_id" dynamodbav:"gym_id"`
-	Status    string `json:"status" dynamodbav:"status"`
+	RequestorID string `json:"requestor_id" dynamodbav:"requestor_id"`
+	FirstName   string `json:"first_name" dynamodbav:"first_name"`
+	LastName    string `json:"last_name" dynamodbav:"last_name"`
+	Email       string `json:"email" dynamodbav:"email"`
+	GymID       string `json:"gym_id" dynamodbav:"gym_id"`
+	Status      string `json:"status" dynamodbav:"status"`
 }
 
 func NewGymRequestHandler(ctx context.Context, dynamoEndpoint string) (*GymRequestHandler, error) {
-	gymRequestsTableName := os.Getenv("GYM_REQUESTS_TABLE_NAME")
+	tableName := os.Getenv("GYM_REQUESTS_TABLE_NAME")
 
-	db, err := dynamodbsdk.NewClient(dynamoEndpoint, gymRequestsTableName)
+	db, err := dynamodbsdk.NewClient(dynamoEndpoint, tableName)
 	if err != nil {
 		return nil, err
 	}
 
+	log.Info().Msgf("Gym requests table name: %v", tableName)
 	return &GymRequestHandler{
 		Client: db,
 	}, nil
@@ -148,11 +146,11 @@ func (h *GymRequestHandler) ProcessPost(ctx context.Context, req events.APIGatew
 
 	err = validate.Struct(&gymRequest)
 	if err != nil {
-		return lambda.ClientError(http.StatusBadRequest, "request body failed validation")
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("request body failed validation: %v", err))
 	}
 
-	gymRequest.PK = base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("gymRequest#%s/%s", gymRequest.Requestor, gymRequest.GymID)))
-	gymRequest.Requestor = token.User
+	gymRequest.PK = base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("gymRequest#%s/%s", token.Sub, gymRequest.GymID)))
+	gymRequest.RequestorID = token.Sub
 	gymRequest.Status = "Pending"
 	res, err := h.Insert(ctx, &gymRequest)
 	if err != nil {
@@ -200,8 +198,8 @@ func (h *GymRequestHandler) ProcessDelete(ctx context.Context, req events.APIGat
 	if err != nil {
 		return lambda.ServerError(err)
 	}
-	requestor := requests[0].Requestor
-	if requestor != token.User {
+	requestor := requests[0].RequestorID
+	if requestor != token.Sub {
 		return lambda.ClientError(http.StatusForbidden, "permission denied: you must be the creator of the gym request to delete it")
 	}
 
@@ -243,12 +241,15 @@ func (h *GymRequestHandler) ProcessPut(ctx context.Context, req events.APIGatewa
 			expression.Name("pk"),
 			expression.Value(id),
 		),
-	).WithUpdate(
-		expression.Set(
-			expression.Name("status"),
-			expression.Value(payload.Status),
-		),
 	)
+
+	if payload.Status != "" {
+		builder.WithUpdate(
+			expression.Set(
+				expression.Name("status"),
+				expression.Value(payload.Status),
+			))
+	}
 
 	expr, err := builder.Build()
 	if err != nil {

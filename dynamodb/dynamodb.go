@@ -84,8 +84,11 @@ type Filter struct {
 func (c *Client) Get(ctx context.Context, limit int32, exclusiveStartKey, indexName *string, filter *Filter) (*dynamodb.ScanOutput, error) {
 	input := &dynamodb.ScanInput{
 		TableName: aws.String(c.table),
-		IndexName: indexName,
 		Limit:     &limit,
+	}
+
+	if indexName != nil {
+		input.IndexName = indexName
 	}
 
 	if filter != nil {
@@ -108,7 +111,8 @@ func (c *Client) Get(ctx context.Context, limit int32, exclusiveStartKey, indexN
 	log.Info().Any("expressionAttributeValues", input.ExpressionAttributeValues).
 		Any("expressionAttributeNames", input.ExpressionAttributeNames).
 		Any("filter", input.FilterExpression).
-		Msgf("Scanning table: %v", *input.TableName)
+		Any("table", *input.TableName).
+		Msg("Scanning table")
 
 	result, err := c.Scan(ctx, input)
 	if err != nil {

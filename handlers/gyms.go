@@ -28,10 +28,6 @@ import (
 	validator "github.com/go-playground/validator/v10"
 )
 
-const (
-	gymsTable = "grapple-gyms"
-)
-
 type GymHandler struct {
 	*dynamodbsdk.Client
 	CognitoClient *cognito.Client
@@ -74,8 +70,8 @@ var (
 )
 
 func NewGymHandler(ctx context.Context, dynamoEndpoint string) (*GymHandler, error) {
-	gymsTableName := os.Getenv("GYMS_TABLE_NAME")
-	db, err := dynamodbsdk.NewClient(dynamoEndpoint, gymsTableName)
+	tableName := os.Getenv("GYMS_TABLE_NAME")
+	db, err := dynamodbsdk.NewClient(dynamoEndpoint, tableName)
 	if err != nil {
 		return nil, err
 	}
@@ -172,6 +168,7 @@ func (h *GymHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxy
 	if err = json.Unmarshal([]byte(req.Body), &gym); err != nil {
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("request body invalid: %v", req.Body))
 	}
+	gym.Creator = token.Sub
 
 	// Validate request body
 	err = validate.Struct(&gym)
@@ -201,7 +198,7 @@ func (h *GymHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxy
 	}
 
 	// Add user to cognito group
-	log.Info().Msgf("Token.User: %v", token.User)
+	log.Info().Msgf("Token.Sub: %v", token.Sub)
 	log.Info().Msgf("user pool id: %v", userPoolID)
 
 	coachGroup := "coach"
@@ -211,7 +208,7 @@ func (h *GymHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxy
 		GroupName:  &coachGroup,
 	})
 	if err != nil {
-		return lambda.ServerError(fmt.Errorf("failed to add creator to coach group: %v", err))
+		return lambda.ServerError(fmt.Errorf("failed to add creator %q to coach group: %v", gym.Creator, err))
 	}
 	return lambda.NewResponse(http.StatusCreated, string(json), nil), nil
 }
@@ -245,7 +242,7 @@ func (h *GymHandler) ProcessDelete(ctx context.Context, req events.APIGatewayPro
 	if err != nil {
 		return lambda.ServerError(err)
 	}
-	if gyms[0].SK != token.User {
+	if gyms[0].SK != token.Sub {
 		return lambda.ClientError(http.StatusForbidden, "permission denied: you must be the creator of the gym to delete it")
 	}
 
@@ -284,10 +281,10 @@ func (h *GymHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	// validate and fetch token from header
-	token, err := ValidateJWT(req.Headers)
-	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied updating gym: %v", err))
-	}
+	// token, err := ValidateJWT(req.Headers)
+	// if err != nil {
+	// 	return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied updating gym: %v", err))
+	// }
 
 	// Fetch the Gym
 	result, err := h.GetByID(ctx, id)
@@ -304,13 +301,13 @@ func (h *GymHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyR
 		return lambda.ClientError(http.StatusBadRequest, "bad request")
 	}
 
-	// Check that the user owns the gym
-	if token.User != gyms[0].SK {
-		return lambda.ClientError(
-			http.StatusForbidden,
-			fmt.Sprintf("permission denied updating gym: resource is owned by another user: %v", err),
-		)
-	}
+	// // Check that the user owns the gym
+	// if token.Sub != gyms[0].SK {
+	// 	return lambda.ClientError(
+	// 		http.StatusForbidden,
+	// 		fmt.Sprintf("permission denied updating gym: resource is owned by another user:", gyms[0].SK),
+	// 	)
+	// }
 
 	// Update the Gym
 	var gymUpdatePayload Gym
@@ -396,6 +393,7 @@ func (h *GymHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyR
 type Token struct {
 	User  string   `mapstructure:"cognito:username"`
 	Roles []string `mapstructure:"cognito:roles"`
+	Sub   string   `mapstructure:"sub"`
 }
 
 func ValidateJWT(hdrs map[string]string) (*Token, error) {

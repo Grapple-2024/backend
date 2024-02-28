@@ -26,12 +26,32 @@ Parameters:
         Description: 'Name of the Gym Requests table'
         Type: 'String'
         Default: 'grapple-gym-requests' 
-
+    GymAnnouncementsTableName:
+        Description: 'Name of the Gym Announcements table'
+        Type: 'String'
+        Default: 'grapple-gym-announcements'
+    GymVideosTableName:
+        Description: 'Name of the Gym Videos table'
+        Type: 'String'
+        Default: 'grapple-gym-videos'
 Resources:
   Gateway:
     Type: AWS::Serverless::Api
     Properties:
       StageName: Prod
+      GatewayResponses:
+        DEFAULT_4XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Methods: "'GET,OPTIONS,POST'"
+        DEFAULT_5XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'*'"
+              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Methods: "'GET,OPTIONS,POST'"
       Cors:
         AllowOrigin: "'*'"
         AllowMethods: "'POST, GET, DELETE, PUT, HEAD, OPTIONS'"
@@ -44,6 +64,7 @@ Resources:
             UserPoolArn: arn:aws:cognito-idp:us-west-1:381491926210:userpool/us-west-1_HT5oR6AwO # Can also accept an array
             Identity: # OPTIONAL
               Header: Authorization # OPTIONAL; Default: 'Authorization'
+
   GymsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -70,8 +91,8 @@ Resources:
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
-        # - AttributeName: requestor_id
-        #   AttributeType: S
+        - AttributeName: requestor_id
+          AttributeType: S
         - AttributeName: gym_id
           AttributeType: S
       KeySchema:
@@ -91,17 +112,69 @@ Resources:
           ProvisionedThroughput:
             ReadCapacityUnits: 1
             WriteCapacityUnits: 1
-        # - IndexName: "RequestorIndex"
-        #   KeySchema: 
-        #   - AttributeName: requestor_id
-        #     KeyType: HASH
-        #   Projection: 
-        #     ProjectionType: "ALL"
-        #   ProvisionedThroughput:
-        #     ReadCapacityUnits: 1
-        #     WriteCapacityUnits: 1
+        - IndexName: "RequestorIndex"
+          KeySchema: 
+          - AttributeName: requestor_id
+            KeyType: HASH
+          Projection: 
+            ProjectionType: "ALL"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
 
+  GymAnnouncementsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref GymAnnouncementsTableName
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: gym_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      GlobalSecondaryIndexes:
+        - IndexName: "GymIndex"
+          KeySchema: 
+          - AttributeName: gym_id
+            KeyType: HASH
+          Projection: 
+            ProjectionType: "ALL"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
 
+  GymVideosTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref GymVideosTableName
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: gym_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      GlobalSecondaryIndexes:
+        - IndexName: "GymIndex"
+          KeySchema: 
+          - AttributeName: gym_id
+            KeyType: HASH
+          Projection: 
+            ProjectionType: "ALL"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
 
   Function:
     Type: AWS::Serverless::Function
@@ -109,18 +182,28 @@ Resources:
       FunctionName: grapple-backend
       CodeUri: ./cmd/backend
       Handler: main
+      MemorySize: 512
+      Timeout: 30
+      
       Environment:
         Variables:
           DYNAMODB_ENDPOINT: !Sub "https://dynamodb.${AWS::Region}.amazonaws.com"
           GYMS_TABLE_NAME: !Ref GymsTableName
           GYM_REQUESTS_TABLE_NAME: !Ref GymRequestsTableName
-
+          GYM_ANNOUNCEMENTS_TABLE_NAME: !Ref GymAnnouncementsTableName
+          GYM_VIDEOS_TABLE_NAME: !Ref GymVideosTableName
       Tracing: Active
       Policies:
+        - S3FullAccessPolicy:
+            BucketName: grapple-gym-videos # bucket name without arn
         - DynamoDBCrudPolicy:
             TableName: !Ref GymsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref GymRequestsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GymAnnouncementsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GymVideosTable
         - Version: '2012-10-17' # Policy Document
           Statement:
             - Effect: Allow
@@ -200,7 +283,86 @@ Resources:
             Method: DELETE
             RestApiId: !Ref Gateway
 
+        # Gym Announcements
+        GetGymAnnouncement:
+          Type: Api
+          Properties:
+            Path: /gym-announcements/{id}
+            Method: GET
+            RestApiId: !Ref Gateway
+            
+        GetGymAnnouncements:
+          Type: Api
+          Properties:
+            Path: /gym-announcements
+            Method: GET
+            RestApiId: !Ref Gateway
 
+        CreateGymAnnouncement:
+          Type: Api
+          Properties:
+            Path: /gym-announcements
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        UpdateGymAnnouncement:
+          Type: Api
+          Properties:
+            Path: /gym-announcements/{id}
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        DeleteGymAnnouncement:
+          Type: Api
+          Properties:
+            Path: /gym-announcements/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
+
+        # Gym Videos
+        GetGymVideo:
+          Type: Api
+          Properties:
+            Path: /gym-videos/{id}
+            Method: GET
+            RestApiId: !Ref Gateway
+            
+        GetGymVideos:
+          Type: Api
+          Properties:
+            Path: /gym-videos
+            Method: GET
+            RestApiId: !Ref Gateway
+
+        CreateGymVideo:
+          Type: Api
+          Properties:
+            Path: /gym-videos
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        UpdateGymVideo:
+          Type: Api
+          Properties:
+            Path: /gym-videos/{id}
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        DeleteGymVideo:
+          Type: Api
+          Properties:
+            Path: /gym-videos/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
+
+
+        # Get Pre-signed S3 Upload URL
+        GetS3SignedURL:
+          Type: Api
+          Properties:
+            Path: /s3-presign-url
+            Method: GET
+            RestApiId: !Ref Gateway
 
 Outputs:
   API:

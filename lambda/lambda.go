@@ -27,12 +27,16 @@ type Lambda interface {
 func NewRouter(lambdas map[string]Lambda) func(context.Context, events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	// Main handler function for all HTTP requests on this Lambda API.
 	return func(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-
 		base := strings.Split(strings.TrimPrefix(req.Path, "/"), "/")[0]
+		log.Info().Msgf("base: %v", base)
+
 		handler := lambdas[base]
-		log.Printf("Received request: %#v", req)
-		log.Printf("Got handler for request: %q, %v", base, handler)
-		log.Printf("Lambdas: %+v", lambdas)
+
+		log.Info().Msgf("Handler: %v", handler)
+		if handler == nil {
+			return ClientError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+		}
+
 		switch req.HTTPMethod {
 		case http.MethodGet:
 			return ProcessGet(ctx, handler, req)
@@ -64,6 +68,7 @@ func ProcessGet(ctx context.Context, l Lambda, req events.APIGatewayProxyRequest
 			return ClientError(http.StatusBadRequest, fmt.Sprintf("invalid value for limit parameter: %q is not an integer", limit))
 		}
 	}
+
 	return l.ProcessGetAll(ctx, req, int32(limitInt), &exclusiveStartKey)
 }
 

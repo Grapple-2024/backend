@@ -27,7 +27,7 @@ func main() {
 	// 	panic(err)
 	// }
 
-	if err := h.Login("jordan", "<your-password>"); err != nil {
+	if err := h.Login("jordan", "Bandito@1"); err != nil {
 		panic(err)
 	}
 }
