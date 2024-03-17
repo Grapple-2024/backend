@@ -20,20 +20,20 @@ type Client struct {
 	*dynamodb.Client
 }
 
-type LastEvaluated struct {
+type Key struct {
 	PK string `dynamodbav:"pk,omitempty" json:"pk,omitempty"`
 	SK string `dynamodbav:"sk,omitempty" json:"sk,omitempty"`
 }
 
 type GetResponse struct {
-	Data      any            `json:"data"`
-	Count     int32          `json:"count"`
-	NextToken *LastEvaluated `json:"nextToken"`
+	Data      any   `json:"data"`
+	Count     int32 `json:"count"`
+	NextToken *Key  `json:"nextToken"`
 }
 
 func MarshalResponse(count int32, lastEvaluatedKey map[string]types.AttributeValue, items []map[string]types.AttributeValue, data any) (*GetResponse, error) {
 	// marshal last evaluated key into object
-	lastEvaluated := LastEvaluated{}
+	lastEvaluated := Key{}
 	if err := attributevalue.UnmarshalMap(lastEvaluatedKey, &lastEvaluated); err != nil {
 		return nil, err
 	}

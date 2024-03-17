@@ -33,8 +33,9 @@ type GymHandler struct {
 type Gym struct {
 	PK string `json:"pk" dynamodbav:"pk"`
 
-	Name    string `json:"name,omitempty" dynamodbav:"name"`
-	Creator string `json:"creator" dynamodbav:"creator"`
+	Name        string `json:"name,omitempty" dynamodbav:"name"`
+	Description string `json:"description,omitempty", dynamodbav:"description"`
+	Creator     string `json:"creator" dynamodbav:"creator"`
 
 	// Address
 	AddressLine1 string `json:"address_line_1,omitempty" dynamodbav:"address_line_1,omitempty"`
@@ -95,10 +96,13 @@ func NewGymHandler(ctx context.Context, dynamoEndpoint string) (*GymHandler, err
 	}, nil
 }
 
-func (h *GymHandler) scanGyms(ctx context.Context, limit *int32) (*dynamodbsdk.GetResponse, error) {
+func (h *GymHandler) scanGyms(ctx context.Context, limit *int32, startKey map[string]types.AttributeValue) (*dynamodbsdk.GetResponse, error) {
 	input := &dynamodb.ScanInput{
 		TableName: &h.gymsTable,
 		Limit:     limit,
+	}
+	if startKey != nil {
+		input.ExclusiveStartKey = startKey
 	}
 
 	result, err := h.Scan(ctx, input)
@@ -115,7 +119,7 @@ func (h *GymHandler) scanGyms(ctx context.Context, limit *int32) (*dynamodbsdk.G
 	return resp, nil
 }
 
-func (h *GymHandler) queryGymsByCreator(ctx context.Context, limit *int32, creatorID string) (*dynamodbsdk.GetResponse, error) {
+func (h *GymHandler) queryGymsByCreator(ctx context.Context, limit *int32, creatorID string, startKey map[string]types.AttributeValue) (*dynamodbsdk.GetResponse, error) {
 	keyEx := expression.Key("creator").Equal(expression.Value(creatorID))
 	expr, err := expression.NewBuilder().WithKeyCondition(keyEx).Build()
 	if err != nil {
@@ -130,13 +134,16 @@ func (h *GymHandler) queryGymsByCreator(ctx context.Context, limit *int32, creat
 		KeyConditionExpression:    expr.KeyCondition(),
 		Limit:                     limit,
 	}
+	if startKey != nil {
+		input.ExclusiveStartKey = startKey
+	}
 
 	result, err := h.Query(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 	// marshal last evaluated key into object
-	lastEvaluatedKey := dynamodbsdk.LastEvaluated{}
+	lastEvaluatedKey := dynamodbsdk.Key{}
 	if err := attributevalue.UnmarshalMap(result.LastEvaluatedKey, &lastEvaluatedKey); err != nil {
 		return nil, err
 	}
@@ -161,12 +168,12 @@ func (h *GymHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayPro
 	var resp *dynamodbsdk.GetResponse
 	var err error
 	if creatorID != "" {
-		resp, err = h.queryGymsByCreator(ctx, &limit, creatorID)
+		resp, err = h.queryGymsByCreator(ctx, &limit, creatorID, startKey)
 		if err != nil {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find gyms by creator ID: %v", err))
 		}
 	} else {
-		resp, err = h.scanGyms(ctx, &limit)
+		resp, err = h.scanGyms(ctx, &limit, startKey)
 		if err != nil {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to scan gyms table: %v", err))
 		}
@@ -193,7 +200,6 @@ func (h *GymHandler) ProcessGetByID(ctx context.Context, req events.APIGatewayPr
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, err.Error())
 	}
-	log.Info().Msgf("Result.ITems: %++v", result.Items[0]["disciplines"].(*types.AttributeValueMemberSS).Value)
 
 	var gyms []Gym
 	err = attributevalue.UnmarshalListOfMaps(result.Items, &gyms)

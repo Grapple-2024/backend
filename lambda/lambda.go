@@ -63,8 +63,8 @@ func ProcessGet(ctx context.Context, l Lambda, req events.APIGatewayProxyRequest
 		return l.ProcessGetByID(ctx, req, id)
 	}
 
-	startKeyPK, _ := req.QueryStringParameters[exclusiveStartKeyPK]
-	startKeySK, _ := req.QueryStringParameters[exclusiveStartKeySK]
+	startKeyPK := req.QueryStringParameters[exclusiveStartKeyPK]
+	startKeySK := req.QueryStringParameters[exclusiveStartKeySK]
 
 	limitInt := 50
 	limit, ok := req.QueryStringParameters[limit]
@@ -76,18 +76,28 @@ func ProcessGet(ctx context.Context, l Lambda, req events.APIGatewayProxyRequest
 		}
 	}
 
-	startKey := dynamodbsdk.LastEvaluated{}
+	var startKey *dynamodbsdk.Key
+	if startKeyPK != "" {
+		startKey = &dynamodbsdk.Key{
+			PK: startKeyPK,
+		}
+	}
 	if startKeySK != "" {
 		startKey.SK = startKeySK
 	}
-	if startKeyPK != "" {
-		startKey.PK = startKeyPK
+
+	fmt.Printf("Start Key: %v\n", startKey)
+	var av map[string]types.AttributeValue
+	var err error
+	if startKey != nil {
+		av, err = attributevalue.MarshalMap(startKey)
+		if err != nil {
+			return ClientError(http.StatusBadRequest, fmt.Sprintf("invalid exclusive start key: %v", err))
+		}
 	}
-	log.Info().Msgf("Start key: %++v", startKey)
-	av, err := attributevalue.MarshalMap(&startKey)
-	if err != nil {
-		return ClientError(http.StatusBadRequest, fmt.Sprintf("invalid exclusive start key: %v", err))
-	}
+
+	fmt.Printf("AV: %+v\n", av)
+
 	return l.ProcessGetAll(ctx, req, int32(limitInt), av)
 }
 

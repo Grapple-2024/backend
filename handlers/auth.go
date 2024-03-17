@@ -89,7 +89,7 @@ func (s *AuthService) IsStudent(ctx context.Context, headers map[string]string, 
 func (s *AuthService) IsCoach(ctx context.Context, headers map[string]string, gymID string) error {
 	o, err := s.GetByID(ctx, s.gymsTable, gymID)
 	if err != nil {
-		return fmt.Errorf("failed to find a gym with ID %v: %v", gymID, err)
+		return fmt.Errorf("failed to get gym by ID: %w", err)
 	}
 
 	var gyms []Gym
@@ -98,7 +98,7 @@ func (s *AuthService) IsCoach(ctx context.Context, headers map[string]string, gy
 		return err
 	}
 	if len(gyms) == 0 {
-		return fmt.Errorf("no gym found with id %v", gymID)
+		return fmt.Errorf("no gym found with id %s", gymID)
 	}
 
 	// Get Cognito user ID

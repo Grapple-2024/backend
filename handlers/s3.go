@@ -69,14 +69,9 @@ func (h *S3Handler) ProcessGetAll(ctx context.Context, req events.APIGatewayProx
 	key := req.QueryStringParameters["key"]
 	operation := req.QueryStringParameters["operation"]
 
-	// check to make sure the token is a user / coach of the gym
-	if err := h.IsCoach(ctx, req.Headers, gym); err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("could not verify token is a coach: %v", err))
-	}
-
 	// check for empty required parameter
 	if key == "" || gym == "" || operation == "" {
-		return lambda.ClientError(http.StatusNotFound, "must specify ?key&gym&operation=<download|upload> query string parameters")
+		return lambda.ClientError(http.StatusNotFound, "must specify ?key=<file-name>&gym=<gym_pk>&operation=<download|upload> query string parameters")
 	}
 
 	// set default ttl
@@ -90,18 +85,33 @@ func (h *S3Handler) ProcessGetAll(ctx context.Context, req events.APIGatewayProx
 
 	finalKey := fmt.Sprintf("%s/%s", gym, key)
 	var r *v4.PresignedHTTPRequest
-	if operation == operationUpload {
+	switch operation {
+	case operationUpload:
+		// check to make sure the token is a coach of the gym
+		if err := h.IsCoach(ctx, req.Headers, gym); err != nil {
+			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("could not verify token is a coach: %v", err))
+		}
+
 		r, err = h.createPresignedUploadURL(gymVideosBucket, finalKey, ttlDur)
 		if err != nil {
 			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("error creating presigned upload url: %v", err))
 		}
-	} else if operation == operationDownload {
+	case operationDownload:
+		// check to make sure the token is either a coach or student
+		// check to make sure the token is a student / coach of the gym
+		isNotCoach := h.IsCoach(ctx, req.Headers, gym)
+		isNotStudent := h.IsStudent(ctx, req.Headers, gym)
+		if isNotCoach != nil && isNotStudent != nil {
+			log.Error().Err(err).Msgf("User tried to download file from a gym they are neither a student or coach of: %v", err)
+			return lambda.ClientError(http.StatusForbidden, "user is neither a coach or student of this gym")
+		}
+
 		r, err = h.createPresignedDownloadURL(gymVideosBucket, finalKey, ttlDur)
 		if err != nil {
 			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("error creating presigned download url: %v", err))
 		}
-	} else {
-		return lambda.ClientError(http.StatusNotFound, "valid values for ?operation are either 'download' or 'upload'")
+	default:
+		return lambda.ClientError(http.StatusNotFound, "invalid opeation value. valid values for ?operation are either 'download' or 'upload'")
 	}
 
 	bytes, err := json.Marshal(r)

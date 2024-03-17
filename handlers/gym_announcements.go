@@ -104,7 +104,7 @@ func (h *GymAnnouncementHandler) ProcessGetAll(ctx context.Context, req events.A
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, "bad request")
 	}
-	lastEvaluatedKey := dynamodbsdk.LastEvaluated{}
+	lastEvaluatedKey := dynamodbsdk.Key{}
 	if err := attributevalue.UnmarshalMap(result.LastEvaluatedKey, &lastEvaluatedKey); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("error unmarshalling last evaluated key: %v", err))
 	}

@@ -92,7 +92,7 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("bad request: %v", err))
 	}
 
-	lastEvaluatedKey := dynamodbsdk.LastEvaluated{}
+	lastEvaluatedKey := dynamodbsdk.Key{}
 	if err := attributevalue.UnmarshalMap(result.LastEvaluatedKey, &lastEvaluatedKey); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("error unmarshalling last evaluated key: %v", err))
 	}
