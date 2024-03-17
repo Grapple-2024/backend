@@ -11,6 +11,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/rs/zerolog/log"
 
@@ -21,13 +22,17 @@ import (
 const (
 	gymVideosBucket = "grapple-gym-videos"
 	coachGroupARN   = "arn:aws:iam::381491926210:role/us-west-1_HT5oR6AwO-coachGroupRole"
+
+	operationDownload = "download"
+	operationUpload   = "upload"
 )
 
 type S3Handler struct {
+	*AuthService
 	*s3.PresignClient
 }
 
-func NewS3Handler(ctx context.Context, region string) (*S3Handler, error) {
+func NewS3Handler(ctx context.Context, dynamoEndpoint, region string) (*S3Handler, error) {
 	// Using the SDK's default configuration, loading additional config
 	// and credentials values from the environment variables, shared
 	// credentials, and shared configuration files
@@ -38,13 +43,20 @@ func NewS3Handler(ctx context.Context, region string) (*S3Handler, error) {
 
 	c := s3.NewFromConfig(cfg)
 	psc := s3.NewPresignClient(c)
+
+	authSVC, err := NewAuthService(dynamoEndpoint)
+	if err != nil {
+		return nil, err
+	}
+
 	return &S3Handler{
 		PresignClient: psc,
+		AuthService:   authSVC,
 	}, nil
 }
 
-func (h *S3Handler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, exclusiveStartKey *string) (events.APIGatewayProxyResponse, error) {
-	token, err := ValidateJWT(req.Headers)
+func (h *S3Handler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, startKey map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
+	token, err := token(req.Headers)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("could not validate token: %v", err))
 	}
@@ -55,26 +67,41 @@ func (h *S3Handler) ProcessGetAll(ctx context.Context, req events.APIGatewayProx
 	gym := req.QueryStringParameters["gym"]
 	ttl := req.QueryStringParameters["ttl"]
 	key := req.QueryStringParameters["key"]
+	operation := req.QueryStringParameters["operation"]
+
+	// check to make sure the token is a user / coach of the gym
+	if err := h.IsCoach(ctx, req.Headers, gym); err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("could not verify token is a coach: %v", err))
+	}
 
 	// check for empty required parameter
-	if key == "" || gym == "" {
-		return lambda.ClientError(http.StatusNotFound, "must specify ?key&gym query string parameters")
+	if key == "" || gym == "" || operation == "" {
+		return lambda.ClientError(http.StatusNotFound, "must specify ?key&gym&operation=<download|upload> query string parameters")
 	}
 
 	// set default ttl
 	if ttl == "" {
 		ttl = "5m"
 	}
-
 	ttlDur, err := time.ParseDuration(ttl)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("ttl must be an integer: %v", err))
 	}
 
 	finalKey := fmt.Sprintf("%s/%s", gym, key)
-	r, err := h.createPresignedUploadURL(gymVideosBucket, finalKey, ttlDur)
-	if err != nil {
-		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("error creating presigned url: %v", err))
+	var r *v4.PresignedHTTPRequest
+	if operation == operationUpload {
+		r, err = h.createPresignedUploadURL(gymVideosBucket, finalKey, ttlDur)
+		if err != nil {
+			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("error creating presigned upload url: %v", err))
+		}
+	} else if operation == operationDownload {
+		r, err = h.createPresignedDownloadURL(gymVideosBucket, finalKey, ttlDur)
+		if err != nil {
+			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("error creating presigned download url: %v", err))
+		}
+	} else {
+		return lambda.ClientError(http.StatusNotFound, "valid values for ?operation are either 'download' or 'upload'")
 	}
 
 	bytes, err := json.Marshal(r)
@@ -102,9 +129,26 @@ func (h *S3Handler) createPresignedUploadURL(bucketName string, objectKey string
 	return request, nil
 }
 
+func (h *S3Handler) createPresignedDownloadURL(bucketName string, objectKey string, ttl time.Duration) (*v4.PresignedHTTPRequest, error) {
+	params := &s3.GetObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(objectKey),
+	}
+
+	request, err := h.PresignClient.PresignGetObject(context.TODO(), params, func(opts *s3.PresignOptions) {
+		opts.Expires = ttl
+	})
+	if err != nil {
+		log.Info().Msgf("Couldn't get a presigned download url for object %v:%v. Here's why: %v", bucketName, objectKey, err)
+		return nil, err
+	}
+
+	return request, nil
+}
+
 // Needed to satisfy interface, but not implemented
 
-func (h *S3Handler) ProcessGetByID(ctx context.Context, id string) (events.APIGatewayProxyResponse, error) {
+func (h *S3Handler) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
 	return lambda.NewResponse(http.StatusOK, string(""), nil), nil
 }
 func (h *S3Handler) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
@@ -118,6 +162,5 @@ func (h *S3Handler) ProcessPut(ctx context.Context, req events.APIGatewayProxyRe
 }
 
 func (h *S3Handler) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-
 	return lambda.NewResponse(http.StatusOK, string(""), nil), nil
 }

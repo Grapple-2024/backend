@@ -7,14 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"slices"
-	"strings"
 
-	"github.com/MicahParks/keyfunc/v3"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	cip "github.com/aws/aws-sdk-go/service/cognitoidentityprovider"
-	"github.com/go-http-utils/headers"
-	jwt "github.com/golang-jwt/jwt/v5"
-	"github.com/mitchellh/mapstructure"
 	"github.com/rs/zerolog/log"
 
 	"github.com/Grapple-2024/backend/cognito"
@@ -30,33 +25,36 @@ import (
 
 type GymHandler struct {
 	*dynamodbsdk.Client
+	*AuthService
 	CognitoClient *cognito.Client
+	gymsTable     string
 }
 
 type Gym struct {
 	PK string `json:"pk" dynamodbav:"pk"`
-	SK string `json:"sk" dynamodbav:"sk"`
 
-	Name    string `json:"name" dynamodbav:"name"`
+	Name    string `json:"name,omitempty" dynamodbav:"name"`
 	Creator string `json:"creator" dynamodbav:"creator"`
 
 	// Address
-	AddressLine1 string `json:"address_line_1" dynamodbav:"address_line_1"`
-	AddressLine2 string `json:"address_line_2" dynamodbav:"address_line_2"`
-	City         string `json:"city" dynamodbav:"city"`
-	State        string `json:"state" dynamodbav:"state"`
-	ZIP          string `json:"zip" dynamodbav:"zip"`
-	Country      string `json:"country" dynamodbav:"country"`
+	AddressLine1 string `json:"address_line_1,omitempty" dynamodbav:"address_line_1,omitempty"`
+	AddressLine2 string `json:"address_line_2,omitempty" dynamodbav:"address_line_2,omitempty"`
+	City         string `json:"city,omitempty" dynamodbav:"city,omitempty"`
+	State        string `json:"state,omitempty" dynamodbav:"state,omitempty"`
+	ZIP          string `json:"zip,omitempty" dynamodbav:"zip,omitempty"`
+	Country      string `json:"country,omitempty" dynamodbav:"country,omitempty"`
+	PublicEmail  string `json:"public_email,omitempty" dynamodbav:"public_email,omitempty"`
+	BannerImage  string `json:"banner_image,omitempty" dynamodbav:"banner_image,omitempty"`
 
 	// Disciplines
-	Disciplines []string           `json:"disciplines" dynammodbav:"disciplines"`
-	Schedule    map[string][]Event `json:"schedule" dynamodbav:"schedule"`
+	Disciplines []string           `json:"disciplines" dynamodbav:"disciplines,omitempty,stringsets"`
+	Schedule    map[string][]Event `json:"schedule,omitempty" dynamodbav:"schedule,omitempty"`
 }
 
 type Event struct {
-	Title string `json:"title" dynamodbav:"title"`
-	Start string `json:"start" dynamodbav:"start"`
-	End   string `json:"end" dynamodbav:"end"`
+	Title string `json:"title" dynamodbav:"title,omitempty"`
+	Start string `json:"start" dynamodbav:"start,omitempty"`
+	End   string `json:"end" dynamodbav:"end,omitempty"`
 }
 
 var (
@@ -70,8 +68,7 @@ var (
 )
 
 func NewGymHandler(ctx context.Context, dynamoEndpoint string) (*GymHandler, error) {
-	tableName := os.Getenv("GYMS_TABLE_NAME")
-	db, err := dynamodbsdk.NewClient(dynamoEndpoint, tableName)
+	db, err := dynamodbsdk.NewClient(dynamoEndpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -85,66 +82,127 @@ func NewGymHandler(ctx context.Context, dynamoEndpoint string) (*GymHandler, err
 		return nil, err
 	}
 
+	authSVC, err := NewAuthService(dynamoEndpoint)
+	if err != nil {
+		return nil, err
+	}
+
 	return &GymHandler{
 		Client:        db,
 		CognitoClient: cc,
+		AuthService:   authSVC,
+		gymsTable:     os.Getenv("GYMS_TABLE_NAME"),
 	}, nil
 }
 
-func (h *GymHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, exclusiveStartKey *string) (events.APIGatewayProxyResponse, error) {
-	creatorID := req.QueryStringParameters["creator"]
-
-	var filter dynamodbsdk.Filter
-	if creatorID != "" {
-		e := "sk = :i"
-		filter.FilterExpression = &e
-		filter.ExpressionAttributeValues = map[string]any{
-			":i": creatorID,
-		}
+func (h *GymHandler) scanGyms(ctx context.Context, limit *int32) (*dynamodbsdk.GetResponse, error) {
+	input := &dynamodb.ScanInput{
+		TableName: &h.gymsTable,
+		Limit:     limit,
 	}
 
-	result, err := h.Get(ctx, limit, exclusiveStartKey, nil, &filter)
+	result, err := h.Scan(ctx, input)
 	if err != nil {
-		return lambda.ServerError(fmt.Errorf("filter: %+v, err: %w", filter, err))
+		return nil, err
 	}
 
 	var gyms []Gym
-	err = attributevalue.UnmarshalListOfMaps(result.Items, &gyms)
+	resp, err := dynamodbsdk.MarshalResponse(result.Count, result.LastEvaluatedKey, result.Items, &gyms)
 	if err != nil {
-		return lambda.ClientError(http.StatusBadRequest, "bad request")
+		return nil, err
 	}
 
-	lastEvaluatedID := ""
-	if len(gyms) > 0 {
-		lastEvaluatedID = gyms[len(gyms)-1].PK
-	}
-	responseObject := GetResponse{
-		Data:             gyms,
-		LastEvaluatedKey: &lastEvaluatedID,
-		Count:            result.Count,
+	return resp, nil
+}
+
+func (h *GymHandler) queryGymsByCreator(ctx context.Context, limit *int32, creatorID string) (*dynamodbsdk.GetResponse, error) {
+	keyEx := expression.Key("creator").Equal(expression.Value(creatorID))
+	expr, err := expression.NewBuilder().WithKeyCondition(keyEx).Build()
+	if err != nil {
+		return nil, err
 	}
 
-	json, err := json.Marshal(responseObject)
+	input := &dynamodb.QueryInput{
+		TableName:                 &h.gymsTable,
+		IndexName:                 aws.String("CreatorIndex"),
+		ExpressionAttributeNames:  expr.Names(),
+		ExpressionAttributeValues: expr.Values(),
+		KeyConditionExpression:    expr.KeyCondition(),
+		Limit:                     limit,
+	}
+
+	result, err := h.Query(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	// marshal last evaluated key into object
+	lastEvaluatedKey := dynamodbsdk.LastEvaluated{}
+	if err := attributevalue.UnmarshalMap(result.LastEvaluatedKey, &lastEvaluatedKey); err != nil {
+		return nil, err
+	}
+
+	var gyms []Gym
+	if err := attributevalue.UnmarshalListOfMaps(result.Items, &gyms); err != nil {
+		return nil, err
+	}
+
+	resp := &dynamodbsdk.GetResponse{
+		Data:      gyms,
+		NextToken: &lastEvaluatedKey,
+		Count:     result.Count,
+	}
+
+	return resp, nil
+}
+
+func (h *GymHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, startKey map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
+	creatorID := req.QueryStringParameters["creator"]
+
+	var resp *dynamodbsdk.GetResponse
+	var err error
+	if creatorID != "" {
+		resp, err = h.queryGymsByCreator(ctx, &limit, creatorID)
+		if err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find gyms by creator ID: %v", err))
+		}
+	} else {
+		resp, err = h.scanGyms(ctx, &limit)
+		if err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to scan gyms table: %v", err))
+		}
+	}
+
+	// marshal response object to json
+	json, err := json.Marshal(resp)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
-	log.Printf("Successfully fetched Gym item %s", json)
 
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
 
-func (h *GymHandler) ProcessGetByID(ctx context.Context, id string) (events.APIGatewayProxyResponse, error) {
-	log.Info().Msgf("Received GET Gym by ID request with ID: %v", id)
+func (h *GymHandler) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
+	token, err := token(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("could not validate token: %v", err))
+	}
 
-	result, err := h.GetByID(ctx, id)
+	log.Info().Msgf("Received GET Gym by ID request with ID: %v, token: %v", id, token)
+
+	result, err := h.GetByID(ctx, h.gymsTable, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, err.Error())
 	}
+	log.Info().Msgf("Result.ITems: %++v", result.Items[0]["disciplines"].(*types.AttributeValueMemberSS).Value)
 
 	var gyms []Gym
 	err = attributevalue.UnmarshalListOfMaps(result.Items, &gyms)
 	if err != nil {
 		return lambda.ServerError(err)
+	}
+
+	if len(gyms) == 0 {
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("no gyms found"))
 	}
 
 	json, err := json.Marshal(gyms[0])
@@ -158,7 +216,7 @@ func (h *GymHandler) ProcessGetByID(ctx context.Context, id string) (events.APIG
 
 func (h *GymHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	// Validate JWT token
-	token, err := ValidateJWT(req.Headers)
+	token, err := token(req.Headers)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to verify jwt token: %v", err))
 	}
@@ -177,14 +235,12 @@ func (h *GymHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxy
 	}
 
 	// Insert Gym into dynamodb
-	gym.PK = base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("gym#%s/%s", gym.Creator, gym.Name)))
-	gym.SK = gym.Creator
-	log.Info().Msgf("Inserting gym: %+v", gym)
-	res, err := h.Insert(ctx, &gym)
+	gymPK := base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("gym#%s/%s", gym.Creator, gym.Name)))
+	gym.PK = gymPK
+	res, err := h.Insert(ctx, h.gymsTable, &gym)
 	if err != nil {
-		return lambda.ServerError(err)
+		return lambda.ClientError(http.StatusBadRequest, err.Error())
 	}
-	log.Info().Msgf("Insert result: %+v", res)
 
 	var returnGym Gym
 	err = attributevalue.UnmarshalMap(res.Attributes, &returnGym)
@@ -197,10 +253,7 @@ func (h *GymHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxy
 		return lambda.ServerError(err)
 	}
 
-	// Add user to cognito group
-	log.Info().Msgf("Token.Sub: %v", token.Sub)
-	log.Info().Msgf("user pool id: %v", userPoolID)
-
+	// Add user to cognito group: "Coach"
 	coachGroup := "coach"
 	_, err = h.CognitoClient.AdminAddUserToGroup(&cip.AdminAddUserToGroupInput{
 		UserPoolId: &userPoolID,
@@ -214,36 +267,21 @@ func (h *GymHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxy
 }
 
 func (h *GymHandler) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	token, err := ValidateJWT(req.Headers)
-	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, "permission denied deleting gym")
-	}
-
 	// Get request ID path parameter
 	id, ok := req.PathParameters["id"]
 	if !ok {
 		return lambda.ClientError(http.StatusBadRequest, "bad request: id parameter not found in path")
 	}
-
-	// Check permissions
-	if !slices.Contains(token.Roles, "arn:aws:iam::381491926210:role/us-west-1_HT5oR6AwO-coachGroupRole") {
-		return lambda.ClientError(http.StatusForbidden, "permission denied: you must be a coach to delete a gym")
+	if err := h.IsCoach(ctx, req.Headers, id); err != nil {
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("you must be the coach of the gym to delete it: %v", err))
 	}
-	result, err := h.GetByID(ctx, id)
+
+	result, err := h.GetByID(ctx, h.gymsTable, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym not found: %v", err))
 	}
 	if result.Count == 0 {
 		return lambda.ClientError(http.StatusNotFound, "gym not found")
-	}
-
-	var gyms []Gym
-	err = attributevalue.UnmarshalListOfMaps(result.Items, &gyms)
-	if err != nil {
-		return lambda.ServerError(err)
-	}
-	if gyms[0].SK != token.Sub {
-		return lambda.ClientError(http.StatusForbidden, "permission denied: you must be the creator of the gym to delete it")
 	}
 
 	log.Printf("Received DELETE request with id = %s", id)
@@ -252,16 +290,10 @@ func (h *GymHandler) ProcessDelete(ctx context.Context, req events.APIGatewayPro
 	if err != nil {
 		return lambda.ServerError(err)
 	}
-	sk, err := attributevalue.Marshal(gyms[0].SK)
-	if err != nil {
-		return lambda.ServerError(err)
-	}
 	key := map[string]types.AttributeValue{
 		"pk": pk,
-		"sk": sk,
 	}
-
-	resp, err := h.Delete(ctx, key)
+	resp, err := h.Delete(ctx, h.gymsTable, key)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -280,14 +312,12 @@ func (h *GymHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyR
 		return lambda.ClientError(http.StatusBadRequest, "id parameter not found")
 	}
 
-	// validate and fetch token from header
-	// token, err := ValidateJWT(req.Headers)
-	// if err != nil {
-	// 	return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied updating gym: %v", err))
-	// }
+	if err := h.IsCoach(ctx, req.Headers, id); err != nil {
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("must be a coach to modify the gym: %v", err))
+	}
 
 	// Fetch the Gym
-	result, err := h.GetByID(ctx, id)
+	result, err := h.GetByID(ctx, h.gymsTable, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym not found: %v", err))
 	}
@@ -295,24 +325,22 @@ func (h *GymHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyR
 		return lambda.ClientError(http.StatusNotFound, "gym not found")
 	}
 
-	var gyms []Gym
-	err = attributevalue.UnmarshalListOfMaps(result.Items, &gyms)
-	if err != nil {
-		return lambda.ClientError(http.StatusBadRequest, "bad request")
-	}
-
-	// // Check that the user owns the gym
-	// if token.Sub != gyms[0].SK {
-	// 	return lambda.ClientError(
-	// 		http.StatusForbidden,
-	// 		fmt.Sprintf("permission denied updating gym: resource is owned by another user:", gyms[0].SK),
-	// 	)
-	// }
-
 	// Update the Gym
 	var gymUpdatePayload Gym
 	if err := json.Unmarshal([]byte(req.Body), &gymUpdatePayload); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to unmarshal request body: %v", err))
+	}
+
+	// Marshal
+	av, _ := attributevalue.MarshalMap(gymUpdatePayload)
+	update := expression.UpdateBuilder{}
+	for k, v := range av {
+		if k == "pk" || k == "creator" || k == "name" || k == "created_at" || k == "updated_at" {
+			continue
+		}
+
+		log.Info().Msgf("Updating field %v to %v", k, v)
+		update = update.Set(expression.Name(k), expression.Value(v))
 	}
 
 	builder := expression.NewBuilder().WithCondition(
@@ -320,37 +348,7 @@ func (h *GymHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyR
 			expression.Name("pk"),
 			expression.Value(id),
 		),
-	).WithUpdate(
-		// expression.Set(
-		// 	expression.Name("name"),
-		// 	expression.Value(gymUpdatePayload.Name),
-		// ).
-		expression.Set(
-			expression.Name("schedule"),
-			expression.Value(gymUpdatePayload.Schedule),
-		).Set(
-			expression.Name("address_line_1"),
-			expression.Value(gymUpdatePayload.AddressLine1),
-		).Set(
-			expression.Name("address_line_2"),
-			expression.Value(gymUpdatePayload.AddressLine2),
-		).Set(
-			expression.Name("city"),
-			expression.Value(gymUpdatePayload.City),
-		).Set(
-			expression.Name("state"),
-			expression.Value(gymUpdatePayload.State),
-		).Set(
-			expression.Name("zip"),
-			expression.Value(gymUpdatePayload.ZIP),
-		).Set(
-			expression.Name("country"),
-			expression.Value(gymUpdatePayload.Country),
-		).Set(
-			expression.Name("disciplines"),
-			expression.Value(gymUpdatePayload.Disciplines),
-		),
-	)
+	).WithUpdate(update)
 
 	expr, err := builder.Build()
 	if err != nil {
@@ -361,30 +359,32 @@ func (h *GymHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyR
 	if err != nil {
 		return lambda.ServerError(err)
 	}
-	sk, err := attributevalue.Marshal(gyms[0].SK)
-	if err != nil {
-		return lambda.ServerError(err)
-	}
 	key := map[string]types.AttributeValue{
 		"pk": pk,
-		"sk": sk,
 	}
 
-	resp, err := h.Update(ctx, key, &expr)
+	resp, err := h.Update(ctx, h.gymsTable, key, &expr)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update record: %v", err))
 	}
+	log.Info().Msgf("Update metadata: %v", resp.ResultMetadata)
 
-	var gym Gym
-	if err := attributevalue.UnmarshalMap(resp.Attributes, &gym); err != nil {
-		return lambda.ServerError(err)
+	o, err := h.GetByID(ctx, h.gymsTable, id)
+	if err != nil {
+		return lambda.ClientError(http.StatusNotFound, err.Error())
 	}
-	log.Info().Msgf("Updated Gym: %+v", gym)
 
-	json, err := json.Marshal(&gym)
+	var gyms []Gym
+	err = attributevalue.UnmarshalListOfMaps(o.Items, &gyms)
 	if err != nil {
 		return lambda.ServerError(err)
+	} else if len(gyms) == 0 {
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("no gyms found"))
+	}
 
+	json, err := json.Marshal(gyms[0])
+	if err != nil {
+		return lambda.ServerError(err)
 	}
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
@@ -394,50 +394,4 @@ type Token struct {
 	User  string   `mapstructure:"cognito:username"`
 	Roles []string `mapstructure:"cognito:roles"`
 	Sub   string   `mapstructure:"sub"`
-}
-
-func ValidateJWT(hdrs map[string]string) (*Token, error) {
-	authHeader := hdrs[headers.Authorization]
-	if len(authHeader) <= 1 {
-		return nil, fmt.Errorf("auth header not valid: %v", authHeader)
-	}
-	bearer := strings.Split(authHeader, "Bearer")
-	var err error
-	if len(bearer) <= 1 {
-		return nil, fmt.Errorf("auth header not valid: %v", authHeader)
-	}
-
-	tokenString := strings.TrimSpace(bearer[1])
-
-	regionID := "us-west-1"
-	userPoolID := "us-west-1_HT5oR6AwO"
-	jwksURL := fmt.Sprintf("https://cognito-idp.%s.amazonaws.com/%s/.well-known/jwks.json", regionID, userPoolID)
-
-	// Create the keyfunc.Keyfunc.
-	jwks, err := keyfunc.NewDefault([]string{jwksURL})
-	if err != nil {
-		return nil, err
-	}
-
-	// Parse the JWT.
-	token, err := jwt.Parse(tokenString, jwks.Keyfunc)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check if the token is valid.
-	if !token.Valid {
-		return nil, err
-	}
-
-	log.Info().Msgf("Token is valid: %+v", token)
-	log.Info().Msgf("Token claim: %+v", token.Claims)
-
-	var t *Token
-	if err := mapstructure.Decode(token.Claims.(jwt.MapClaims), &t); err != nil {
-		return nil, err
-	}
-	log.Info().Msgf("Token decoded: %+v", t)
-
-	return t, nil
 }

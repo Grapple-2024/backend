@@ -23,49 +23,65 @@ import (
 
 type GymVideoHandler struct {
 	*dynamodbsdk.Client
+	*AuthService
+	videosTable string
 }
 
 type GymVideo struct {
 	PK string `json:"pk" dynamodbav:"pk"`
 
-	GymID   string `json:"gym_id" dynamodbav:"gym_id"`
-	Title   string `json:"title" dynamodbav:"title"`
-	Content string `json:"content" dynamodbav:"content"`
+	GymID   string `json:"gym_id" dynamodbav:"gym_id,omitempty"`
+	Title   string `json:"title" dynamodbav:"title,omitempty"`
+	Content string `json:"content" dynamodbav:"content,omitempty"`
 
-	Difficulty string `json:"difficulty"`
-	Discipline string `json:"discipline"`
-	URL        string `json:"url"`
+	Difficulty  string   `json:"difficulty,omitempty"`
+	Disciplines []string `json:"disciplines" dynamodbav:"disciplines,stringsets,omitempty"`
+	URL         string   `json:"url,omitempty"`
 
 	CreatedAt time.Time `json:"created_at" dynamodbav:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" dynamodbav:"updated_at"`
 }
 
 func NewGymVideoHandler(ctx context.Context, dynamoEndpoint string) (*GymVideoHandler, error) {
-	tableName := os.Getenv("GYM_VIDEOS_TABLE_NAME")
+	db, err := dynamodbsdk.NewClient(dynamoEndpoint)
+	if err != nil {
+		return nil, err
+	}
 
-	db, err := dynamodbsdk.NewClient(dynamoEndpoint, tableName)
+	authSVC, err := NewAuthService(dynamoEndpoint)
 	if err != nil {
 		return nil, err
 	}
 
 	return &GymVideoHandler{
-		Client: db,
+		Client:      db,
+		AuthService: authSVC,
+		videosTable: os.Getenv("GYM_VIDEOS_TABLE_NAME"),
 	}, nil
 }
 
-func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, exclusiveStartKey *string) (events.APIGatewayProxyResponse, error) {
+func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, startKey map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
 	gym := req.QueryStringParameters["gym"]
-
-	var filter dynamodbsdk.Filter
-	var indexName *string
-	if gym != "" {
-		filter.FilterExpression = aws.String("gym_id = :gym_id")
-		filter.ExpressionAttributeValues = map[string]any{
-			":gym_id": gym,
-		}
-		indexName = aws.String("GymIndex")
+	discipline := req.QueryStringParameters["discipline"]
+	if gym == "" {
+		return lambda.ClientError(http.StatusBadRequest, "must specify ?gym query parameter")
 	}
-	result, err := h.Get(ctx, limit, exclusiveStartKey, indexName, &filter)
+
+	filter := dynamodbsdk.Filter{
+		FilterExpression: aws.String("gym_id = :gym_id"),
+		ExpressionAttributeValues: map[string]any{
+			":gym_id": gym,
+		},
+	}
+
+	if discipline != "" {
+		filter.ExpressionAttributeValues[":discipline"] = discipline
+		expr := fmt.Sprintf("%s and contains(disciplines, :discipline)", *filter.FilterExpression)
+		filter.FilterExpression = aws.String(expr)
+	}
+
+	indexName := aws.String("GymIndex")
+	result, err := h.QueryPage(ctx, h.videosTable, limit, startKey, indexName, &filter, true)
 	if err != nil {
 		return lambda.ServerError(fmt.Errorf("filter: %+v, err: %w", filter, err))
 	}
@@ -73,17 +89,20 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 	var gymVideos []GymVideo
 	err = attributevalue.UnmarshalListOfMaps(result.Items, &gymVideos)
 	if err != nil {
-		return lambda.ClientError(http.StatusBadRequest, "bad request")
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("bad request: %v", err))
 	}
 
-	lastEvaluatedID := ""
-	if len(gymVideos) > 0 {
-		lastEvaluatedID = gymVideos[len(gymVideos)-1].PK
+	lastEvaluatedKey := dynamodbsdk.LastEvaluated{}
+	if err := attributevalue.UnmarshalMap(result.LastEvaluatedKey, &lastEvaluatedKey); err != nil {
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("error unmarshalling last evaluated key: %v", err))
 	}
-	responseObject := GetResponse{
-		Data:             gymVideos,
-		LastEvaluatedKey: &lastEvaluatedID,
-		Count:            result.Count,
+	responseObject := dynamodbsdk.GetResponse{
+		Data:      gymVideos,
+		Count:     result.Count,
+		NextToken: &lastEvaluatedKey,
+	}
+	if result.Count == 0 {
+		responseObject.NextToken = nil
 	}
 
 	json, err := json.Marshal(responseObject)
@@ -95,10 +114,10 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
 
-func (h *GymVideoHandler) ProcessGetByID(ctx context.Context, id string) (events.APIGatewayProxyResponse, error) {
+func (h *GymVideoHandler) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
 	log.Print("Received GET gymVideos by ID request")
 
-	result, err := h.GetByID(ctx, id)
+	result, err := h.GetByID(ctx, h.videosTable, id)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -124,7 +143,17 @@ func (h *GymVideoHandler) ProcessPost(ctx context.Context, req events.APIGateway
 	gymVideo.PK = base64.URLEncoding.EncodeToString([]byte(
 		fmt.Sprintf("gymVideo#%s/%s/%d", gymVideo.GymID, gymVideo.Title, gymVideo.CreatedAt.Unix())),
 	)
-	res, err := h.Insert(ctx, &gymVideo)
+	log.Info().Msgf("Inserting gym video: %++v", gymVideo)
+
+	if err := json.Unmarshal([]byte(req.Body), &gymVideo); err != nil {
+		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("request body invalid: %v", req.Body))
+	}
+	if err := validate.Struct(&gymVideo); err != nil {
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("request body failed validation: %v", err))
+	}
+
+	gymVideo.CreatedAt = time.Now().UTC()
+	res, err := h.Insert(ctx, h.videosTable, &gymVideo)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -151,7 +180,7 @@ func (h *GymVideoHandler) ProcessDelete(ctx context.Context, req events.APIGatew
 	}
 
 	// Fetch the Gym Request
-	result, err := h.GetByID(ctx, id)
+	result, err := h.GetByID(ctx, h.videosTable, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym request not found: %v", err))
 	}
@@ -174,7 +203,7 @@ func (h *GymVideoHandler) ProcessDelete(ctx context.Context, req events.APIGatew
 		"pk": pk,
 	}
 
-	resp, err := h.Delete(ctx, key)
+	resp, err := h.Delete(ctx, h.videosTable, key)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -197,29 +226,25 @@ func (h *GymVideoHandler) ProcessPut(ctx context.Context, req events.APIGatewayP
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to unmarshal request body: %v", err))
 	}
 
+	// Marshal
+	av, _ := attributevalue.MarshalMap(payload)
+	update := expression.UpdateBuilder{}
+	for k, v := range av {
+		if k == "pk" || k == "gym_id" || k == "created_at" || k == "updated_at" {
+			continue
+		}
+
+		log.Info().Msgf("Updating field %v to %v", k, v)
+		update = update.Set(expression.Name(k), expression.Value(v))
+	}
+
+	update = update.Set(expression.Name("updated_at"), expression.Value(time.Now().UTC()))
 	builder := expression.NewBuilder().WithCondition(
 		expression.Equal(
 			expression.Name("pk"),
 			expression.Value(id),
 		),
-	)
-	if payload.Title != "" {
-		builder.WithUpdate(
-			expression.Set(
-				expression.Name("title"),
-				expression.Value(payload.Title),
-			))
-	}
-	if payload.Content != "" {
-		builder.WithUpdate(
-			expression.Set(
-				expression.Name("content"),
-				expression.Value(payload.Content),
-			))
-	}
-
-	// Update the timestamp on the announcement
-	payload.UpdatedAt = time.Now().UTC()
+	).WithUpdate(update)
 
 	expr, err := builder.Build()
 	if err != nil {
@@ -234,7 +259,7 @@ func (h *GymVideoHandler) ProcessPut(ctx context.Context, req events.APIGatewayP
 		"pk": pk,
 	}
 
-	resp, err := h.Update(ctx, key, &expr)
+	resp, err := h.Update(ctx, h.videosTable, key, &expr)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update record: %v", err))
 	}

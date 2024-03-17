@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -22,46 +23,78 @@ import (
 )
 
 type GymAnnouncementHandler struct {
+	*AuthService
 	*dynamodbsdk.Client
+	announcementsTable string
 }
 
 type GymAnnouncement struct {
 	PK string `json:"pk" dynamodbav:"pk"`
 
 	GymID     string    `json:"gym_id" dynamodbav:"gym_id"`
-	Title     string    `json:"title" dynamodbav:"title"`
-	Content   string    `json:"content" dynamodbav:"content"`
+	Title     string    `json:"title" dynamodbav:"title,omitempty"`
+	Content   string    `json:"content" dynamodbav:"content,omitempty"`
 	CreatedAt time.Time `json:"created_at" dynamodbav:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" dynamodbav:"updated_at"`
+	Dummy     string    `json:"-" dynamodbav:"dummy"`
 }
 
 func NewGymAnnouncementHandler(ctx context.Context, dynamoEndpoint string) (*GymAnnouncementHandler, error) {
-	tableName := os.Getenv("GYM_ANNOUNCEMENTS_TABLE_NAME")
-
-	db, err := dynamodbsdk.NewClient(dynamoEndpoint, tableName)
+	db, err := dynamodbsdk.NewClient(dynamoEndpoint)
 	if err != nil {
 		return nil, err
 	}
 
-	log.Info().Msgf("Gym announcements table: %v", tableName)
+	authSVC, err := NewAuthService(dynamoEndpoint)
+	if err != nil {
+		return nil, err
+	}
+
 	return &GymAnnouncementHandler{
-		Client: db,
+		AuthService:        authSVC,
+		Client:             db,
+		announcementsTable: os.Getenv("GYM_ANNOUNCEMENTS_TABLE_NAME"),
 	}, nil
 }
 
-func (h *GymAnnouncementHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, exclusiveStartKey *string) (events.APIGatewayProxyResponse, error) {
+func (h *GymAnnouncementHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, startKey map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
 	gym := req.QueryStringParameters["gym"]
-
-	var filter dynamodbsdk.Filter
-	var indexName *string
-	if gym != "" {
-		filter.FilterExpression = aws.String("gym_id = :gym_id")
-		filter.ExpressionAttributeValues = map[string]any{
-			":gym_id": gym,
-		}
-		indexName = aws.String("GymIndex")
+	if gym == "" {
+		return lambda.ClientError(http.StatusBadRequest, "?gym query parameter is required")
 	}
-	result, err := h.Get(ctx, limit, exclusiveStartKey, indexName, &filter)
+	var ascending bool
+	ascendingS := req.QueryStringParameters["ascending"]
+	if ascendingS == "" {
+		ascendingS = "true"
+	}
+
+	ascending, err := strconv.ParseBool(ascendingS)
+	if err != nil {
+		return lambda.ClientError(http.StatusBadRequest, "?ascending query param must be a boolean")
+	}
+
+	isNotCoach := h.IsCoach(ctx, req.Headers, gym)
+	isNotStudent := h.IsStudent(ctx, req.Headers, gym)
+	if isNotCoach != nil && isNotStudent != nil {
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("user is neither a coach or student of this gym: %v\n %v", isNotStudent, isNotCoach))
+	}
+
+	indexName := aws.String("LastUpdatedIndex")
+	filter := dynamodbsdk.Filter{
+		KeyConditionExpression: aws.String("dummy = :dummy"),
+		ExpressionAttributeValues: map[string]any{
+			":dummy": "dumb",
+		},
+	}
+
+	if startKey["pk"] != nil {
+		startKey["gym_id"] = &types.AttributeValueMemberS{
+			Value: gym,
+		}
+	}
+
+	log.Info().Msgf("QueryPage with startKey: %+v", startKey)
+	result, err := h.QueryPage(ctx, h.announcementsTable, limit, startKey, indexName, &filter, ascending)
 	if err != nil {
 		return lambda.ServerError(fmt.Errorf("filter: %+v, err: %w", filter, err))
 	}
@@ -71,15 +104,18 @@ func (h *GymAnnouncementHandler) ProcessGetAll(ctx context.Context, req events.A
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, "bad request")
 	}
-
-	lastEvaluatedID := ""
-	if len(gymAnnouncements) > 0 {
-		lastEvaluatedID = gymAnnouncements[len(gymAnnouncements)-1].PK
+	lastEvaluatedKey := dynamodbsdk.LastEvaluated{}
+	if err := attributevalue.UnmarshalMap(result.LastEvaluatedKey, &lastEvaluatedKey); err != nil {
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("error unmarshalling last evaluated key: %v", err))
 	}
-	responseObject := GetResponse{
-		Data:             gymAnnouncements,
-		LastEvaluatedKey: &lastEvaluatedID,
-		Count:            result.Count,
+	responseObject := dynamodbsdk.GetResponse{
+		Data:      gymAnnouncements,
+		Count:     result.Count,
+		NextToken: &lastEvaluatedKey,
+	}
+
+	if result.Count == 0 {
+		responseObject.NextToken = nil
 	}
 
 	json, err := json.Marshal(responseObject)
@@ -91,10 +127,10 @@ func (h *GymAnnouncementHandler) ProcessGetAll(ctx context.Context, req events.A
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
 
-func (h *GymAnnouncementHandler) ProcessGetByID(ctx context.Context, id string) (events.APIGatewayProxyResponse, error) {
+func (h *GymAnnouncementHandler) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
 	log.Print("Received GET gymAnnouncements by ID request")
 
-	result, err := h.GetByID(ctx, id)
+	result, err := h.GetByID(ctx, h.announcementsTable, id)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -121,18 +157,23 @@ func (h *GymAnnouncementHandler) ProcessPost(ctx context.Context, req events.API
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("request body invalid: %v", req.Body))
 	}
 
-	err := validate.Struct(&gymAnnouncement)
-	if err != nil {
+	if err := h.IsCoach(ctx, req.Headers, gymAnnouncement.GymID); err != nil {
+		// user is not a coach of this gym, deny the request to create an announcement
+		return lambda.ClientError(http.StatusForbidden, err.Error())
+	}
+
+	if err := validate.Struct(&gymAnnouncement); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, "request body failed validation")
 	}
 
 	gymAnnouncement.CreatedAt = time.Now().UTC()
 	gymAnnouncement.UpdatedAt = gymAnnouncement.CreatedAt
-
+	gymAnnouncement.Dummy = "dumb"
 	gymAnnouncement.PK = base64.URLEncoding.EncodeToString([]byte(
-		fmt.Sprintf("gymAnnouncement#%s/%s/%d", gymAnnouncement.GymID, gymAnnouncement.Title, gymAnnouncement.CreatedAt.Unix())),
+		fmt.Sprintf("gymAnnouncement#%s/%d", gymAnnouncement.GymID, gymAnnouncement.CreatedAt.Unix())),
 	)
-	res, err := h.Insert(ctx, &gymAnnouncement)
+
+	res, err := h.Insert(ctx, h.announcementsTable, &gymAnnouncement)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -159,7 +200,7 @@ func (h *GymAnnouncementHandler) ProcessDelete(ctx context.Context, req events.A
 	}
 
 	// Fetch the Gym Request
-	result, err := h.GetByID(ctx, id)
+	result, err := h.GetByID(ctx, h.announcementsTable, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym request not found: %v", err))
 	}
@@ -182,7 +223,7 @@ func (h *GymAnnouncementHandler) ProcessDelete(ctx context.Context, req events.A
 		"pk": pk,
 	}
 
-	resp, err := h.Delete(ctx, key)
+	resp, err := h.Delete(ctx, h.announcementsTable, key)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -194,6 +235,7 @@ func (h *GymAnnouncementHandler) ProcessDelete(ctx context.Context, req events.A
 
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
+
 func (h *GymAnnouncementHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id, ok := req.PathParameters["id"]
 	if !ok {
@@ -205,20 +247,22 @@ func (h *GymAnnouncementHandler) ProcessPut(ctx context.Context, req events.APIG
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to unmarshal request body: %v", err))
 	}
 
+	// Marshal to AV
+	av, _ := attributevalue.MarshalMap(payload)
+	update := expression.UpdateBuilder{}
+	for k, v := range av {
+		if k == "pk" || k == "gym_id" || k == "created_at" || k == "updated_at" {
+			continue
+		}
+		update = update.Set(expression.Name(k), expression.Value(v))
+	}
+
 	builder := expression.NewBuilder().WithCondition(
 		expression.Equal(
 			expression.Name("pk"),
 			expression.Value(id),
 		),
-	).WithUpdate(
-		expression.Set(
-			expression.Name("title"),
-			expression.Value(payload.Title),
-		).Set(
-			expression.Name("content"),
-			expression.Value(payload.Content),
-		),
-	)
+	).WithUpdate(update)
 
 	// Update the timestamp on the announcement
 	payload.UpdatedAt = time.Now().UTC()
@@ -236,7 +280,7 @@ func (h *GymAnnouncementHandler) ProcessPut(ctx context.Context, req events.APIG
 		"pk": pk,
 	}
 
-	resp, err := h.Update(ctx, key, &expr)
+	resp, err := h.Update(ctx, h.announcementsTable, key, &expr)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update record: %v", err))
 	}

@@ -72,17 +72,25 @@ Resources:
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
-        - AttributeName: sk
+        - AttributeName: creator
           AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
-        - AttributeName: sk
-          KeyType: RANGE
       BillingMode: PROVISIONED
       ProvisionedThroughput:
         ReadCapacityUnits: 1
         WriteCapacityUnits: 1
+      GlobalSecondaryIndexes:
+        - IndexName: "CreatorIndex"
+          KeySchema: 
+          - AttributeName: creator
+            KeyType: HASH
+          Projection: 
+            ProjectionType: "ALL"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
 
   GymRequestsTable:
     Type: AWS::DynamoDB::Table
@@ -91,9 +99,11 @@ Resources:
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
-        - AttributeName: requestor_id
-          AttributeType: S
         - AttributeName: gym_id
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+        - AttributeName: dummy
           AttributeType: S
       KeySchema:
         - AttributeName: pk
@@ -112,10 +122,12 @@ Resources:
           ProvisionedThroughput:
             ReadCapacityUnits: 1
             WriteCapacityUnits: 1
-        - IndexName: "RequestorIndex"
-          KeySchema: 
-          - AttributeName: requestor_id
+        - IndexName: "CreatedAtIndex"
+          KeySchema:
+          - AttributeName: dummy
             KeyType: HASH
+          - AttributeName: created_at
+            KeyType: RANGE
           Projection: 
             ProjectionType: "ALL"
           ProvisionedThroughput:
@@ -129,7 +141,9 @@ Resources:
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
-        - AttributeName: gym_id
+        - AttributeName: dummy
+          AttributeType: S
+        - AttributeName: updated_at
           AttributeType: S
       KeySchema:
         - AttributeName: pk
@@ -139,10 +153,12 @@ Resources:
         ReadCapacityUnits: 1
         WriteCapacityUnits: 1
       GlobalSecondaryIndexes:
-        - IndexName: "GymIndex"
+        - IndexName: "LastUpdatedIndex"
           KeySchema: 
-          - AttributeName: gym_id
+          - AttributeName: dummy
             KeyType: HASH
+          - AttributeName: updated_at
+            KeyType: RANGE
           Projection: 
             ProjectionType: "ALL"
           ProvisionedThroughput:

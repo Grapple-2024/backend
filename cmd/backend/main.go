@@ -45,7 +45,7 @@ func main() {
 		panic(err)
 	}
 
-	s3h, err := handlers.NewS3Handler(ctx, region)
+	s3h, err := handlers.NewS3Handler(ctx, dynamoEndpoint, region)
 	if err != err {
 		panic(err)
 	}

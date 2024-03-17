@@ -8,17 +8,22 @@ import (
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/rs/zerolog/log"
+
+	dynamodbsdk "github.com/Grapple-2024/backend/dynamodb"
 )
 
 const (
-	exclusiveStartKey = "exclusiveStartKey"
-	limit             = "limit"
+	exclusiveStartKeyPK = "exclusiveStartKeyPK"
+	exclusiveStartKeySK = "exclusiveStartKeySK"
+	limit               = "limit"
 )
 
 type Lambda interface {
-	ProcessGetByID(ctx context.Context, id string) (events.APIGatewayProxyResponse, error)
-	ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, exclusiveStartKey *string) (events.APIGatewayProxyResponse, error)
+	ProcessGetByID(context.Context, events.APIGatewayProxyRequest, string) (events.APIGatewayProxyResponse, error)
+	ProcessGetAll(context.Context, events.APIGatewayProxyRequest, int32, map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error)
 	ProcessPost(context.Context, events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error)
 	ProcessPut(context.Context, events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error)
 	ProcessDelete(context.Context, events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error)
@@ -55,10 +60,12 @@ func NewRouter(lambdas map[string]Lambda) func(context.Context, events.APIGatewa
 func ProcessGet(ctx context.Context, l Lambda, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id, ok := req.PathParameters["id"]
 	if ok {
-		return l.ProcessGetByID(ctx, id)
+		return l.ProcessGetByID(ctx, req, id)
 	}
 
-	exclusiveStartKey, _ := req.QueryStringParameters[exclusiveStartKey]
+	startKeyPK, _ := req.QueryStringParameters[exclusiveStartKeyPK]
+	startKeySK, _ := req.QueryStringParameters[exclusiveStartKeySK]
+
 	limitInt := 50
 	limit, ok := req.QueryStringParameters[limit]
 	if ok {
@@ -69,7 +76,19 @@ func ProcessGet(ctx context.Context, l Lambda, req events.APIGatewayProxyRequest
 		}
 	}
 
-	return l.ProcessGetAll(ctx, req, int32(limitInt), &exclusiveStartKey)
+	startKey := dynamodbsdk.LastEvaluated{}
+	if startKeySK != "" {
+		startKey.SK = startKeySK
+	}
+	if startKeyPK != "" {
+		startKey.PK = startKeyPK
+	}
+	log.Info().Msgf("Start key: %++v", startKey)
+	av, err := attributevalue.MarshalMap(&startKey)
+	if err != nil {
+		return ClientError(http.StatusBadRequest, fmt.Sprintf("invalid exclusive start key: %v", err))
+	}
+	return l.ProcessGetAll(ctx, req, int32(limitInt), av)
 }
 
 // helper functions below this point

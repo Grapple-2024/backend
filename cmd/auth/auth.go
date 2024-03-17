@@ -57,8 +57,8 @@ func (h *Handler) Register() error {
 	return nil
 }
 
-// validateJWT takes a token string and validates it
-func (h *Handler) ValidateJWT(tokenString string) error {
+// ValidateJWT takes a token string and validates it
+func ValidateJWT(tokenString string) error {
 	// authHeader := c.Request.Header.Get(headers.Authorization)
 	// if len(authHeader) <= 1 {
 	// 	c.JSON(http.StatusFound, map[string]string{"error": "invalid or corrupt Authorization header"})

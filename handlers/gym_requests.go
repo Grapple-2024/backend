@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
+	"time"
 
-	"github.com/MicahParks/keyfunc/v3"
-	jwt "github.com/golang-jwt/jwt/v5"
 	"github.com/rs/zerolog/log"
 
 	dynamodbsdk "github.com/Grapple-2024/backend/dynamodb"
@@ -22,64 +22,119 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
+const (
+	StatusPending  = "Pending"
+	StatusAccepted = "Accepted"
+	StatusDenied   = "Denied"
+)
+
 type GymRequestHandler struct {
 	*dynamodbsdk.Client
+	*AuthService
+	requestsTable string
 }
 
 type GymRequest struct {
 	PK string `json:"pk" dynamodbav:"pk"`
 
-	RequestorID string `json:"requestor_id" dynamodbav:"requestor_id"`
-	FirstName   string `json:"first_name" dynamodbav:"first_name"`
-	LastName    string `json:"last_name" dynamodbav:"last_name"`
-	Email       string `json:"email" dynamodbav:"email"`
-	GymID       string `json:"gym_id" dynamodbav:"gym_id"`
-	Status      string `json:"status" dynamodbav:"status"`
+	RequestorID string    `json:"requestor_id" dynamodbav:"requestor_id"`
+	FirstName   string    `json:"first_name" dynamodbav:"first_name,omitempty"`
+	LastName    string    `json:"last_name" dynamodbav:"last_name,omitempty"`
+	Email       string    `json:"email" dynamodbav:"email,omitempty"`
+	GymID       string    `json:"gym_id" dynamodbav:"gym_id,omitempty"`
+	Status      string    `json:"status" dynamodbav:"status,omitempty"`
+	Dummy       string    `json:"-" dynamodbav:"dummy"`
+	CreatedAt   time.Time `json:"created_at" dynamodbav:"created_at"`
 }
 
 func NewGymRequestHandler(ctx context.Context, dynamoEndpoint string) (*GymRequestHandler, error) {
-	tableName := os.Getenv("GYM_REQUESTS_TABLE_NAME")
-
-	db, err := dynamodbsdk.NewClient(dynamoEndpoint, tableName)
+	db, err := dynamodbsdk.NewClient(dynamoEndpoint)
 	if err != nil {
 		return nil, err
 	}
 
-	log.Info().Msgf("Gym requests table name: %v", tableName)
+	authSVC, err := NewAuthService(dynamoEndpoint)
+	if err != nil {
+		return nil, err
+	}
+
 	return &GymRequestHandler{
-		Client: db,
+		Client:        db,
+		AuthService:   authSVC,
+		requestsTable: os.Getenv("GYM_REQUESTS_TABLE_NAME"),
 	}, nil
 }
 
-func (h *GymRequestHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, exclusiveStartKey *string) (events.APIGatewayProxyResponse, error) {
+func (h *GymRequestHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, startKey map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
 	requestor := req.QueryStringParameters["requestor"]
 	gym := req.QueryStringParameters["gym"]
+	status := req.QueryStringParameters["status"]
 
-	var filter dynamodbsdk.Filter
-	var indexName *string
-	if requestor != "" && gym != "" {
-		// get a request by requestor and gym IDs
-		filter.FilterExpression = aws.String("pk = :pk")
-		filter.ExpressionAttributeValues = map[string]any{
-			":pk": fmt.Sprintf("gymRequest#%s/%s", requestor, gym),
-		}
-	} else if requestor == "" && gym != "" {
-		// get all requests for a given gym
-		filter.FilterExpression = aws.String("gym_id = :gym_id")
-		filter.ExpressionAttributeValues = map[string]any{
-			":gym_id": gym,
-		}
-		indexName = aws.String("GymIndex")
-
-	} else if requestor != "" && gym == "" {
-		filter.FilterExpression = aws.String("requestor_id = :requestor_id")
-		filter.ExpressionAttributeValues = map[string]any{
-			":requestor_id": requestor,
-		}
-		indexName = aws.String("RequestorIndex")
+	var ascending bool
+	ascendingS := req.QueryStringParameters["ascending"]
+	if ascendingS == "" {
+		ascendingS = "true"
+	}
+	ascending, err := strconv.ParseBool(ascendingS)
+	if err != nil {
+		return lambda.ClientError(http.StatusBadRequest, "?ascending query param must be a boolean")
 	}
 
-	result, err := h.Get(ctx, limit, exclusiveStartKey, indexName, &filter)
+	filter := dynamodbsdk.Filter{
+		ExpressionAttributeValues: map[string]any{},
+	}
+	if gym != "" {
+		// get all requests for a given gym
+		if filter.ExpressionAttributeValues == nil {
+			filter.ExpressionAttributeValues = map[string]any{}
+		}
+		filter.ExpressionAttributeValues[":gym_id"] = gym
+	}
+
+	if requestor != "" {
+		if filter.ExpressionAttributeValues == nil {
+			filter.ExpressionAttributeValues = map[string]any{}
+		}
+		filter.ExpressionAttributeValues[":requestor_id"] = requestor
+	}
+
+	if status != "" {
+		if filter.ExpressionAttributeValues == nil {
+			filter.ExpressionAttributeValues = map[string]any{}
+		}
+		filter.ExpressionAttributeValues[":status"] = status
+		filter.ExpressionAttributeNames = map[string]string{
+			"#request_status": "status",
+		}
+	}
+
+	if gym != "" && requestor != "" && status != "" {
+		// Get by Gym, Requestor and Status
+		filter.FilterExpression = aws.String("gym_id = :gym_id and requestor_id = :requestor_id and #request_status = :status")
+	} else if gym != "" && requestor != "" {
+		// Get by Gym and Requestor
+		filter.FilterExpression = aws.String("gym_id = :gym_id and requestor_id = :requestor_id")
+	} else if gym != "" && requestor == "" && status != "" {
+		// Get by Gym and Status
+		filter.FilterExpression = aws.String("gym_id = :gym_id and #request_status = :status")
+	} else if gym != "" && requestor == "" && status == "" {
+		// Get by Gym
+		filter.FilterExpression = aws.String("gym_id = :gym_id")
+	} else if gym == "" && requestor != "" && status != "" {
+		// Get by Requestor and Status
+		filter.FilterExpression = aws.String("requestor_id = :requestor_id and #request_status = :status")
+	} else if gym == "" && requestor != "" && status == "" {
+		// Get by Requestor
+		filter.FilterExpression = aws.String("requestor_id = :requestor_id")
+	}
+	if filter.ExpressionAttributeValues == nil {
+		filter.ExpressionAttributeValues = map[string]any{}
+	}
+	filter.KeyConditionExpression = aws.String("dummy = :dumb")
+	filter.ExpressionAttributeValues[":dumb"] = "dumb"
+	index := aws.String("CreatedAtIndex")
+
+	result, err := h.QueryPage(ctx, h.requestsTable, limit, startKey, index, &filter, ascending)
 	if err != nil {
 		return lambda.ServerError(fmt.Errorf("filter: %+v, err: %w", filter, err))
 	}
@@ -90,14 +145,18 @@ func (h *GymRequestHandler) ProcessGetAll(ctx context.Context, req events.APIGat
 		return lambda.ClientError(http.StatusBadRequest, "bad request")
 	}
 
-	lastEvaluatedID := ""
-	if len(gymRequests) > 0 {
-		lastEvaluatedID = gymRequests[len(gymRequests)-1].PK
+	lastEvaluatedKey := dynamodbsdk.LastEvaluated{}
+	if err := attributevalue.UnmarshalMap(result.LastEvaluatedKey, &lastEvaluatedKey); err != nil {
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("error unmarshalling last evaluated key: %v", err))
 	}
-	responseObject := GetResponse{
-		Data:             gymRequests,
-		LastEvaluatedKey: &lastEvaluatedID,
-		Count:            result.Count,
+	responseObject := dynamodbsdk.GetResponse{
+		Data:      gymRequests,
+		Count:     result.Count,
+		NextToken: &lastEvaluatedKey,
+	}
+	log.Info().Msgf("Count: %v", result.Count)
+	if result.Count == 0 {
+		responseObject.NextToken = nil
 	}
 
 	json, err := json.Marshal(responseObject)
@@ -109,10 +168,10 @@ func (h *GymRequestHandler) ProcessGetAll(ctx context.Context, req events.APIGat
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
 
-func (h *GymRequestHandler) ProcessGetByID(ctx context.Context, id string) (events.APIGatewayProxyResponse, error) {
+func (h *GymRequestHandler) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
 	log.Print("Received GET gymRequests by ID request")
 
-	result, err := h.GetByID(ctx, id)
+	result, err := h.GetByID(ctx, h.requestsTable, id)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -134,7 +193,7 @@ func (h *GymRequestHandler) ProcessGetByID(ctx context.Context, id string) (even
 }
 
 func (h *GymRequestHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	token, err := ValidateJWT(req.Headers)
+	token, err := token(req.Headers)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	}
@@ -151,8 +210,11 @@ func (h *GymRequestHandler) ProcessPost(ctx context.Context, req events.APIGatew
 
 	gymRequest.PK = base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("gymRequest#%s/%s", token.Sub, gymRequest.GymID)))
 	gymRequest.RequestorID = token.Sub
-	gymRequest.Status = "Pending"
-	res, err := h.Insert(ctx, &gymRequest)
+	gymRequest.Status = StatusPending
+	gymRequest.Dummy = "dumb"
+	gymRequest.CreatedAt = time.Now().UTC()
+
+	res, err := h.Insert(ctx, h.requestsTable, &gymRequest)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -173,7 +235,7 @@ func (h *GymRequestHandler) ProcessPost(ctx context.Context, req events.APIGatew
 }
 
 func (h *GymRequestHandler) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	token, err := ValidateJWT(req.Headers)
+	token, err := token(req.Headers)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	}
@@ -185,7 +247,7 @@ func (h *GymRequestHandler) ProcessDelete(ctx context.Context, req events.APIGat
 	}
 
 	// Fetch the Gym Request
-	result, err := h.GetByID(ctx, id)
+	result, err := h.GetByID(ctx, h.requestsTable, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym request not found: %v", err))
 	}
@@ -213,7 +275,7 @@ func (h *GymRequestHandler) ProcessDelete(ctx context.Context, req events.APIGat
 		"pk": pk,
 	}
 
-	resp, err := h.Delete(ctx, key)
+	resp, err := h.Delete(ctx, h.requestsTable, key)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -231,9 +293,33 @@ func (h *GymRequestHandler) ProcessPut(ctx context.Context, req events.APIGatewa
 		return lambda.ClientError(http.StatusBadRequest, "id parameter not found")
 	}
 
+	// Fetch the Gym Request the user is trying to modify
+	result, err := h.GetByID(ctx, h.requestsTable, id)
+	if err != nil {
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym request not found: %v", err))
+	}
+	if result.Count == 0 {
+		return lambda.ClientError(http.StatusNotFound, "gym request not found")
+	}
+
+	var requests []GymRequest
+	err = attributevalue.UnmarshalListOfMaps(result.Items, &requests)
+	if err != nil {
+		return lambda.ServerError(err)
+	}
+
+	// check if the token has permission to modify the request (They must be the gym's coach)
+	if err := h.IsCoach(ctx, req.Headers, requests[0].GymID); err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: must be a coach to modify a gym request: %v", err))
+	}
+
 	var payload GymRequest
 	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to unmarshal request body: %v", err))
+	}
+
+	if payload.Status != StatusAccepted && payload.Status != StatusPending && payload.Status != StatusDenied {
+		return lambda.ClientError(http.StatusBadRequest, "status field must be one of [Accepted, Pending, Denied] %v")
 	}
 
 	builder := expression.NewBuilder().WithCondition(
@@ -264,7 +350,7 @@ func (h *GymRequestHandler) ProcessPut(ctx context.Context, req events.APIGatewa
 		"pk": pk,
 	}
 
-	resp, err := h.Update(ctx, key, &expr)
+	resp, err := h.Update(ctx, h.requestsTable, key, &expr)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update record: %v", err))
 	}
@@ -281,33 +367,4 @@ func (h *GymRequestHandler) ProcessPut(ctx context.Context, req events.APIGatewa
 	}
 
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
-}
-
-// validateJWT takes a token string and validates it
-func (h *GymRequestHandler) ValidateJWT(tokenString string) error {
-	regionID := "us-west-1"
-	userPoolID := "us-west-1_HT5oR6AwO"
-	jwksURL := fmt.Sprintf("https://cognito-idp.%s.amazonaws.com/%s/.well-known/jwks.json", regionID, userPoolID)
-
-	// Create the keyfunc.Keyfunc.
-	jwks, err := keyfunc.NewDefault([]string{jwksURL})
-	if err != nil {
-		return err
-	}
-
-	// Parse the JWT.
-	token, err := jwt.Parse(tokenString, jwks.Keyfunc)
-	if err != nil {
-		return err
-	}
-
-	// Check if the token is valid.
-	if !token.Valid {
-		return err
-	}
-
-	log.Info().Msgf("Token is valid!\n%+v\n", token)
-	log.Info().Msgf("Token claim!\n%+v\n", token.Claims)
-
-	return nil
 }

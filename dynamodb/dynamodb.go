@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
@@ -19,11 +18,38 @@ import (
 
 type Client struct {
 	*dynamodb.Client
-	table string
-	t     reflect.Type
 }
 
-func NewClient(endpoint, tableName string) (*Client, error) {
+type LastEvaluated struct {
+	PK string `dynamodbav:"pk,omitempty" json:"pk,omitempty"`
+	SK string `dynamodbav:"sk,omitempty" json:"sk,omitempty"`
+}
+
+type GetResponse struct {
+	Data      any            `json:"data"`
+	Count     int32          `json:"count"`
+	NextToken *LastEvaluated `json:"nextToken"`
+}
+
+func MarshalResponse(count int32, lastEvaluatedKey map[string]types.AttributeValue, items []map[string]types.AttributeValue, data any) (*GetResponse, error) {
+	// marshal last evaluated key into object
+	lastEvaluated := LastEvaluated{}
+	if err := attributevalue.UnmarshalMap(lastEvaluatedKey, &lastEvaluated); err != nil {
+		return nil, err
+	}
+
+	if err := attributevalue.UnmarshalListOfMaps(items, data); err != nil {
+		return nil, err
+	}
+
+	return &GetResponse{
+		Data:      data,
+		Count:     count,
+		NextToken: &lastEvaluated,
+	}, nil
+}
+
+func NewClient(endpoint string) (*Client, error) {
 	log.Info().Msgf("Starting dynamo client with endpoint %s", endpoint)
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
 		config.WithEndpointResolver(aws.EndpointResolverFunc(
@@ -37,18 +63,17 @@ func NewClient(endpoint, tableName string) (*Client, error) {
 
 	return &Client{
 		Client: dynamodb.NewFromConfig(cfg),
-		table:  tableName,
 	}, nil
 }
 
-func (c *Client) GetByID(ctx context.Context, id string) (*dynamodb.QueryOutput, error) {
+func (c *Client) GetByID(ctx context.Context, table, id string) (*dynamodb.QueryOutput, error) {
 	key, err := attributevalue.Marshal(id)
 	if err != nil {
 		return nil, err
 	}
 
 	queryInput := &dynamodb.QueryInput{
-		TableName: aws.String(c.table),
+		TableName: aws.String(table),
 		KeyConditions: map[string]types.Condition{
 			"pk": {
 				ComparisonOperator: types.ComparisonOperatorEq,
@@ -76,14 +101,61 @@ func (c *Client) GetByID(ctx context.Context, id string) (*dynamodb.QueryOutput,
 }
 
 type Filter struct {
+	KeyConditionExpression    *string           `json:"key_condition_expression,omitempty"`
 	FilterExpression          *string           `json:"filter,omitempty"`
 	ExpressionAttributeNames  map[string]string `json:"expression_attribute_names,omitempty"`
 	ExpressionAttributeValues map[string]any    `json:"expression_attribute_values"`
 }
 
-func (c *Client) Get(ctx context.Context, limit int32, exclusiveStartKey, indexName *string, filter *Filter) (*dynamodb.ScanOutput, error) {
+func (c *Client) QueryPage(ctx context.Context, table string, limit int32, startKey map[string]types.AttributeValue, indexName *string, filter *Filter, ascending bool) (*dynamodb.QueryOutput, error) {
+	input := &dynamodb.QueryInput{
+		TableName:        aws.String(table),
+		Limit:            &limit,
+		ScanIndexForward: aws.Bool(ascending),
+	}
+
+	if len(startKey) != 0 {
+		input.ExclusiveStartKey = startKey
+	}
+
+	if indexName != nil {
+		input.IndexName = indexName
+	}
+
+	if filter != nil {
+		avs, err := attributevalue.MarshalMap(filter.ExpressionAttributeValues)
+		if err != nil {
+			return nil, fmt.Errorf("error marshalling map to AVS %+v: %w", filter, err)
+		}
+
+		if filter.KeyConditionExpression != nil {
+			input.KeyConditionExpression = filter.KeyConditionExpression
+		}
+		if filter.FilterExpression != nil {
+			input.FilterExpression = filter.FilterExpression
+		}
+		if filter.ExpressionAttributeNames != nil {
+			input.ExpressionAttributeNames = filter.ExpressionAttributeNames
+		}
+		if filter.ExpressionAttributeValues != nil {
+			input.ExpressionAttributeValues = avs
+		}
+	}
+
+	log.Info().Any("expressionAttributeValues", input.ExpressionAttributeValues).
+		Any("keyConditionExpression", input.KeyConditionExpression).
+		Any("expressionAttributeNames", input.ExpressionAttributeNames).
+		Any("filter", input.FilterExpression).
+		Any("table", *input.TableName).
+		Any("ascending", *input.ScanIndexForward).
+		Msg("Scanning table")
+
+	return c.Query(ctx, input)
+}
+
+func (c *Client) Get(ctx context.Context, table string, limit int32, exclusiveStartKey, indexName *string, filter *Filter) (*dynamodb.ScanOutput, error) {
 	input := &dynamodb.ScanInput{
-		TableName: aws.String(c.table),
+		TableName: aws.String(table),
 		Limit:     &limit,
 	}
 
@@ -122,25 +194,34 @@ func (c *Client) Get(ctx context.Context, limit int32, exclusiveStartKey, indexN
 	return result, nil
 }
 
-func (c *Client) Insert(ctx context.Context, data any) (*dynamodb.PutItemOutput, error) {
+func (c *Client) Insert(ctx context.Context, table string, data any) (*dynamodb.PutItemOutput, error) {
 	item, err := attributevalue.MarshalMap(data)
 	if err != nil {
 		return nil, err
 	}
-	log.Info().Any("item", item).Msgf("PUT::Table: %v", c.table)
+	log.Info().Any("item", item).Msgf("PUT::Table: %v", table)
 
 	input := &dynamodb.PutItemInput{
-		TableName: aws.String(c.table),
-		Item:      item,
+		TableName:           aws.String(table),
+		Item:                item,
+		ConditionExpression: aws.String("attribute_not_exists(pk)"),
+	}
+	o, err := c.PutItem(ctx, input)
+	if err != nil {
+		var ccf *types.ConditionalCheckFailedException
+		if errors.As(err, &ccf) {
+			return nil, fmt.Errorf("object already exists in table: %v", err)
+		}
+		return nil, err
 	}
 
-	return c.PutItem(ctx, input)
+	return o, nil
 }
 
-func (c *Client) Update(ctx context.Context, key map[string]types.AttributeValue, expr *expression.Expression) (*dynamodb.UpdateItemOutput, error) {
+func (c *Client) Update(ctx context.Context, table string, key map[string]types.AttributeValue, expr *expression.Expression) (*dynamodb.UpdateItemOutput, error) {
 	input := &dynamodb.UpdateItemInput{
 		Key:                       key,
-		TableName:                 aws.String(c.table),
+		TableName:                 aws.String(table),
 		UpdateExpression:          expr.Update(),
 		ExpressionAttributeNames:  expr.Names(),
 		ExpressionAttributeValues: expr.Values(),
@@ -166,9 +247,9 @@ func (c *Client) Update(ctx context.Context, key map[string]types.AttributeValue
 	return res, nil
 }
 
-func (c *Client) Delete(ctx context.Context, key map[string]types.AttributeValue) (*dynamodb.DeleteItemOutput, error) {
+func (c *Client) Delete(ctx context.Context, table string, key map[string]types.AttributeValue) (*dynamodb.DeleteItemOutput, error) {
 	input := &dynamodb.DeleteItemInput{
-		TableName:    aws.String(c.table),
+		TableName:    aws.String(table),
 		Key:          key,
 		ReturnValues: types.ReturnValue(*aws.String("ALL_OLD")),
 	}
@@ -189,10 +270,9 @@ func (c *Client) CreateTable(ctx context.Context, tableName *string, keySchema [
 		},
 	})
 	if err != nil {
-		log.Info().Err(err).Msgf("Couldn't create table %v", c.table)
+		log.Info().Err(err).Msgf("Couldn't create table %v", err)
 	} else {
 		log.Info().Msgf("Table created: %v", table.TableDescription)
-
 	}
 
 	return tableDesc, err
