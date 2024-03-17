@@ -1,5 +1,10 @@
 # API Documentation
 
+## Table of Contents
+- [S3](#s3)
+  - [Upload a File](#upload-a-file)
+  - [Download a File](#download-a-file)
+
 
 ## S3
 This section documents the Grapple S3 API.
@@ -44,7 +49,6 @@ Query parameters:
 - ttl: the amount of time for the pre-signed URL to be valid for. Defaults to 5 minutes.
 
 Response:
-```json
 {
     "URL": "https://grapple-gym-videos.s3.us-west-1.amazonaws.com/Z3ltIzBhYzkxZTk2LTg5ZjUtNGU1Zi05ZGRlLTc5NDQxOGI4Yjg4OC9BbGVjJ3MgR3ltOQ%3D%3D/CODE_OF_CONDUCT.md?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAVRUVQ2TBCDCY7BLB%2F20240317%2Fus-west-1%2Fs3%2Faws4_request&X-Amz-Date=20240317T191509Z&X-Amz-Expires=300&X-Amz-SignedHeaders=host&x-id=GetObject&X-Amz-Signature=56a93e70c9329ec2fcda3f3412f0070248e36cb59b96f571d6b16d46541ae033",
     "Method": "GET",
@@ -54,7 +58,6 @@ Response:
         ]
     }
 }
-```
 
 > `URL` is the pre-signed URL you can use to download the file. 
 
