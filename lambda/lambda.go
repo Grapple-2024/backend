@@ -2,6 +2,7 @@ package lambda
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,14 +12,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/rs/zerolog/log"
-
-	dynamodbsdk "github.com/Grapple-2024/backend/dynamodb"
 )
 
 const (
-	exclusiveStartKeyPK = "exclusiveStartKeyPK"
-	exclusiveStartKeySK = "exclusiveStartKeySK"
-	limit               = "limit"
+	exclusiveStartKeyKey = "exclusiveStartKey"
+	// exclusiveStartKeySK = "exclusiveStartKeySK"
+	limit = "limit"
 )
 
 type Lambda interface {
@@ -33,11 +32,7 @@ func NewRouter(lambdas map[string]Lambda) func(context.Context, events.APIGatewa
 	// Main handler function for all HTTP requests on this Lambda API.
 	return func(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 		base := strings.Split(strings.TrimPrefix(req.Path, "/"), "/")[0]
-		log.Info().Msgf("base: %v", base)
-
 		handler := lambdas[base]
-
-		log.Info().Msgf("Handler: %v", handler)
 		if handler == nil {
 			return ClientError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
 		}
@@ -63,9 +58,6 @@ func ProcessGet(ctx context.Context, l Lambda, req events.APIGatewayProxyRequest
 		return l.ProcessGetByID(ctx, req, id)
 	}
 
-	startKeyPK := req.QueryStringParameters[exclusiveStartKeyPK]
-	startKeySK := req.QueryStringParameters[exclusiveStartKeySK]
-
 	limitInt := 50
 	limit, ok := req.QueryStringParameters[limit]
 	if ok {
@@ -76,27 +68,21 @@ func ProcessGet(ctx context.Context, l Lambda, req events.APIGatewayProxyRequest
 		}
 	}
 
-	var startKey *dynamodbsdk.Key
-	if startKeyPK != "" {
-		startKey = &dynamodbsdk.Key{
-			PK: startKeyPK,
-		}
-	}
-	if startKeySK != "" {
-		startKey.SK = startKeySK
+	startKey := strings.ReplaceAll(req.QueryStringParameters[exclusiveStartKeyKey], "\\", "")
+	if startKey == "" {
+		return l.ProcessGetAll(ctx, req, int32(limitInt), nil)
 	}
 
-	fmt.Printf("Start Key: %v\n", startKey)
-	var av map[string]types.AttributeValue
-	var err error
-	if startKey != nil {
-		av, err = attributevalue.MarshalMap(startKey)
-		if err != nil {
-			return ClientError(http.StatusBadRequest, fmt.Sprintf("invalid exclusive start key: %v", err))
-		}
+	var exclusiveStartKey map[string]string
+	if err := json.Unmarshal([]byte(startKey), &exclusiveStartKey); err != nil {
+		log.Info().Err(err).Msgf("failed to unmarshal string %s into map[string]string", string(startKey))
+		return ClientError(http.StatusBadRequest, fmt.Sprintf("invalid exclusive start key: %v", err))
 	}
 
-	fmt.Printf("AV: %+v\n", av)
+	av, err := attributevalue.MarshalMap(exclusiveStartKey)
+	if err != nil {
+		return ClientError(http.StatusBadRequest, fmt.Sprintf("failed to marshal %v", err))
+	}
 
 	return l.ProcessGetAll(ctx, req, int32(limitInt), av)
 }
@@ -124,10 +110,28 @@ func NewResponse(statusCode int, body string, additionalHeaders map[string]strin
 }
 
 func ClientError(status int, msg string) (events.APIGatewayProxyResponse, error) {
-	return NewResponse(status, msg, nil), nil
+	resp := map[string]any{
+		"error": msg,
+	}
+
+	respBytes, err := json.Marshal(resp)
+	if err != nil {
+		return events.APIGatewayProxyResponse{}, err
+	}
+	return NewResponse(status, string(respBytes), nil), nil
 }
 
 func ServerError(err error) (events.APIGatewayProxyResponse, error) {
 	log.Error().Err(err).Msgf("Server error: %v", err.Error())
-	return NewResponse(http.StatusInternalServerError, fmt.Sprintf("Internal Server Error: %v", err), nil), nil
+
+	resp := map[string]any{
+		"error": err.Error(),
+	}
+
+	respBytes, err := json.Marshal(resp)
+	if err != nil {
+		return events.APIGatewayProxyResponse{}, nil
+	}
+
+	return NewResponse(http.StatusInternalServerError, string(respBytes), nil), nil
 }

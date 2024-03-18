@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -19,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
@@ -69,101 +69,63 @@ func (h *GymRequestHandler) ProcessGetAll(ctx context.Context, req events.APIGat
 	requestor := req.QueryStringParameters["requestor"]
 	gym := req.QueryStringParameters["gym"]
 	status := req.QueryStringParameters["status"]
+	ascending := parseBool(req.QueryStringParameters["ascending"], true)
 
-	var ascending bool
-	ascendingS := req.QueryStringParameters["ascending"]
-	if ascendingS == "" {
-		ascendingS = "true"
+	builder := expression.NewBuilder().
+		WithKeyCondition(expression.Key("dummy").Equal(expression.Value("dumb")))
+
+	filter := dynamodbsdk.BuildExpression(map[string]dynamodbsdk.Condition{
+		"gym_id": {
+			Value:    gym,
+			Operator: "Equal",
+		},
+		"requestor_id": {
+			Value:    requestor,
+			Operator: "Equal",
+		},
+		"status": {
+			Value:    status,
+			Operator: "Equal",
+		},
+	})
+	if filter != nil {
+		builder = builder.WithFilter(*filter)
 	}
-	ascending, err := strconv.ParseBool(ascendingS)
+
+	expr, err := builder.Build()
 	if err != nil {
-		return lambda.ClientError(http.StatusBadRequest, "?ascending query param must be a boolean")
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to build expression: %v", err))
 	}
 
-	filter := dynamodbsdk.Filter{
-		ExpressionAttributeValues: map[string]any{},
-	}
-	if gym != "" {
-		// get all requests for a given gym
-		if filter.ExpressionAttributeValues == nil {
-			filter.ExpressionAttributeValues = map[string]any{}
-		}
-		filter.ExpressionAttributeValues[":gym_id"] = gym
-	}
-
-	if requestor != "" {
-		if filter.ExpressionAttributeValues == nil {
-			filter.ExpressionAttributeValues = map[string]any{}
-		}
-		filter.ExpressionAttributeValues[":requestor_id"] = requestor
-	}
-
-	if status != "" {
-		if filter.ExpressionAttributeValues == nil {
-			filter.ExpressionAttributeValues = map[string]any{}
-		}
-		filter.ExpressionAttributeValues[":status"] = status
-		filter.ExpressionAttributeNames = map[string]string{
-			"#request_status": "status",
-		}
-	}
-
-	if gym != "" && requestor != "" && status != "" {
-		// Get by Gym, Requestor and Status
-		filter.FilterExpression = aws.String("gym_id = :gym_id and requestor_id = :requestor_id and #request_status = :status")
-	} else if gym != "" && requestor != "" {
-		// Get by Gym and Requestor
-		filter.FilterExpression = aws.String("gym_id = :gym_id and requestor_id = :requestor_id")
-	} else if gym != "" && requestor == "" && status != "" {
-		// Get by Gym and Status
-		filter.FilterExpression = aws.String("gym_id = :gym_id and #request_status = :status")
-	} else if gym != "" && requestor == "" && status == "" {
-		// Get by Gym
-		filter.FilterExpression = aws.String("gym_id = :gym_id")
-	} else if gym == "" && requestor != "" && status != "" {
-		// Get by Requestor and Status
-		filter.FilterExpression = aws.String("requestor_id = :requestor_id and #request_status = :status")
-	} else if gym == "" && requestor != "" && status == "" {
-		// Get by Requestor
-		filter.FilterExpression = aws.String("requestor_id = :requestor_id")
-	}
-	if filter.ExpressionAttributeValues == nil {
-		filter.ExpressionAttributeValues = map[string]any{}
-	}
-	filter.KeyConditionExpression = aws.String("dummy = :dumb")
-	filter.ExpressionAttributeValues[":dumb"] = "dumb"
-	index := aws.String("CreatedAtIndex")
-
-	result, err := h.QueryPage(ctx, h.requestsTable, limit, startKey, index, &filter, ascending)
+	// Send Query request to DynamoDB
+	scanLimit := limit + 1000
+	result, err := h.Query(ctx, &dynamodb.QueryInput{
+		TableName:                 &h.gymRequestsTable,
+		Limit:                     &scanLimit,
+		ExclusiveStartKey:         startKey,
+		ScanIndexForward:          &ascending,
+		KeyConditionExpression:    expr.KeyCondition(),
+		FilterExpression:          expr.Filter(),
+		ExpressionAttributeNames:  expr.Names(),
+		ExpressionAttributeValues: expr.Values(),
+		IndexName:                 aws.String("CreatedAtIndex"),
+	})
 	if err != nil {
-		return lambda.ServerError(fmt.Errorf("filter: %+v, err: %w", filter, err))
+		return lambda.ServerError(fmt.Errorf("error querying table: %v", err))
 	}
 
 	var gymRequests []GymRequest
-	err = attributevalue.UnmarshalListOfMaps(result.Items, &gymRequests)
+	resp, err := dynamodbsdk.MarshalResponse(
+		aws.String("created_at"), limit, result.Count, result.ScannedCount, result.LastEvaluatedKey, result.Items, &gymRequests,
+	)
 	if err != nil {
-		return lambda.ClientError(http.StatusBadRequest, "bad request")
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("bad request: %v", err))
 	}
 
-	lastEvaluatedKey := dynamodbsdk.Key{}
-	if err := attributevalue.UnmarshalMap(result.LastEvaluatedKey, &lastEvaluatedKey); err != nil {
-		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("error unmarshalling last evaluated key: %v", err))
-	}
-	responseObject := dynamodbsdk.GetResponse{
-		Data:      gymRequests,
-		Count:     result.Count,
-		NextToken: &lastEvaluatedKey,
-	}
-	log.Info().Msgf("Count: %v", result.Count)
-	if result.Count == 0 {
-		responseObject.NextToken = nil
-	}
-
-	json, err := json.Marshal(responseObject)
+	json, err := json.Marshal(resp)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
-	log.Printf("Successfully fetched GymRequest item %s", json)
 
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
@@ -181,12 +143,14 @@ func (h *GymRequestHandler) ProcessGetByID(ctx context.Context, req events.APIGa
 	if err != nil {
 		return lambda.ServerError(err)
 	}
+	if len(requests) == 0 {
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("no request found with id %s", id))
+	}
 
 	json, err := json.Marshal(requests[0])
 	if err != nil {
 		return lambda.ServerError(err)
 	}
-	log.Printf("Successfully fetched Gyms by ID: %s", string(json))
 
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 
@@ -218,7 +182,6 @@ func (h *GymRequestHandler) ProcessPost(ctx context.Context, req events.APIGatew
 	if err != nil {
 		return lambda.ServerError(err)
 	}
-	log.Info().Msgf("Insert result: %+v", res)
 
 	var returnGym GymRequest
 	err = attributevalue.UnmarshalMap(res.Attributes, &returnGym)

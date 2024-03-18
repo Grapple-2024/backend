@@ -111,7 +111,7 @@ func (h *GymHandler) scanGyms(ctx context.Context, limit *int32, startKey map[st
 	}
 
 	var gyms []Gym
-	resp, err := dynamodbsdk.MarshalResponse(result.Count, result.LastEvaluatedKey, result.Items, &gyms)
+	resp, err := dynamodbsdk.MarshalResponse(nil, *limit, result.Count, result.ScannedCount, result.LastEvaluatedKey, result.Items, &gyms)
 	if err != nil {
 		return nil, err
 	}
@@ -142,21 +142,11 @@ func (h *GymHandler) queryGymsByCreator(ctx context.Context, limit *int32, creat
 	if err != nil {
 		return nil, err
 	}
-	// marshal last evaluated key into object
-	lastEvaluatedKey := dynamodbsdk.Key{}
-	if err := attributevalue.UnmarshalMap(result.LastEvaluatedKey, &lastEvaluatedKey); err != nil {
-		return nil, err
-	}
 
 	var gyms []Gym
-	if err := attributevalue.UnmarshalListOfMaps(result.Items, &gyms); err != nil {
+	resp, err := dynamodbsdk.MarshalResponse(nil, *limit, result.Count, result.ScannedCount, result.LastEvaluatedKey, result.Items, &gyms)
+	if err != nil {
 		return nil, err
-	}
-
-	resp := &dynamodbsdk.GetResponse{
-		Data:      gyms,
-		NextToken: &lastEvaluatedKey,
-		Count:     result.Count,
 	}
 
 	return resp, nil

@@ -60,7 +60,7 @@ aws dynamodb create-table \
 aws dynamodb create-table \
    --endpoint-url http://localhost:8000 --region=local \
    --table-name grapple-gym-videos \
-   --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=gym_id,AttributeType=S\
+   --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=gym_id,AttributeType=S AttributeName=updated_at,AttributeType=S AttributeName=dummy,AttributeType=S \
    --key-schema AttributeName=pk,KeyType=HASH \
    --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
    --global-secondary-indexes "[{ \
@@ -75,6 +75,19 @@ aws dynamodb create-table \
            \"ReadCapacityUnits\": 5, \
            \"WriteCapacityUnits\": 5 \
        } \
+   }, { \
+       \"IndexName\": \"LastUpdatedIndex\", \
+       \"KeySchema\": [ \
+           {\"AttributeName\":\"dummy\",\"KeyType\":\"HASH\"}, \
+           {\"AttributeName\":\"updated_at\",\"KeyType\":\"RANGE\"} \
+       ], \
+       \"Projection\": { \
+           \"ProjectionType\": \"ALL\" \
+       }, \
+       \"ProvisionedThroughput\": { \
+           \"ReadCapacityUnits\": 20, \
+           \"WriteCapacityUnits\": 20 \
+       } \
    }]"
 
 
@@ -82,7 +95,7 @@ aws dynamodb create-table \
 aws dynamodb create-table \
    --endpoint-url http://localhost:8000 --region=local \
    --table-name grapple-gym-requests \
-   --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=dummy,AttributeType=S AttributeName=created_at,AttributeType=S \
+   --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=dummy,AttributeType=S AttributeName=created_at,AttributeType=S AttributeName=requestor_id,AttributeType=S AttributeName=gym_id,AttributeType=S \
    --key-schema AttributeName=pk,KeyType=HASH \
    --provisioned-throughput ReadCapacityUnits=50,WriteCapacityUnits=50 \
    --global-secondary-indexes "[{ \
@@ -90,6 +103,30 @@ aws dynamodb create-table \
        \"KeySchema\": [ \
            {\"AttributeName\":\"dummy\",\"KeyType\":\"HASH\"}, \
            {\"AttributeName\":\"created_at\",\"KeyType\":\"RANGE\"} \
+       ], \
+       \"Projection\": { \
+           \"ProjectionType\": \"ALL\" \
+       }, \
+       \"ProvisionedThroughput\": { \
+           \"ReadCapacityUnits\": 50, \
+           \"WriteCapacityUnits\": 50 \
+       } \
+   }, { \
+       \"IndexName\": \"RequestorIndex\", \
+       \"KeySchema\": [ \
+           {\"AttributeName\":\"requestor_id\",\"KeyType\":\"HASH\"} \
+       ], \
+       \"Projection\": { \
+           \"ProjectionType\": \"ALL\" \
+       }, \
+       \"ProvisionedThroughput\": { \
+           \"ReadCapacityUnits\": 50, \
+           \"WriteCapacityUnits\": 50 \
+       } \
+   }, { \
+       \"IndexName\": \"GymIndex\", \
+       \"KeySchema\": [ \
+           {\"AttributeName\":\"gym_id\",\"KeyType\":\"HASH\"} \
        ], \
        \"Projection\": { \
            \"ProjectionType\": \"ALL\" \

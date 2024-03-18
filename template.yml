@@ -105,6 +105,8 @@ Resources:
           AttributeType: S
         - AttributeName: dummy
           AttributeType: S
+        - AttributeName: requestor_id
+          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
@@ -128,6 +130,15 @@ Resources:
             KeyType: HASH
           - AttributeName: created_at
             KeyType: RANGE
+          Projection: 
+            ProjectionType: "ALL"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+        - IndexName: "RequestorIndex"
+          KeySchema:
+          - AttributeName: requestor_id
+            KeyType: HASH
           Projection: 
             ProjectionType: "ALL"
           ProvisionedThroughput:
@@ -174,6 +185,10 @@ Resources:
           AttributeType: S
         - AttributeName: gym_id
           AttributeType: S
+        - AttributeName: dummy
+          AttributeType: S
+        - AttributeName: updated_at
+          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
@@ -186,6 +201,17 @@ Resources:
           KeySchema: 
           - AttributeName: gym_id
             KeyType: HASH
+          Projection:
+            ProjectionType: "ALL"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+        - IndexName: "LastUpdatedIndex"
+          KeySchema:
+          - AttributeName: dummy
+            KeyType: HASH
+          - AttributeName: updated_at
+            KeyType: RANGE
           Projection: 
             ProjectionType: "ALL"
           ProvisionedThroughput:

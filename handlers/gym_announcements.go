@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -19,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 
+	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 )
 
@@ -36,7 +36,7 @@ type GymAnnouncement struct {
 	Content   string    `json:"content" dynamodbav:"content,omitempty"`
 	CreatedAt time.Time `json:"created_at" dynamodbav:"created_at"`
 	UpdatedAt time.Time `json:"updated_at" dynamodbav:"updated_at"`
-	Dummy     string    `json:"-" dynamodbav:"dummy"`
+	Dummy     string    `json:"-" dynamodbav:"dummy,omitempty"`
 }
 
 func NewGymAnnouncementHandler(ctx context.Context, dynamoEndpoint string) (*GymAnnouncementHandler, error) {
@@ -62,63 +62,61 @@ func (h *GymAnnouncementHandler) ProcessGetAll(ctx context.Context, req events.A
 	if gym == "" {
 		return lambda.ClientError(http.StatusBadRequest, "?gym query parameter is required")
 	}
-	var ascending bool
-	ascendingS := req.QueryStringParameters["ascending"]
-	if ascendingS == "" {
-		ascendingS = "true"
-	}
+	ascending := parseBool(req.QueryStringParameters["ascending"], true)
 
-	ascending, err := strconv.ParseBool(ascendingS)
-	if err != nil {
-		return lambda.ClientError(http.StatusBadRequest, "?ascending query param must be a boolean")
-	}
-
+	log.Info().Msgf("Checking if token is coach or student...")
 	isNotCoach := h.IsCoach(ctx, req.Headers, gym)
 	isNotStudent := h.IsStudent(ctx, req.Headers, gym)
 	if isNotCoach != nil && isNotStudent != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("user is neither a coach or student of this gym: %v\n %v", isNotStudent, isNotCoach))
 	}
 
-	indexName := aws.String("LastUpdatedIndex")
-	filter := dynamodbsdk.Filter{
-		KeyConditionExpression: aws.String("dummy = :dummy"),
-		ExpressionAttributeValues: map[string]any{
-			":dummy": "dumb",
+	// Build the filter and key expressions
+	builder := expression.NewBuilder().
+		WithKeyCondition(expression.Key("dummy").Equal(expression.Value("dumb")))
+	filterExpr := dynamodbsdk.BuildExpression(map[string]dynamodbsdk.Condition{
+		"gym_id": {
+			Operator: "Equal",
+			Value:    gym,
 		},
+	})
+	if filterExpr != nil {
+		builder = builder.WithFilter(*filterExpr)
 	}
 
-	if startKey["pk"] != nil {
-		startKey["gym_id"] = &types.AttributeValueMemberS{
-			Value: gym,
-		}
-	}
-
-	log.Info().Msgf("QueryPage with startKey: %+v", startKey)
-	result, err := h.QueryPage(ctx, h.announcementsTable, limit, startKey, indexName, &filter, ascending)
+	expr, err := builder.Build()
 	if err != nil {
-		return lambda.ServerError(fmt.Errorf("filter: %+v, err: %w", filter, err))
+		return lambda.ServerError(fmt.Errorf("failed to build expression: %v", err))
+	}
+
+	input := &dynamodb.QueryInput{
+		TableName:                 &h.announcementsTable,
+		IndexName:                 aws.String("LastUpdatedIndex"),
+		ScanIndexForward:          &ascending,
+		KeyConditionExpression:    expr.KeyCondition(),
+		FilterExpression:          expr.Filter(),
+		ExpressionAttributeNames:  expr.Names(),
+		ExpressionAttributeValues: expr.Values(),
+		Limit:                     &limit,
+	}
+	if _, ok := startKey["pk"]; ok {
+		input.ExclusiveStartKey = startKey
+	}
+
+	result, err := h.Query(ctx, input)
+	if err != nil {
+		return lambda.ServerError(fmt.Errorf("failed to query table: %v", err))
 	}
 
 	var gymAnnouncements []GymAnnouncement
-	err = attributevalue.UnmarshalListOfMaps(result.Items, &gymAnnouncements)
+	resp, err := dynamodbsdk.MarshalResponse(
+		aws.String("updated_at"), limit, result.Count, result.ScannedCount, result.LastEvaluatedKey, result.Items, &gymAnnouncements,
+	)
 	if err != nil {
-		return lambda.ClientError(http.StatusBadRequest, "bad request")
-	}
-	lastEvaluatedKey := dynamodbsdk.Key{}
-	if err := attributevalue.UnmarshalMap(result.LastEvaluatedKey, &lastEvaluatedKey); err != nil {
-		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("error unmarshalling last evaluated key: %v", err))
-	}
-	responseObject := dynamodbsdk.GetResponse{
-		Data:      gymAnnouncements,
-		Count:     result.Count,
-		NextToken: &lastEvaluatedKey,
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("err marshalling response: %v", err))
 	}
 
-	if result.Count == 0 {
-		responseObject.NextToken = nil
-	}
-
-	json, err := json.Marshal(responseObject)
+	json, err := json.Marshal(resp)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -251,11 +249,12 @@ func (h *GymAnnouncementHandler) ProcessPut(ctx context.Context, req events.APIG
 	av, _ := attributevalue.MarshalMap(payload)
 	update := expression.UpdateBuilder{}
 	for k, v := range av {
-		if k == "pk" || k == "gym_id" || k == "created_at" || k == "updated_at" {
+		if k == "pk" || k == "gym_id" || k == "created_at" || k == "updated_at" || k == "title" || k == "dummy" {
 			continue
 		}
 		update = update.Set(expression.Name(k), expression.Value(v))
 	}
+	log.Info().Msgf("Update query: %+v", update)
 
 	builder := expression.NewBuilder().WithCondition(
 		expression.Equal(
@@ -290,7 +289,6 @@ func (h *GymAnnouncementHandler) ProcessPut(ctx context.Context, req events.APIG
 		return lambda.ServerError(err)
 	}
 
-	log.Info().Msgf("Gym request: %v", gymAnnouncement)
 	json, err := json.Marshal(resp.Attributes)
 	if err != nil {
 		return lambda.ServerError(err)

@@ -2,6 +2,7 @@ package dynamodb
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -26,31 +27,61 @@ type Key struct {
 }
 
 type GetResponse struct {
-	Data      any   `json:"data"`
-	Count     int32 `json:"count"`
-	NextToken *Key  `json:"nextToken"`
+	Data          any    `json:"data"`
+	Count         int32  `json:"count"`
+	ScannedCount  int32  `json:"scanned_count"`
+	LastEvaluated string `json:"lastEvaluatedKey"`
 }
 
-func MarshalResponse(count int32, lastEvaluatedKey map[string]types.AttributeValue, items []map[string]types.AttributeValue, data any) (*GetResponse, error) {
-	// marshal last evaluated key into object
-	lastEvaluated := Key{}
-	if err := attributevalue.UnmarshalMap(lastEvaluatedKey, &lastEvaluated); err != nil {
-		return nil, err
+func MarshalResponse(sortKey *string, limit, count, scannedCount int32, lastEvaluatedKey map[string]types.AttributeValue, items []map[string]types.AttributeValue, data any) (*GetResponse, error) {
+	resp := &GetResponse{
+		Data:         data,
+		Count:        count,
+		ScannedCount: scannedCount,
+	}
+	if len(items) <= int(limit) {
+		if err := attributevalue.UnmarshalListOfMaps(items, data); err != nil {
+			return nil, err
+		}
+		lastEvaledMap := map[string]any{}
+		if err := attributevalue.UnmarshalMap(lastEvaluatedKey, &lastEvaledMap); err != nil {
+			return nil, err
+		}
+
+		// marshal map[string]types.AttributeValue -> json string
+		bytes, err := json.Marshal(lastEvaledMap)
+		if err != nil {
+			return nil, err
+		}
+		resp.LastEvaluated = string(bytes)
+		return resp, nil
 	}
 
+	// filter results
+	// log.Info().Msgf("%d > %d is true", len(items), int(limit))
+	items = items[:limit]
 	if err := attributevalue.UnmarshalListOfMaps(items, data); err != nil {
 		return nil, err
 	}
 
-	return &GetResponse{
-		Data:      data,
-		Count:     count,
-		NextToken: &lastEvaluated,
-	}, nil
+	resp.Count = limit
+	lastEvaled := map[string]any{
+		"pk":     items[limit-1]["pk"].(*types.AttributeValueMemberS).Value,
+		"dummy":  "dumb",
+		*sortKey: items[limit-1][*sortKey].(*types.AttributeValueMemberS).Value,
+	}
+
+	jsonBytes, err := json.Marshal(lastEvaled)
+	if err != nil {
+		return nil, err
+	}
+	log.Info().Msgf("Last Evaluated: %s", string(jsonBytes))
+	resp.LastEvaluated = string(jsonBytes)
+
+	return resp, nil
 }
 
 func NewClient(endpoint string) (*Client, error) {
-	log.Info().Msgf("Starting dynamo client with endpoint %s", endpoint)
 	cfg, err := config.LoadDefaultConfig(context.TODO(),
 		config.WithEndpointResolver(aws.EndpointResolverFunc(
 			func(service, region string) (aws.Endpoint, error) {
@@ -150,7 +181,18 @@ func (c *Client) QueryPage(ctx context.Context, table string, limit int32, start
 		Any("ascending", *input.ScanIndexForward).
 		Msg("Scanning table")
 
-	return c.Query(ctx, input)
+	result, err := c.Query(ctx, input)
+	if temp := new(types.ResourceNotFoundException); errors.As(err, &temp) {
+		// ignore 404 not found error and just return empty slice
+		return &dynamodb.QueryOutput{
+			Items: []map[string]types.AttributeValue{},
+		}, nil
+
+	} else if err != nil {
+		return nil, err
+	}
+
+	return result, nil
 }
 
 func (c *Client) Get(ctx context.Context, table string, limit int32, exclusiveStartKey, indexName *string, filter *Filter) (*dynamodb.ScanOutput, error) {
@@ -276,4 +318,37 @@ func (c *Client) CreateTable(ctx context.Context, tableName *string, keySchema [
 	}
 
 	return tableDesc, err
+}
+
+type Condition struct {
+	Operator string
+	Value    string
+}
+
+func BuildExpression(conditions map[string]Condition) *expression.ConditionBuilder {
+	var builder *expression.ConditionBuilder
+	for field, condition := range conditions {
+		if condition.Value == "" {
+			continue
+		}
+
+		var cond expression.ConditionBuilder
+		switch condition.Operator {
+		case "Equal":
+			cond = expression.Name(field).Equal(expression.Value(condition.Value))
+		case "Contains":
+			cond = expression.Contains(expression.Name(field), condition.Value)
+		default:
+			cond = expression.Name(field).Equal(expression.Value(condition.Value))
+		}
+
+		if builder == nil {
+			builder = &cond
+			continue
+		}
+
+		*builder = builder.And(cond)
+	}
+
+	return builder
 }

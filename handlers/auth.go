@@ -50,7 +50,7 @@ func (s *AuthService) IsStudent(ctx context.Context, headers map[string]string, 
 	}
 
 	if len(gyms) == 0 {
-		return fmt.Errorf("no gym found with id %v", gymID)
+		return fmt.Errorf("no gym found with id: %s", gymID)
 	}
 	// Get Cognito user ID
 	token, err := token(headers)
@@ -69,6 +69,9 @@ func (s *AuthService) IsStudent(ctx context.Context, headers map[string]string, 
 	if err != nil {
 		return err
 	}
+
+	log.Info().Msgf("Get gym requests by requestor output: %+v", so)
+
 	var gymRequests []GymRequest
 	err = attributevalue.UnmarshalListOfMaps(so.Items, &gymRequests)
 	if err != nil {
@@ -79,8 +82,8 @@ func (s *AuthService) IsStudent(ctx context.Context, headers map[string]string, 
 	}
 
 	log.Info().Msgf("found gym request for requestor id %q: %+v", token.Sub, gymRequests[0])
-	if gymRequests[0].Status != "Accepted" {
-		return fmt.Errorf("gym request is not Accepted for user %v in gym %v", gymRequests[0].RequestorID, gymID)
+	if gymRequests[0].Status != StatusAccepted {
+		return fmt.Errorf("gym request is not accepted for user %v in gym %v", gymRequests[0].RequestorID, gymID)
 	}
 
 	return nil
@@ -152,7 +155,6 @@ func token(hdrs map[string]string) (*Token, error) {
 	if err := mapstructure.Decode(token.Claims.(jwt.MapClaims), &t); err != nil {
 		return nil, err
 	}
-	log.Info().Msgf("Token decoded: %+v", t)
 
 	return t, nil
 }
