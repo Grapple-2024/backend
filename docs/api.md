@@ -40,7 +40,7 @@ The response body will be empty with a status code of `200` if the request was s
 ---
 
 ### Download a File
-This section walks you through downloading a file to the Grapple S3 backend.
+This section walks you through downloading a file from the Grapple S3 backend.
 
 #### 1. Get Presigned Download URL
 First, execute a `GET` request against the Grapple S3 API to retrieve the pre-signed upload url:
