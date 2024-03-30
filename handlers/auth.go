@@ -92,7 +92,7 @@ func (s *AuthService) IsStudent(ctx context.Context, headers map[string]string, 
 func (s *AuthService) IsCoach(ctx context.Context, headers map[string]string, gymID string) error {
 	o, err := s.GetByID(ctx, s.gymsTable, gymID)
 	if err != nil {
-		return fmt.Errorf("failed to get gym by ID: %w", err)
+		return fmt.Errorf("failed to get gym by ID %q: %w", gymID, err)
 	}
 
 	var gyms []Gym

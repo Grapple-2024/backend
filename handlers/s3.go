@@ -66,11 +66,12 @@ func (h *S3Handler) ProcessGetAll(ctx context.Context, req events.APIGatewayProx
 
 	gym := req.QueryStringParameters["gym"]
 	ttl := req.QueryStringParameters["ttl"]
-	key := req.QueryStringParameters["key"]
+	keys := req.MultiValueQueryStringParameters["key"]
+	log.Info().Msgf("Multi query string params: %v", req.MultiValueQueryStringParameters["key"])
 	operation := req.QueryStringParameters["operation"]
 
 	// check for empty required parameter
-	if key == "" || gym == "" || operation == "" {
+	if len(keys) == 0 || gym == "" || operation == "" {
 		return lambda.ClientError(http.StatusNotFound, "must specify ?key=<file-name>&gym=<gym_pk>&operation=<download|upload> query string parameters")
 	}
 
@@ -83,10 +84,13 @@ func (h *S3Handler) ProcessGetAll(ctx context.Context, req events.APIGatewayProx
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("ttl must be an integer: %v", err))
 	}
 
-	finalKey := fmt.Sprintf("%s/%s", gym, key)
-	var r *v4.PresignedHTTPRequest
+	var resp any
 	switch operation {
 	case operationUpload:
+		if len(keys) > 1 {
+			return lambda.ClientError(http.StatusNotFound, "you can only specify one key query parameter during an upload operation")
+		}
+
 		// check to make sure the token is a coach of the gym
 		if err := h.IsCoach(ctx, req.Headers, gym); err != nil {
 			log.Error().Err(err).Msgf("security incident: user tried to upload file to a gym they are not a coach of!")
@@ -94,9 +98,16 @@ func (h *S3Handler) ProcessGetAll(ctx context.Context, req events.APIGatewayProx
 			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("could not verify token is a coach: %v", err))
 		}
 
-		r, err = h.createPresignedUploadURL(gymVideosBucket, finalKey, ttlDur)
+		// create the presigned upload URL
+		objectKey := fmt.Sprintf("%s/%s", gym, keys[0])
+		r, err := h.createPresignedUploadURL(gymVideosBucket, objectKey, ttlDur)
 		if err != nil {
 			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("error creating presigned upload url: %v", err))
+		}
+
+		resp = map[string]any{
+			"url":       r.URL,
+			"s3_object": keys[0],
 		}
 	case operationDownload:
 		// check to make sure the token is either a coach or student
@@ -108,15 +119,28 @@ func (h *S3Handler) ProcessGetAll(ctx context.Context, req events.APIGatewayProx
 			return lambda.ClientError(http.StatusForbidden, "user is neither a coach or student of this gym")
 		}
 
-		r, err = h.createPresignedDownloadURL(gymVideosBucket, finalKey, ttlDur)
-		if err != nil {
-			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("error creating presigned download url: %v", err))
+		presignedURLs := []map[string]any{}
+		for _, key := range keys {
+			objectKey := fmt.Sprintf("%s/%s", gym, key)
+			r, err := h.createPresignedDownloadURL(gymVideosBucket, objectKey, ttlDur)
+			if err != nil {
+				return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("error creating presigned download url: %v", err))
+			}
+			log.Info().Msgf("Processing key: %v", key)
+			log.Info().Msgf("Presigned URL: %v", r)
+
+			presignedURLs = append(presignedURLs, map[string]any{
+				"url":       r.URL,
+				"s3_object": key,
+			})
 		}
+		resp = presignedURLs
+
 	default:
 		return lambda.ClientError(http.StatusNotFound, "invalid opeation value. valid values for ?operation are either 'download' or 'upload'")
 	}
 
-	bytes, err := json.Marshal(r)
+	bytes, err := json.Marshal(resp)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("error marshaling presigned url response to json: %v", err))
 	}

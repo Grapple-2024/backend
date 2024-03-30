@@ -162,16 +162,22 @@ func (h *GymRequestHandler) ProcessPost(ctx context.Context, req events.APIGatew
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	}
 
+	// unmarshal request body into GymRequest struct and validate input
 	var gymRequest GymRequest
 	if err := json.Unmarshal([]byte(req.Body), &gymRequest); err != nil {
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("request body invalid: %v", req.Body))
 	}
-
 	err = validate.Struct(&gymRequest)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("request body failed validation: %v", err))
 	}
 
+	// Fetch the Gym that the Gym Request is referencing. Confirm that it exists. Return 400 bad request if it does not exist.
+	if _, err := h.GetByID(ctx, h.gymsTable, gymRequest.GymID); err != nil {
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("error fetching gym by ID. make sure the gym_id you specified is a valid Gym ID: %v", err))
+	}
+
+	// create the request
 	gymRequest.PK = base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("gymRequest#%s/%s", token.Sub, gymRequest.GymID)))
 	gymRequest.RequestorID = token.Sub
 	gymRequest.Status = StatusPending
@@ -260,9 +266,8 @@ func (h *GymRequestHandler) ProcessPut(ctx context.Context, req events.APIGatewa
 	result, err := h.GetByID(ctx, h.requestsTable, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym request not found: %v", err))
-	}
-	if result.Count == 0 {
-		return lambda.ClientError(http.StatusNotFound, "gym request not found")
+	} else if result.Count == 0 {
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym request not found with id %v", id))
 	}
 
 	var requests []GymRequest
@@ -272,6 +277,7 @@ func (h *GymRequestHandler) ProcessPut(ctx context.Context, req events.APIGatewa
 	}
 
 	// check if the token has permission to modify the request (They must be the gym's coach)
+	log.Info().Msgf("Checking if user request token is associated with the coach of gym %++v", requests[0])
 	if err := h.IsCoach(ctx, req.Headers, requests[0].GymID); err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: must be a coach to modify a gym request: %v", err))
 	}

@@ -114,12 +114,15 @@ func (c *Client) GetByID(ctx context.Context, table, id string) (*dynamodb.Query
 			},
 		},
 	}
+
+	log.Info().Msgf("Query for %s: %+v", *queryInput.TableName, queryInput)
 	result, err := c.Query(ctx, queryInput)
 	if err != nil {
 		return nil, err
 	}
 
 	if result.Count == 0 {
+		log.Warn().Msgf("result count is 0 for query for %v by pk=%v", *queryInput.TableName, key)
 		return nil, fmt.Errorf("no items found from query for ID: %v", id)
 	}
 

@@ -133,13 +133,13 @@ func (h *GymAnnouncementHandler) ProcessGetByID(ctx context.Context, req events.
 		return lambda.ServerError(err)
 	}
 
-	var requests []GymAnnouncement
-	err = attributevalue.UnmarshalListOfMaps(result.Items, &requests)
+	var announcements []GymAnnouncement
+	err = attributevalue.UnmarshalListOfMaps(result.Items, &announcements)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
 
-	json, err := json.Marshal(requests[0])
+	json, err := json.Marshal(announcements[0])
 	if err != nil {
 		return lambda.ServerError(err)
 	}

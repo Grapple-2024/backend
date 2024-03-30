@@ -31,18 +31,17 @@ type GymVideoHandler struct {
 type GymVideo struct {
 	PK string `json:"pk" dynamodbav:"pk"`
 
-	GymID   string `json:"gym_id" dynamodbav:"gym_id,omitempty"`
-	Title   string `json:"title" dynamodbav:"title,omitempty"`
-	Content string `json:"content" dynamodbav:"content,omitempty"`
+	GymID   string `json:"gym_id,omitempty" dynamodbav:"gym_id,omitempty"`
+	Title   string `json:"title,omitempty" dynamodbav:"title,omitempty"`
+	Content string `json:"content,omitempty" dynamodbav:"content,omitempty"`
 
-	Difficulty  string   `json:"difficulty,omitempty" dynamodbav:"difficulty"`
-	Disciplines []string `json:"disciplines" dynamodbav:"disciplines,stringsets,omitempty"`
-	URL         string   `json:"url,omitempty" dynamodbav:"url"`
+	Difficulty  string    `json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
+	Disciplines []string  `json:"disciplines,omitempty" dynamodbav:"disciplines,stringsets,omitempty"`
+	S3Object    string    `json:"s3_object,omitempty" dynamodbav:"s3_object,omitempty"`
+	CreatedAt   time.Time `json:"created_at,omitempty" dynamodbav:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at,omitempty" dynamodbav:"updated_at"`
 
-	CreatedAt time.Time `json:"created_at" dynamodbav:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" dynamodbav:"updated_at"`
-
-	Dummy string `json:"-" dynamodbav:"dummy"`
+	Dummy string `json:"-" dynamodbav:"dummy,omitempty"`
 }
 
 func NewGymVideoHandler(ctx context.Context, dynamoEndpoint string) (*GymVideoHandler, error) {
