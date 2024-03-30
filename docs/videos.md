@@ -42,7 +42,7 @@ curl -X GET -H "Authorization: Bearer <token>" \
 ### Step 2:
 Next, accumulate the value of the `s3_object` field of each gym video in the response above into a separate array.
 
-Then, use [URL Search Params](https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams) to encode the list of S3 Object keys into the request URL.
+Then, use [URL Search Params](https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams) to encode the list of S3 Object keys into the request URL `key` multi-string query parameter.
 
 ```javascript
 var videoS3Keys = ["video1.mp4", "video2.mp4"]
