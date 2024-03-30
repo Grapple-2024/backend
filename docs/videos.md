@@ -35,11 +35,25 @@ curl -X POST \
 ### Step 1:
 First, get the Gym Video(s) you want to display from the Grapple Database:
 ```shell
-curl -X GET -H "Authorization: Bearer <token>" https://q6q57z2ve5.execute-api.us-west-1.amazonaws.com/Prod/gym-videos?gym=Z3ltIzBhYzkxZTk2LTg5ZjUtNGU1Zi05ZGRlLTc5NDQxOGI4Yjg4OC9BbGVjJ3MgR3ltOQ==&limit=10
+curl -X GET -H "Authorization: Bearer <token>" \
+    https://q6q57z2ve5.execute-api.us-west-1.amazonaws.com/Prod/gym-videos?gym=Z3ltIzBhYzkxZTk2LTg5ZjUtNGU1Zi05ZGRlLTc5NDQxOGI4Yjg4OC9BbGVjJ3MgR3ltOQ==&limit=10
 ```
 
 ### Step 2:
-Next, generate a presigned download URL for each video you want via the [S3 API](./api.md#download-files).
+Next, accumulate the value of the `s3_object` field of each gym video in the response above into a separate array.
+
+Then, use [URL Search Params](https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams) to encode the list of S3 Object keys into the request URL.
+
+```javascript
+var videoS3Keys = ["video1.mp4", "video2.mp4"]
+var search = new URLSearchParams(videoKeys.map(s=>['key',s]))
+var searchString = search.toString()
+// "key=video1.mp4&key=video2.mp4"
+```
+
+
+
+Next, send the request to generate the presigned URL(s) for each s3 object key in your `videoS3Keys` array. Refer to [docs](./api.md#download-files) for details.
 
 ### Step 3:
 For each video you intend on downloading, execute a GET request against the presigned URL.
