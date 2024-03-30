@@ -3,7 +3,7 @@
 ## Table of Contents
 - [S3](#s3)
   - [Upload a File](#upload-a-file)
-  - [Download a File](#download-a-file)
+  - [Download File(s)](#download-files)
 
 
 ---
