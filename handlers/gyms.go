@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	cip "github.com/aws/aws-sdk-go/service/cognitoidentityprovider"
@@ -34,7 +35,7 @@ type Gym struct {
 	PK string `json:"pk" dynamodbav:"pk"`
 
 	Name        string `json:"name,omitempty" dynamodbav:"name"`
-	Description string `json:"description,omitempty", dynamodbav:"description"`
+	Description string `json:"description,omitempty" dynamodbav:"description"`
 	Creator     string `json:"creator" dynamodbav:"creator"`
 
 	// Address
@@ -231,7 +232,7 @@ func (h *GymHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxy
 	}
 
 	// Insert Gym into dynamodb
-	gymPK := base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("gym#%s/%s", gym.Creator, gym.Name)))
+	gymPK := base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("gym#%s/%d", gym.Creator, time.Now().Unix())))
 	gym.PK = gymPK
 	res, err := h.Insert(ctx, h.gymsTable, &gym)
 	if err != nil {
@@ -331,7 +332,7 @@ func (h *GymHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyR
 	av, _ := attributevalue.MarshalMap(gymUpdatePayload)
 	update := expression.UpdateBuilder{}
 	for k, v := range av {
-		if k == "pk" || k == "creator" || k == "name" || k == "created_at" || k == "updated_at" {
+		if k == "pk" || k == "creator" || k == "created_at" || k == "updated_at" {
 			continue
 		}
 

@@ -63,8 +63,9 @@ func NewGymVideoHandler(ctx context.Context, dynamoEndpoint string) (*GymVideoHa
 }
 
 func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, startKey map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
-	discipline := req.QueryStringParameters["discipline"]
-	difficulty := req.QueryStringParameters["difficulty"]
+	title := req.QueryStringParameters["title"]
+	disciplines := req.MultiValueQueryStringParameters["discipline"]
+	difficulties := req.MultiValueQueryStringParameters["difficulty"]
 	ascending := parseBool(req.QueryStringParameters["ascending"], true)
 	gym := req.QueryStringParameters["gym"]
 	if gym == "" {
@@ -78,11 +79,15 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 			Operator: "Equal",
 		},
 		"difficulty": {
-			Value:    difficulty,
-			Operator: "Equal",
+			Value:    difficulties,
+			Operator: "StringIn", // find gym videos with a difficulty that matches one of the difficulties in the difficulties slice.
 		},
 		"disciplines": {
-			Value:    discipline,
+			Value:    disciplines,
+			Operator: "ContainsOr", // find gym videos that have a discipline associated with any of the disciplines in the disciplines slice.
+		},
+		"title": {
+			Value:    title,
 			Operator: "Contains",
 		},
 	})
@@ -98,6 +103,7 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 
 	// temporary workaround to ensure number of results are in the page
 	scanLimit := limit + 1000
+
 	result, err := h.Query(ctx, &dynamodb.QueryInput{
 		TableName:                 &h.videosTable,
 		Limit:                     &scanLimit,
@@ -118,7 +124,7 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 		aws.String("updated_at"), limit, result.Count, result.ScannedCount, result.LastEvaluatedKey, result.Items, &gymVideos,
 	)
 	if err != nil {
-		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("err marshalling response: %v", err))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("error marshalling response: %v", err))
 	}
 
 	json, err := json.Marshal(resp)

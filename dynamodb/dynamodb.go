@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 
@@ -325,13 +326,18 @@ func (c *Client) CreateTable(ctx context.Context, tableName *string, keySchema [
 
 type Condition struct {
 	Operator string
-	Value    string
+	Value    any
 }
 
 func BuildExpression(conditions map[string]Condition) *expression.ConditionBuilder {
 	var builder *expression.ConditionBuilder
 	for field, condition := range conditions {
-		if condition.Value == "" {
+		if reflect.TypeOf(condition.Value).String() == "[]string" && len(condition.Value.([]string)) == 0 {
+			log.Info().Msgf("skipping empty []string condition")
+
+			continue
+		} else if reflect.TypeOf(condition.Value).String() == "string" && len(condition.Value.(string)) == 0 {
+			log.Info().Msgf("skipping empty string condition")
 			continue
 		}
 
@@ -341,6 +347,26 @@ func BuildExpression(conditions map[string]Condition) *expression.ConditionBuild
 			cond = expression.Name(field).Equal(expression.Value(condition.Value))
 		case "Contains":
 			cond = expression.Contains(expression.Name(field), condition.Value)
+		case "ContainsOr":
+			vals := condition.Value.([]string)
+			for i, v := range vals {
+				if i != 0 {
+					cond = cond.Or(expression.Contains(expression.Name(field), v))
+					continue
+				}
+				cond = expression.Contains(expression.Name(field), v)
+			}
+
+			log.Info().Msgf("Built containsOr condition: %+v", cond)
+
+		case "StringIn":
+			values := []expression.OperandBuilder{}
+			vals := condition.Value.([]string)
+			for _, v := range vals {
+				values = append(values, expression.Value(v))
+			}
+			log.Info().Msgf("Filtering objects where string field %q is equal to one of the values in the set %v", field, values)
+			cond = expression.In(expression.Name(field), values[0], values[1:]...)
 		default:
 			cond = expression.Name(field).Equal(expression.Value(condition.Value))
 		}
