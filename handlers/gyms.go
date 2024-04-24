@@ -97,13 +97,19 @@ func NewGymHandler(ctx context.Context, dynamoEndpoint string) (*GymHandler, err
 	}, nil
 }
 
-func (h *GymHandler) scanGyms(ctx context.Context, limit *int32, startKey map[string]types.AttributeValue) (*dynamodbsdk.GetResponse, error) {
+func (h *GymHandler) scanGyms(ctx context.Context, expr *expression.Expression, limit *int32, startKey map[string]types.AttributeValue) (*dynamodbsdk.GetResponse, error) {
 	input := &dynamodb.ScanInput{
 		TableName: &h.gymsTable,
 		Limit:     limit,
 	}
 	if startKey != nil {
 		input.ExclusiveStartKey = startKey
+	}
+
+	if expr != nil {
+		input.FilterExpression = (*expr).Filter()
+		input.ExpressionAttributeNames = (*expr).Names()
+		input.ExpressionAttributeValues = (*expr).Values()
 	}
 
 	result, err := h.Scan(ctx, input)
@@ -155,6 +161,7 @@ func (h *GymHandler) queryGymsByCreator(ctx context.Context, limit *int32, creat
 
 func (h *GymHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, startKey map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
 	creatorID := req.QueryStringParameters["creator"]
+	name := req.QueryStringParameters["name"]
 
 	var resp *dynamodbsdk.GetResponse
 	var err error
@@ -163,8 +170,20 @@ func (h *GymHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayPro
 		if err != nil {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find gyms by creator ID: %v", err))
 		}
+
+	} else if name != "" {
+		condition := expression.Name("name").Contains(name)
+		expr, err := expression.NewBuilder().WithFilter(condition).Build()
+		if err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to scan gyms table: %v", err))
+		}
+
+		resp, err = h.scanGyms(ctx, &expr, &limit, startKey)
+		if err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to scan gyms table: %v", err))
+		}
 	} else {
-		resp, err = h.scanGyms(ctx, &limit, startKey)
+		resp, err = h.scanGyms(ctx, nil, &limit, startKey)
 		if err != nil {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to scan gyms table: %v", err))
 		}
