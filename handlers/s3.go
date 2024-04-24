@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"slices"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -56,14 +55,6 @@ func NewS3Handler(ctx context.Context, dynamoEndpoint, region string) (*S3Handle
 }
 
 func (h *S3Handler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, startKey map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
-	token, err := token(req.Headers)
-	if err != nil {
-		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("could not validate token: %v", err))
-	}
-	if !slices.Contains(token.Roles, coachGroupARN) {
-		return lambda.ClientError(http.StatusForbidden, "permission denied, user is not a coach")
-	}
-
 	gym := req.QueryStringParameters["gym"]
 	ttl := req.QueryStringParameters["ttl"]
 	keys := req.MultiValueQueryStringParameters["key"]
