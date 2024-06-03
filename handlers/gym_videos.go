@@ -15,16 +15,19 @@ import (
 	"github.com/Grapple-2024/backend/lambda"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 type GymVideoHandler struct {
 	*dynamodbsdk.Client
 	*AuthService
+	*s3.PresignClient
 	videosTable string
 }
 
@@ -32,12 +35,13 @@ type GymVideo struct {
 	PK string `json:"pk" dynamodbav:"pk"`
 
 	GymID   string `json:"gym_id,omitempty" dynamodbav:"gym_id,omitempty"`
-	Title   string `json:"title,omitempty" dynamodbav:"title,omitempty"`
+	Title   string `validator:"nonzero" json:"title,omitempty" dynamodbav:"title,omitempty"`
 	Content string `json:"content,omitempty" dynamodbav:"content,omitempty"`
 
-	Difficulty  string    `json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
+	Difficulty  string    `validator:"nonzero" json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
 	Disciplines []string  `json:"disciplines,omitempty" dynamodbav:"disciplines,stringsets,omitempty"`
 	S3Object    string    `json:"s3_object,omitempty" dynamodbav:"s3_object,omitempty"`
+	URL         string    `json:"url,omitempty" dynamodbav:"url,omitempty"`
 	CreatedAt   time.Time `json:"created_at,omitempty" dynamodbav:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at,omitempty" dynamodbav:"updated_at"`
 
@@ -55,10 +59,22 @@ func NewGymVideoHandler(ctx context.Context, dynamoEndpoint string) (*GymVideoHa
 		return nil, err
 	}
 
+	// Using the SDK's default configuration, loading additional config
+	// and credentials values from the environment variables, shared
+	// credentials, and shared configuration files
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return nil, err
+	}
+
+	c := s3.NewFromConfig(cfg)
+	psc := s3.NewPresignClient(c)
+
 	return &GymVideoHandler{
-		Client:      db,
-		AuthService: authSVC,
-		videosTable: os.Getenv("GYM_VIDEOS_TABLE_NAME"),
+		Client:        db,
+		AuthService:   authSVC,
+		PresignClient: psc,
+		videosTable:   os.Getenv("GYM_VIDEOS_TABLE_NAME"),
 	}, nil
 }
 
@@ -119,6 +135,26 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 		return lambda.ServerError(fmt.Errorf("failed to query dynamodb: %v", err))
 	}
 
+	for _, v := range result.Items {
+		s3Key := v["s3_object"].(*types.AttributeValueMemberS).Value
+		params := &s3.GetObjectInput{
+			Bucket: aws.String("grapple-gym-videos"),
+			Key:    aws.String(s3Key),
+		}
+
+		r, err := h.PresignClient.PresignGetObject(context.TODO(), params, func(opts *s3.PresignOptions) {
+			opts.Expires = time.Minute * 30
+		})
+		if err != nil {
+			log.Info().Msgf("Couldn't get a presigned download url for object %v. Here's why: %v", s3Key, err)
+			return lambda.ServerError(err)
+		}
+		log.Info().Msgf("Fetched presigned S3 url for video: %v", r.URL)
+		v["url"] = &types.AttributeValueMemberS{
+			Value: r.URL,
+		}
+	}
+
 	var gymVideos []GymVideo
 	resp, err := dynamodbsdk.MarshalResponse(
 		aws.String("updated_at"), limit, result.Count, result.ScannedCount, result.LastEvaluatedKey, result.Items, &gymVideos,
@@ -126,6 +162,8 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("error marshalling response: %v", err))
 	}
+
+	log.Info().Msgf("resp.Data: %v", resp.Data)
 
 	json, err := json.Marshal(resp)
 	if err != nil {
@@ -139,6 +177,28 @@ func (h *GymVideoHandler) ProcessGetByID(ctx context.Context, req events.APIGate
 	result, err := h.GetByID(ctx, h.videosTable, id)
 	if err != nil {
 		return lambda.ServerError(err)
+	}
+
+	if len(result.Items) > 0 {
+		// Get pre-signed URL
+		s3Key := result.Items[0]["s3_object"].(*types.AttributeValueMemberS).Value
+		params := &s3.GetObjectInput{
+			Bucket: aws.String("grapple-gym-videos"),
+			Key:    aws.String(s3Key),
+		}
+
+		r, err := h.PresignClient.PresignGetObject(context.TODO(), params, func(opts *s3.PresignOptions) {
+			opts.Expires = time.Minute * 30
+		})
+		if err != nil {
+			log.Info().Msgf("Couldn't get a presigned download url for object %v. Here's why: %v", s3Key, err)
+			return lambda.ServerError(err)
+		}
+
+		log.Info().Msgf("Fetched presigned S3 url for video: %v", r.URL)
+		result.Items[0]["url"] = &types.AttributeValueMemberS{
+			Value: r.URL,
+		}
 	}
 
 	var requests []GymVideo
@@ -170,7 +230,7 @@ func (h *GymVideoHandler) ProcessPost(ctx context.Context, req events.APIGateway
 	gymVideo.UpdatedAt = gymVideo.CreatedAt
 	gymVideo.Dummy = "dumb"
 	gymVideo.PK = base64.URLEncoding.EncodeToString([]byte(
-		fmt.Sprintf("gymVideo#%s/%d", gymVideo.GymID, gymVideo.CreatedAt.Unix())),
+		fmt.Sprintf("gymVideo#%s/%s/%d", gymVideo.GymID, gymVideo.Title, gymVideo.CreatedAt.Unix())),
 	)
 
 	res, err := h.Insert(ctx, h.videosTable, &gymVideo)

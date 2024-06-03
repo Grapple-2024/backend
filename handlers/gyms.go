@@ -199,12 +199,7 @@ func (h *GymHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayPro
 }
 
 func (h *GymHandler) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
-	token, err := token(req.Headers)
-	if err != nil {
-		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("could not validate token: %v", err))
-	}
-
-	log.Info().Msgf("Received GET Gym by ID request with ID: %v, token: %v", id, token)
+	log.Info().Msgf("Received GET Gym by ID request with ID: %v", id)
 
 	result, err := h.GetByID(ctx, h.gymsTable, id)
 	if err != nil {

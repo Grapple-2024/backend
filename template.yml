@@ -260,7 +260,9 @@ Resources:
             Path: /gyms/{id}
             Method: GET
             RestApiId: !Ref Gateway
-            
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
+
         GetGyms:
           Type: Api
           Properties:
