@@ -137,22 +137,13 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 
 	for _, v := range result.Items {
 		s3Key := v["s3_object"].(*types.AttributeValueMemberS).Value
-		params := &s3.GetObjectInput{
-			Bucket: aws.String("grapple-gym-videos"),
-			Key:    aws.String(s3Key),
+		url, err := h.getPresignedURL(s3Key)
+		if err != nil {
+			return lambda.ServerError(fmt.Errorf("failed to get presigned url: %v", err))
 		}
 
-		r, err := h.PresignClient.PresignGetObject(context.TODO(), params, func(opts *s3.PresignOptions) {
-			opts.Expires = time.Minute * 30
-		})
-		if err != nil {
-			log.Info().Msgf("Couldn't get a presigned download url for object %v. Here's why: %v", s3Key, err)
-			return lambda.ServerError(err)
-		}
-		log.Info().Msgf("Fetched presigned S3 url for video: %v", r.URL)
-		v["url"] = &types.AttributeValueMemberS{
-			Value: r.URL,
-		}
+		log.Info().Msgf("Fetched presigned S3 url for video: %v", url)
+		v["url"] = url
 	}
 
 	var gymVideos []GymVideo
@@ -180,25 +171,14 @@ func (h *GymVideoHandler) ProcessGetByID(ctx context.Context, req events.APIGate
 	}
 
 	if len(result.Items) > 0 {
-		// Get pre-signed URL
 		s3Key := result.Items[0]["s3_object"].(*types.AttributeValueMemberS).Value
-		params := &s3.GetObjectInput{
-			Bucket: aws.String("grapple-gym-videos"),
-			Key:    aws.String(s3Key),
-		}
-
-		r, err := h.PresignClient.PresignGetObject(context.TODO(), params, func(opts *s3.PresignOptions) {
-			opts.Expires = time.Minute * 30
-		})
+		url, err := h.getPresignedURL(s3Key)
 		if err != nil {
-			log.Info().Msgf("Couldn't get a presigned download url for object %v. Here's why: %v", s3Key, err)
-			return lambda.ServerError(err)
+			return lambda.ServerError(fmt.Errorf("failed to get presigned url: %v", err))
 		}
 
-		log.Info().Msgf("Fetched presigned S3 url for video: %v", r.URL)
-		result.Items[0]["url"] = &types.AttributeValueMemberS{
-			Value: r.URL,
-		}
+		log.Info().Msgf("Fetched presigned S3 url for video: %v", url)
+		result.Items[0]["url"] = url
 	}
 
 	var requests []GymVideo
@@ -357,4 +337,23 @@ func (h *GymVideoHandler) ProcessPut(ctx context.Context, req events.APIGatewayP
 	}
 
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
+}
+
+func (h *GymVideoHandler) getPresignedURL(key string) (*types.AttributeValueMemberS, error) {
+	// Get pre-signed URL
+	params := &s3.GetObjectInput{
+		Bucket: aws.String("grapple-gym-videos"),
+		Key:    aws.String(key),
+	}
+
+	r, err := h.PresignClient.PresignGetObject(context.TODO(), params, func(opts *s3.PresignOptions) {
+		opts.Expires = time.Minute * 30
+	})
+	if err != nil {
+		return nil, fmt.Errorf("couldn't get a presigned download url for object %v: %w", key, err)
+	}
+
+	return &types.AttributeValueMemberS{
+		Value: r.URL,
+	}, nil
 }
