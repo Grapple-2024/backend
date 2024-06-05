@@ -106,7 +106,7 @@ func (h *S3Handler) ProcessGetAll(ctx context.Context, req events.APIGatewayProx
 		isNotCoach := h.IsCoach(ctx, req.Headers, gym)
 		isNotStudent := h.IsStudent(ctx, req.Headers, gym)
 		if isNotCoach != nil && isNotStudent != nil {
-			log.Error().Err(err).Msgf("security incident: user tried to download a file from a gym they are neither a student or coach of!")
+			log.Error().Err(err).Msgf("security incident! user tried to download a file from a gym they are neither a student or coach of!")
 			return lambda.ClientError(http.StatusForbidden, "user is neither a coach or student of this gym")
 		}
 

@@ -50,15 +50,19 @@ func main() {
 		panic(err)
 	}
 
+	uh, err := handlers.NewCognitoHandler(ctx, dynamoEndpoint)
+	if err != err {
+		panic(err)
+	}
 	lambdas := map[string]lambdaext.Lambda{
 		"gyms":              gh,
 		"gym-requests":      grh,
 		"gym-announcements": gas,
 		"gym-videos":        gvs,
 		"s3-presign-url":    s3h,
+		"cognito":           uh,
 	}
 
-	lambda.Start(
-		lambdaext.NewRouter(lambdas),
-	)
+	router := lambdaext.NewRouter(lambdas)
+	lambda.Start(router)
 }

@@ -24,26 +24,26 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-type GymVideoHandler struct {
+type GymVideoSeriesHandler struct {
 	*dynamodbsdk.Client
 	*AuthService
 	*s3.PresignClient
 	videosTable string
 }
 
-type GymVideo struct {
+type GymVideoSeries struct {
 	PK string `json:"pk" dynamodbav:"pk"`
 
-	GymID   string `json:"gym_id,omitempty" dynamodbav:"gym_id,omitempty"`
-	Title   string `validator:"nonzero" json:"title,omitempty" dynamodbav:"title,omitempty"`
-	Content string `json:"content,omitempty" dynamodbav:"content,omitempty"`
+	GymID       string `json:"gym_id,omitempty" dynamodbav:"gym_id,omitempty"`
+	Title       string `validator:"nonzero" json:"title,omitempty" dynamodbav:"title,omitempty"`
+	Description string `json:"content,omitempty" dynamodbav:"content,omitempty"`
 
-	Difficulty  string    `validator:"nonzero" json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
-	Disciplines []string  `json:"disciplines,omitempty" dynamodbav:"disciplines,stringsets,omitempty"`
-	S3Object    string    `json:"s3_object,omitempty" dynamodbav:"s3_object,omitempty"`
-	URL         string    `json:"url,omitempty" dynamodbav:"url,omitempty"`
-	CreatedAt   time.Time `json:"created_at,omitempty" dynamodbav:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at,omitempty" dynamodbav:"updated_at"`
+	Difficulty   string    `validator:"nonzero" json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
+	Disciplines  []string  `json:"disciplines,omitempty" dynamodbav:"disciplines,stringsets,omitempty"`
+	Progressions []string  `json:"progressions,omitempty" dynamodbav:"s3_object,omitempty"`
+	URL          string    `json:"url,omitempty" dynamodbav:"url,omitempty"`
+	CreatedAt    time.Time `json:"created_at,omitempty" dynamodbav:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at,omitempty" dynamodbav:"updated_at"`
 
 	Dummy string `json:"-" dynamodbav:"dummy,omitempty"`
 }

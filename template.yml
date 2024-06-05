@@ -34,6 +34,7 @@ Parameters:
         Description: 'Name of the Gym Videos table'
         Type: 'String'
         Default: 'grapple-gym-videos'
+
 Resources:
   Gateway:
     Type: AWS::Serverless::Api
@@ -409,6 +410,16 @@ Resources:
             Path: /s3-presign-url
             Method: GET
             RestApiId: !Ref Gateway
+
+        # Get Pre-signed S3 Upload URL
+        AddCoach:
+          Type: Api
+          Properties:
+            Path: /cognito/add-coach
+            Method: PUT
+            RestApiId: !Ref Gateway
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
 
 Outputs:
   API:
