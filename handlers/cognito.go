@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -20,6 +21,7 @@ import (
 
 const (
 	reqPathAddCoach = "/cognito/add-coach"
+	reqPathGetGroup = "/cognito/get-groups"
 )
 
 type CognitoHandler struct {
@@ -68,26 +70,8 @@ func NewCognitoHandler(ctx context.Context, dynamoEndpoint string) (*CognitoHand
 }
 
 func (h *CognitoHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, startKey map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
-	return lambda.NewResponse(http.StatusOK, string(``), nil), nil
-}
-
-func (h *CognitoHandler) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
-	return lambda.NewResponse(http.StatusOK, string(``), nil), nil
-}
-
-func (h *CognitoHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	return lambda.NewResponse(http.StatusCreated, string(``), nil), nil
-}
-
-func (h *CognitoHandler) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	return lambda.NewResponse(http.StatusOK, string(``), nil), nil
-}
-
-// ProcessPut: "PUT /users" currently only allows you to update a Cognito User's role to "Coach"
-func (h *CognitoHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	log.Info().Msgf("Request path: %s", req.Path)
-
-	if req.Path == reqPathAddCoach {
+	switch req.Path {
+	case reqPathGetGroup:
 		// Validate JWT token
 		token, err := token(req.Headers)
 		if err != nil {
@@ -95,17 +79,65 @@ func (h *CognitoHandler) ProcessPut(ctx context.Context, req events.APIGatewayPr
 		}
 
 		// Add user to cognito group: "Coach"
-		coachGroup := "coach"
-		_, err = h.CognitoClient.AdminAddUserToGroup(&cip.AdminAddUserToGroupInput{
+		u, err := h.CognitoClient.AdminListGroupsForUser(&cip.AdminListGroupsForUserInput{
 			UserPoolId: &userPoolID,
 			Username:   aws.String(token.User),
-			GroupName:  &coachGroup,
+		})
+		if err != nil {
+			return lambda.ServerError(fmt.Errorf("failed to list Cognito user %q to coach group: %w", token.User, err))
+		}
+
+		// compile list of group names only
+		groupNames := make([]string, len(u.Groups))
+		for i, g := range u.Groups {
+			groupNames[i] = *g.GroupName
+		}
+
+		json, err := json.Marshal(groupNames)
+		if err != nil {
+			return lambda.ServerError(fmt.Errorf("failed to marshal groups to json: %w", err))
+		}
+		return lambda.NewResponse(http.StatusOK, string(json), nil), nil
+	}
+
+	return lambda.NewResponse(http.StatusNotFound, string(`404 not found`), nil), nil
+}
+
+func (h *CognitoHandler) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
+	return lambda.NewResponse(http.StatusNotFound, string(``), nil), nil
+}
+
+func (h *CognitoHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	return lambda.NewResponse(http.StatusNotFound, string(``), nil), nil
+}
+
+func (h *CognitoHandler) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	return lambda.NewResponse(http.StatusNotFound, string(``), nil), nil
+}
+
+// ProcessPut: "PUT /users" currently only allows you to update a Cognito User's role to "Coach"
+func (h *CognitoHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	log.Info().Msgf("Request path: %s", req.Path)
+
+	switch req.Path {
+	case reqPathAddCoach:
+		// Validate JWT token
+		token, err := token(req.Headers)
+		if err != nil {
+			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to verify jwt token: %v", err))
+		}
+
+		// Add user to cognito group: "Coach"
+		_, err = h.CognitoClient.AdminGetUser(&cip.AdminGetUserInput{
+			UserPoolId: &userPoolID,
+			Username:   aws.String(token.User),
 		})
 		if err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to add Cognito user %q to coach group: %w", token.User, err))
 		}
+
 		log.Info().Msgf("Successfully added user %s to coach group!", token.User)
 	}
 
-	return lambda.NewResponse(http.StatusOK, string(`Process PUT`), nil), nil
+	return lambda.NewResponse(http.StatusNotFound, string(`404 not found`), nil), nil
 }

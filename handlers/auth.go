@@ -52,6 +52,7 @@ func (s *AuthService) IsStudent(ctx context.Context, headers map[string]string, 
 	if len(gyms) == 0 {
 		return fmt.Errorf("no gym found with id: %s", gymID)
 	}
+
 	// Get Cognito user ID
 	token, err := token(headers)
 	if err != nil {
@@ -151,6 +152,7 @@ func token(hdrs map[string]string) (*Token, error) {
 		return nil, err
 	}
 
+	log.Info().Msgf("extracted token: %+v", token.Claims)
 	var t *Token
 	if err := mapstructure.Decode(token.Claims.(jwt.MapClaims), &t); err != nil {
 		return nil, err

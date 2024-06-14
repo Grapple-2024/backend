@@ -34,6 +34,10 @@ Parameters:
         Description: 'Name of the Gym Videos table'
         Type: 'String'
         Default: 'grapple-gym-videos'
+    GymVideoSeriesTableName:
+        Description: 'Name of the Gym Video Series table'
+        Type: 'String'
+        Default: 'grapple-gym-video-series'
 
 Resources:
   Gateway:
@@ -219,6 +223,48 @@ Resources:
             ReadCapacityUnits: 1
             WriteCapacityUnits: 1
 
+  GymVideoSeriesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref GymVideoSeriesTableName
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: gym_id
+          AttributeType: S
+        - AttributeName: dummy
+          AttributeType: S
+        - AttributeName: updated_at
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      GlobalSecondaryIndexes:
+        - IndexName: "GymIndex"
+          KeySchema: 
+          - AttributeName: gym_id
+            KeyType: HASH
+          Projection:
+            ProjectionType: "ALL"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+        - IndexName: "LastUpdatedIndex"
+          KeySchema:
+          - AttributeName: dummy
+            KeyType: HASH
+          - AttributeName: updated_at
+            KeyType: RANGE
+          Projection: 
+            ProjectionType: "ALL"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+
   Function:
     Type: AWS::Serverless::Function
     Properties:
@@ -235,6 +281,8 @@ Resources:
           GYM_REQUESTS_TABLE_NAME: !Ref GymRequestsTableName
           GYM_ANNOUNCEMENTS_TABLE_NAME: !Ref GymAnnouncementsTableName
           GYM_VIDEOS_TABLE_NAME: !Ref GymVideosTableName
+          GYM_VIDEO_SERIES_TABLE_NAME: !Ref GymVideoSeriesTableName
+
       Tracing: Active
       Policies:
         - S3FullAccessPolicy:
@@ -252,6 +300,12 @@ Resources:
             - Effect: Allow
               Action:
                 - cognito-idp:AdminAddUserToGroup
+              Resource: '*'
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminListGroupsForUser
               Resource: '*'
       Events:
         # Gyms
@@ -402,6 +456,42 @@ Resources:
             Method: DELETE
             RestApiId: !Ref Gateway
 
+        # Gym Video Series
+        GetGymVideoSeriesByID:
+          Type: Api
+          Properties:
+            Path: /gym-video-series/{id}
+            Method: GET
+            RestApiId: !Ref Gateway
+            
+        GetGymVideoSeries:
+          Type: Api
+          Properties:
+            Path: /gym-video-series
+            Method: GET
+            RestApiId: !Ref Gateway
+
+        CreateGymVideoSeries:
+          Type: Api
+          Properties:
+            Path: /gym-video-series
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        UpdateGymVideoSeries:
+          Type: Api
+          Properties:
+            Path: /gym-video-series/{id}
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        DeleteGymVideoSeries:
+          Type: Api
+          Properties:
+            Path: /gym-video-series/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
+
 
         # Get Pre-signed S3 Upload URL
         GetS3SignedURL:
@@ -411,12 +501,22 @@ Resources:
             Method: GET
             RestApiId: !Ref Gateway
 
-        # Get Pre-signed S3 Upload URL
+        # Endpoint to add user to coach group in Cognito
         AddCoach:
           Type: Api
           Properties:
             Path: /cognito/add-coach
             Method: PUT
+            RestApiId: !Ref Gateway
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
+
+        # Endpoint to get a user's group
+        GetGroups:
+          Type: Api
+          Properties:
+            Path: /cognito/get-groups
+            Method: GET
             RestApiId: !Ref Gateway
             Auth:
               Authorizer: NONE # Turn off Authorization for this event

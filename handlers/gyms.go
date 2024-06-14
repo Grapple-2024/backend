@@ -46,7 +46,9 @@ type Gym struct {
 	ZIP          string `json:"zip,omitempty" dynamodbav:"zip,omitempty"`
 	Country      string `json:"country,omitempty" dynamodbav:"country,omitempty"`
 	PublicEmail  string `json:"public_email,omitempty" dynamodbav:"public_email,omitempty"`
-	BannerImage  string `json:"banner_image,omitempty" dynamodbav:"banner_image,omitempty"`
+
+	// s3 object key of banner image in grapple s3 bucket
+	BannerImage string `json:"banner_image,omitempty" dynamodbav:"banner_image,omitempty"`
 
 	// Disciplines
 	Disciplines []string           `json:"disciplines" dynamodbav:"disciplines,omitempty,stringsets"`

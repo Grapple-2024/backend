@@ -24,31 +24,31 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-type GymVideoHandler struct {
+type GymVideoSeriesHandler struct {
 	*dynamodbsdk.Client
 	*AuthService
-	*s3.PresignClient
-	videosTable string
+	*s3.PresignClient ``
+	videoSeriesTable  string
 }
 
-type GymVideo struct {
-	PK string `json:"pk,omitempty" dynamodbav:"pk,omitempty"`
+type GymVideoSeries struct {
+	PK string `json:"pk" dynamodbav:"pk"`
 
-	GymID   string `json:"gym_id,omitempty" dynamodbav:"gym_id,omitempty"`
-	Title   string `validator:"nonzero" json:"title,omitempty" dynamodbav:"title,omitempty"`
-	Content string `json:"content,omitempty" dynamodbav:"content,omitempty"`
+	GymID       string   `json:"gym_id,omitempty" dynamodbav:"gym_id,omitempty"`
+	Title       string   `validator:"nonzero" json:"title,omitempty" dynamodbav:"title,omitempty"`
+	Description string   `json:"description,omitempty" dynamodbav:"description,omitempty"`
+	Difficulty  string   `validator:"nonzero" json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
+	Disciplines []string `json:"disciplines,omitempty" dynamodbav:"disciplines,stringsets,omitempty"`
 
-	Difficulty  string    `validator:"nonzero" json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
-	Disciplines []string  `json:"disciplines,omitempty" dynamodbav:"disciplines,stringsets,omitempty"`
-	S3Object    string    `json:"s3_object,omitempty" dynamodbav:"s3_object,omitempty"`
-	URL         string    `json:"url,omitempty" dynamodbav:"url,omitempty"`
-	CreatedAt   time.Time `json:"created_at,omitempty" dynamodbav:"created_at,omitempty"`
-	UpdatedAt   time.Time `json:"updated_at,omitempty" dynamodbav:"updated_at,omitempty"`
+	Videos    []GymVideo `json:"videos,omitempty" dynamodbav:"videos,omitempty"`
+	CreatedAt time.Time  `json:"created_at,omitempty" dynamodbav:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at,omitempty" dynamodbav:"updated_at"`
 
+	// used for sorting, workaround for dynamodb
 	Dummy string `json:"-" dynamodbav:"dummy,omitempty"`
 }
 
-func NewGymVideoHandler(ctx context.Context, dynamoEndpoint string) (*GymVideoHandler, error) {
+func NewGymVideoSeriesHandler(ctx context.Context, dynamoEndpoint string) (*GymVideoSeriesHandler, error) {
 	db, err := dynamodbsdk.NewClient(dynamoEndpoint)
 	if err != nil {
 		return nil, err
@@ -70,15 +70,15 @@ func NewGymVideoHandler(ctx context.Context, dynamoEndpoint string) (*GymVideoHa
 	c := s3.NewFromConfig(cfg)
 	psc := s3.NewPresignClient(c)
 
-	return &GymVideoHandler{
-		Client:        db,
-		AuthService:   authSVC,
-		PresignClient: psc,
-		videosTable:   os.Getenv("GYM_VIDEOS_TABLE_NAME"),
+	return &GymVideoSeriesHandler{
+		Client:           db,
+		AuthService:      authSVC,
+		PresignClient:    psc,
+		videoSeriesTable: os.Getenv("GYM_VIDEO_SERIES_TABLE_NAME"),
 	}, nil
 }
 
-func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, startKey map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
+func (h *GymVideoSeriesHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, startKey map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
 	title := req.QueryStringParameters["title"]
 	disciplines := req.MultiValueQueryStringParameters["discipline"]
 	difficulties := req.MultiValueQueryStringParameters["difficulty"]
@@ -121,7 +121,7 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 	scanLimit := limit + 1000
 
 	result, err := h.Query(ctx, &dynamodb.QueryInput{
-		TableName:                 &h.videosTable,
+		TableName:                 &h.videoSeriesTable,
 		Limit:                     &scanLimit,
 		ScanIndexForward:          &ascending,
 		IndexName:                 aws.String("LastUpdatedIndex"),
@@ -135,29 +135,33 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 		return lambda.ServerError(fmt.Errorf("failed to query dynamodb: %v", err))
 	}
 
-	for _, v := range result.Items {
+	for _, s := range result.Items {
 		gymID := result.Items[0]["gym_id"].(*types.AttributeValueMemberS).Value
 
-		s3Key := v["s3_object"].(*types.AttributeValueMemberS).Value
-		key := fmt.Sprintf("%s/%s", gymID, s3Key)
-		url, err := h.getPresignedURL(key)
-		if err != nil {
-			return lambda.ServerError(fmt.Errorf("failed to get presigned url: %v", err))
-		}
+		fmt.Printf("S.pk: %+v\n\n", s["pk"])
 
-		log.Info().Msgf("Fetched presigned S3 url for video: %v", url)
-		v["url"] = url
+		for _, v := range s["videos"].(*types.AttributeValueMemberL).Value {
+
+			fmt.Printf("V: %+v", v)
+			s3Key := v.(*types.AttributeValueMemberM).Value["s3_object"].(*types.AttributeValueMemberS).Value
+			key := fmt.Sprintf("%s/%s", gymID, s3Key)
+			url, err := h.getPresignedURL(key)
+			if err != nil {
+				return lambda.ServerError(fmt.Errorf("failed to get presigned url: %v", err))
+			}
+
+			log.Info().Msgf("Fetched presigned S3 url for video: %v", url)
+			v.(*types.AttributeValueMemberM).Value["url"] = url
+		}
 	}
 
-	var gymVideos []GymVideo
+	var gymVideos []GymVideoSeries
 	resp, err := dynamodbsdk.MarshalResponse(
 		aws.String("updated_at"), limit, result.Count, result.ScannedCount, result.LastEvaluatedKey, result.Items, &gymVideos,
 	)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("error marshalling response: %v", err))
 	}
-
-	log.Info().Msgf("resp.Data: %v", resp.Data)
 
 	json, err := json.Marshal(resp)
 	if err != nil {
@@ -167,26 +171,30 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
 
-func (h *GymVideoHandler) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
-	result, err := h.GetByID(ctx, h.videosTable, id)
+func (h *GymVideoSeriesHandler) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
+	result, err := h.GetByID(ctx, h.videoSeriesTable, id)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
 
 	if len(result.Items) > 0 {
 		gymID := result.Items[0]["gym_id"].(*types.AttributeValueMemberS).Value
-		objectKey := result.Items[0]["s3_object"].(*types.AttributeValueMemberS).Value
-		key := fmt.Sprintf("%s/%s", gymID, objectKey)
-		url, err := h.getPresignedURL(key)
-		if err != nil {
-			return lambda.ServerError(fmt.Errorf("failed to get presigned url: %v", err))
+
+		for _, v := range result.Items[0]["videos"].(*types.AttributeValueMemberL).Value {
+			s3Key := v.(*types.AttributeValueMemberM).Value["s3_object"].(*types.AttributeValueMemberS).Value
+			key := fmt.Sprintf("%s/%s", gymID, s3Key)
+			url, err := h.getPresignedURL(key)
+			if err != nil {
+				return lambda.ServerError(fmt.Errorf("failed to get presigned url: %v", err))
+			}
+
+			log.Info().Msgf("Fetched presigned S3 url for video: %v", url)
+			v.(*types.AttributeValueMemberM).Value["url"] = url
 		}
 
-		log.Info().Msgf("Fetched presigned S3 url for video: %v", url)
-		result.Items[0]["url"] = url
 	}
 
-	var requests []GymVideo
+	var requests []GymVideoSeries
 	err = attributevalue.UnmarshalListOfMaps(result.Items, &requests)
 	if err != nil {
 		return lambda.ServerError(err)
@@ -196,14 +204,12 @@ func (h *GymVideoHandler) ProcessGetByID(ctx context.Context, req events.APIGate
 	if err != nil {
 		return lambda.ServerError(err)
 	}
-	log.Printf("Successfully fetched Gyms by ID: %s", string(json))
 
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
-
 }
 
-func (h *GymVideoHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var gymVideo GymVideo
+func (h *GymVideoSeriesHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	var gymVideo GymVideoSeries
 	if err := json.Unmarshal([]byte(req.Body), &gymVideo); err != nil {
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("request body invalid: %v", req.Body))
 	}
@@ -218,12 +224,12 @@ func (h *GymVideoHandler) ProcessPost(ctx context.Context, req events.APIGateway
 		fmt.Sprintf("gymVideo#%s/%s/%d", gymVideo.GymID, gymVideo.Title, gymVideo.CreatedAt.Unix())),
 	)
 
-	res, err := h.Insert(ctx, h.videosTable, &gymVideo)
+	res, err := h.Insert(ctx, h.videoSeriesTable, &gymVideo)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
 
-	var returnGym GymVideo
+	var returnGym GymVideoSeries
 	err = attributevalue.UnmarshalMap(res.Attributes, &returnGym)
 	if err != nil {
 		return lambda.ServerError(err)
@@ -237,7 +243,7 @@ func (h *GymVideoHandler) ProcessPost(ctx context.Context, req events.APIGateway
 	return lambda.NewResponse(http.StatusCreated, string(json), nil), nil
 }
 
-func (h *GymVideoHandler) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+func (h *GymVideoSeriesHandler) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	// Get request ID path parameter
 	id, ok := req.PathParameters["id"]
 	if !ok {
@@ -245,7 +251,7 @@ func (h *GymVideoHandler) ProcessDelete(ctx context.Context, req events.APIGatew
 	}
 
 	// Fetch the Gym Request
-	result, err := h.GetByID(ctx, h.videosTable, id)
+	result, err := h.GetByID(ctx, h.videoSeriesTable, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym request not found: %v", err))
 	}
@@ -253,7 +259,7 @@ func (h *GymVideoHandler) ProcessDelete(ctx context.Context, req events.APIGatew
 		return lambda.ClientError(http.StatusNotFound, "gym request not found")
 	}
 
-	var videos []GymVideo
+	var videos []GymVideoSeries
 	if err := attributevalue.UnmarshalListOfMaps(result.Items, &videos); err != nil {
 		return lambda.ServerError(err)
 	}
@@ -268,7 +274,7 @@ func (h *GymVideoHandler) ProcessDelete(ctx context.Context, req events.APIGatew
 		"pk": pk,
 	}
 
-	resp, err := h.Delete(ctx, h.videosTable, key)
+	resp, err := h.Delete(ctx, h.videoSeriesTable, key)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -280,13 +286,13 @@ func (h *GymVideoHandler) ProcessDelete(ctx context.Context, req events.APIGatew
 
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
-func (h *GymVideoHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+func (h *GymVideoSeriesHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id, ok := req.PathParameters["id"]
 	if !ok {
 		return lambda.ClientError(http.StatusBadRequest, "id parameter not found")
 	}
 
-	var payload GymVideo
+	var payload GymVideoSeries
 	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to unmarshal request body: %v", err))
 	}
@@ -325,12 +331,12 @@ func (h *GymVideoHandler) ProcessPut(ctx context.Context, req events.APIGatewayP
 		"pk": pk,
 	}
 
-	resp, err := h.Update(ctx, h.videosTable, key, &expr)
+	resp, err := h.Update(ctx, h.videoSeriesTable, key, &expr)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update record: %v", err))
 	}
 
-	var gymVideo GymVideo
+	var gymVideo GymVideoSeries
 	if err := attributevalue.UnmarshalMap(resp.Attributes, &gymVideo); err != nil {
 		return lambda.ServerError(err)
 	}
@@ -344,7 +350,7 @@ func (h *GymVideoHandler) ProcessPut(ctx context.Context, req events.APIGatewayP
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
 
-func (h *GymVideoHandler) getPresignedURL(key string) (*types.AttributeValueMemberS, error) {
+func (h *GymVideoSeriesHandler) getPresignedURL(key string) (*types.AttributeValueMemberS, error) {
 	// Get pre-signed URL
 	params := &s3.GetObjectInput{
 		Bucket: aws.String("grapple-gym-videos"),

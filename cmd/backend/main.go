@@ -40,7 +40,12 @@ func main() {
 		panic(err)
 	}
 
-	gvs, err := handlers.NewGymVideoHandler(ctx, dynamoEndpoint)
+	gvh, err := handlers.NewGymVideoHandler(ctx, dynamoEndpoint)
+	if err != err {
+		panic(err)
+	}
+
+	gvsh, err := handlers.NewGymVideoSeriesHandler(ctx, dynamoEndpoint)
 	if err != err {
 		panic(err)
 	}
@@ -50,7 +55,7 @@ func main() {
 		panic(err)
 	}
 
-	uh, err := handlers.NewCognitoHandler(ctx, dynamoEndpoint)
+	ch, err := handlers.NewCognitoHandler(ctx, dynamoEndpoint)
 	if err != err {
 		panic(err)
 	}
@@ -58,9 +63,10 @@ func main() {
 		"gyms":              gh,
 		"gym-requests":      grh,
 		"gym-announcements": gas,
-		"gym-videos":        gvs,
+		"gym-videos":        gvh,
+		"gym-video-series":  gvsh,
 		"s3-presign-url":    s3h,
-		"cognito":           uh,
+		"cognito":           ch,
 	}
 
 	router := lambdaext.NewRouter(lambdas)
