@@ -295,6 +295,8 @@ Resources:
             TableName: !Ref GymAnnouncementsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref GymVideosTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref GymVideoSeriesTable
         - Version: '2012-10-17' # Policy Document
           Statement:
             - Effect: Allow
