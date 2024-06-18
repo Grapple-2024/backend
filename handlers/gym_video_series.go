@@ -29,22 +29,23 @@ type GymVideoSeriesHandler struct {
 	*AuthService
 	*s3.PresignClient ``
 	videoSeriesTable  string
+	videosTable       string
 }
 
 type GymVideoSeries struct {
 	PK string `json:"pk" dynamodbav:"pk"`
 
-	GymID       string   `json:"gym_id,omitempty" dynamodbav:"gym_id,omitempty"`
-	Title       string   `validator:"nonzero" json:"title,omitempty" dynamodbav:"title,omitempty"`
-	Description string   `json:"description,omitempty" dynamodbav:"description,omitempty"`
-	Difficulty  string   `validator:"nonzero" json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
-	Disciplines []string `json:"disciplines,omitempty" dynamodbav:"disciplines,stringsets,omitempty"`
+	GymID       string     `json:"gym_id,omitempty" dynamodbav:"gym_id,omitempty"`
+	Title       string     `validator:"nonzero" json:"title,omitempty" dynamodbav:"title,omitempty"`
+	Description string     `json:"description,omitempty" dynamodbav:"description,omitempty"`
+	Difficulty  string     `validator:"nonzero" json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
+	Disciplines []string   `json:"disciplines,omitempty" dynamodbav:"disciplines,stringsets,omitempty"`
+	Videos      []GymVideo `json:"videos,omitempty" dynamodbav:"videos,omitempty"`
 
-	Videos    []GymVideo `json:"videos,omitempty" dynamodbav:"videos,omitempty"`
-	CreatedAt time.Time  `json:"created_at,omitempty" dynamodbav:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at,omitempty" dynamodbav:"updated_at"`
+	CreatedAt time.Time `json:"created_at,omitempty" dynamodbav:"created_at"`
+	UpdatedAt time.Time `json:"updated_at,omitempty" dynamodbav:"updated_at"`
 
-	// used for sorting, workaround for dynamodb
+	// used for sorting by updated_at timestamp, workaround for dynamodb
 	Dummy string `json:"-" dynamodbav:"dummy,omitempty"`
 }
 
@@ -75,6 +76,7 @@ func NewGymVideoSeriesHandler(ctx context.Context, dynamoEndpoint string) (*GymV
 		AuthService:      authSVC,
 		PresignClient:    psc,
 		videoSeriesTable: os.Getenv("GYM_VIDEO_SERIES_TABLE_NAME"),
+		videosTable:      os.Getenv("GYM_VIDEOS_TABLE_NAME"),
 	}, nil
 }
 
@@ -119,7 +121,6 @@ func (h *GymVideoSeriesHandler) ProcessGetAll(ctx context.Context, req events.AP
 
 	// temporary workaround to ensure number of results are in the page
 	scanLimit := limit + 1000
-
 	result, err := h.Query(ctx, &dynamodb.QueryInput{
 		TableName:                 &h.videoSeriesTable,
 		Limit:                     &scanLimit,
@@ -135,34 +136,63 @@ func (h *GymVideoSeriesHandler) ProcessGetAll(ctx context.Context, req events.AP
 		return lambda.ServerError(fmt.Errorf("failed to query dynamodb: %v", err))
 	}
 
-	for _, s := range result.Items {
-		gymID := result.Items[0]["gym_id"].(*types.AttributeValueMemberS).Value
-
-		fmt.Printf("S.pk: %+v\n\n", s["pk"])
-
-		for _, v := range s["videos"].(*types.AttributeValueMemberL).Value {
-
-			fmt.Printf("V: %+v", v)
-			s3Key := v.(*types.AttributeValueMemberM).Value["s3_object"].(*types.AttributeValueMemberS).Value
-			key := fmt.Sprintf("%s/%s", gymID, s3Key)
-			url, err := h.getPresignedURL(key)
-			if err != nil {
-				return lambda.ServerError(fmt.Errorf("failed to get presigned url: %v", err))
-			}
-
-			log.Info().Msgf("Fetched presigned S3 url for video: %v", url)
-			v.(*types.AttributeValueMemberM).Value["url"] = url
-		}
-	}
-
-	var gymVideos []GymVideoSeries
+	var videoSeries []GymVideoSeries
 	resp, err := dynamodbsdk.MarshalResponse(
-		aws.String("updated_at"), limit, result.Count, result.ScannedCount, result.LastEvaluatedKey, result.Items, &gymVideos,
+		aws.String("updated_at"), limit, result.Count, result.ScannedCount, result.LastEvaluatedKey, result.Items, &videoSeries,
 	)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("error marshalling response: %v", err))
 	}
 
+	// Get gym videos for each series
+	for i, s := range videoSeries {
+		builder = expression.NewBuilder().WithKeyCondition(expression.Key("dummy").Equal(expression.Value("dumb")))
+		filter = dynamodbsdk.BuildExpression(map[string]dynamodbsdk.Condition{
+			"series_id": {
+				Value:    s.PK,
+				Operator: "Equal",
+			},
+		})
+		builder = builder.WithFilter(*filter)
+		expr, err = builder.Build()
+		if err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to build expression: %v", err))
+		}
+
+		v, err := h.Query(ctx, &dynamodb.QueryInput{
+			TableName:                 &h.videosTable,
+			Limit:                     &scanLimit,
+			ScanIndexForward:          &ascending,
+			IndexName:                 aws.String("LastUpdatedIndex"),
+			KeyConditionExpression:    expr.KeyCondition(),
+			FilterExpression:          expr.Filter(),
+			ExpressionAttributeNames:  expr.Names(),
+			ExpressionAttributeValues: expr.Values(),
+		})
+		if err != nil {
+			return lambda.ServerError(fmt.Errorf("failed to query dynamodb: %v", err))
+		}
+
+		log.Info().Msgf("Videos: %+v", v.Items)
+
+		videos := []GymVideo{}
+		if err := attributevalue.UnmarshalListOfMaps(v.Items, &videos); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to unmarshal gym videos: %v", err))
+		}
+
+		videoSeries[i].Videos = videos
+
+		for _, v := range videos {
+			key := fmt.Sprintf("%s/%s", s.GymID, v.S3Object)
+			presignedURL, err := h.getPresignedURL(key)
+			if err != nil {
+				return lambda.ServerError(fmt.Errorf("failed to create presigned url: %v", err))
+			}
+			v.PresignedURL = presignedURL.Value
+		}
+	}
+
+	// Marshal resp back
 	json, err := json.Marshal(resp)
 	if err != nil {
 		return lambda.ServerError(err)
@@ -177,22 +207,22 @@ func (h *GymVideoSeriesHandler) ProcessGetByID(ctx context.Context, req events.A
 		return lambda.ServerError(err)
 	}
 
-	if len(result.Items) > 0 {
-		gymID := result.Items[0]["gym_id"].(*types.AttributeValueMemberS).Value
+	// if len(result.Items) > 0 {
+	// 	gymID := result.Items[0]["gym_id"].(*types.AttributeValueMemberS).Value
 
-		for _, v := range result.Items[0]["videos"].(*types.AttributeValueMemberL).Value {
-			s3Key := v.(*types.AttributeValueMemberM).Value["s3_object"].(*types.AttributeValueMemberS).Value
-			key := fmt.Sprintf("%s/%s", gymID, s3Key)
-			url, err := h.getPresignedURL(key)
-			if err != nil {
-				return lambda.ServerError(fmt.Errorf("failed to get presigned url: %v", err))
-			}
+	// 	for _, v := range result.Items[0]["videos"].(*types.AttributeValueMemberL).Value {
+	// 		s3Key := v.(*types.AttributeValueMemberM).Value["s3_object"].(*types.AttributeValueMemberS).Value
+	// 		key := fmt.Sprintf("%s/%s", gymID, s3Key)
+	// 		url, err := h.getPresignedURL(key)
+	// 		if err != nil {
+	// 			return lambda.ServerError(fmt.Errorf("failed to get presigned url: %v", err))
+	// 		}
 
-			log.Info().Msgf("Fetched presigned S3 url for video: %v", url)
-			v.(*types.AttributeValueMemberM).Value["url"] = url
-		}
+	// 		log.Info().Msgf("Fetched presigned S3 url for video: %v", url)
+	// 		v.(*types.AttributeValueMemberM).Value["url"] = url
+	// 	}
 
-	}
+	// }
 
 	var requests []GymVideoSeries
 	err = attributevalue.UnmarshalListOfMaps(result.Items, &requests)

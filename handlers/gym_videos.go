@@ -32,18 +32,22 @@ type GymVideoHandler struct {
 }
 
 type GymVideo struct {
-	PK string `json:"pk,omitempty" dynamodbav:"pk,omitempty"`
+	PK       string `json:"pk,omitempty" dynamodbav:"pk,omitempty"`                         // primary key
+	SeriesID string `validator:"nonzero" json:"series_id" dynamodbav:"series_id,omitempty"` // foreign key
 
-	GymID   string `json:"gym_id,omitempty" dynamodbav:"gym_id,omitempty"`
-	Title   string `validator:"nonzero" json:"title,omitempty" dynamodbav:"title,omitempty"`
-	Content string `json:"content,omitempty" dynamodbav:"content,omitempty"`
+	// attributes
+	GymID       string   `validator:"nonzero" json:"gym_id,omitempty" dynamodbav:"gym_id,omitempty"`
+	Title       string   `validator:"nonzero" json:"title,omitempty" dynamodbav:"title,omitempty"`
+	Description string   `validator:"nonzero" json:"description,omitempty" dynamodbav:"description,omitempty"`
+	Difficulty  string   `validator:"nonzero" json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
+	Disciplines []string `validator:"nonzero" json:"disciplines,omitempty" dynamodbav:"disciplines,stringsets,omitempty"`
+	S3Object    string   `validator:"nonzero" json:"s3_object,omitempty" dynamodbav:"s3_object,omitempty"`
 
-	Difficulty  string    `validator:"nonzero" json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
-	Disciplines []string  `json:"disciplines,omitempty" dynamodbav:"disciplines,stringsets,omitempty"`
-	S3Object    string    `json:"s3_object,omitempty" dynamodbav:"s3_object,omitempty"`
-	URL         string    `json:"url,omitempty" dynamodbav:"url,omitempty"`
-	CreatedAt   time.Time `json:"created_at,omitempty" dynamodbav:"created_at,omitempty"`
-	UpdatedAt   time.Time `json:"updated_at,omitempty" dynamodbav:"updated_at,omitempty"`
+	// Computed fields on any GET:
+	PresignedURL string `json:"presigned_url,omitempty" dynamodbav:"presigned_url,omitempty"`
+
+	CreatedAt time.Time `json:"created_at,omitempty" dynamodbav:"created_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty" dynamodbav:"updated_at,omitempty"`
 
 	Dummy string `json:"-" dynamodbav:"dummy,omitempty"`
 }
@@ -59,14 +63,13 @@ func NewGymVideoHandler(ctx context.Context, dynamoEndpoint string) (*GymVideoHa
 		return nil, err
 	}
 
-	// Using the SDK's default configuration, loading additional config
-	// and credentials values from the environment variables, shared
-	// credentials, and shared configuration files
+	// create AWS cfg
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {
 		return nil, err
 	}
 
+	// create AWS s3 and pre-sign clients
 	c := s3.NewFromConfig(cfg)
 	psc := s3.NewPresignClient(c)
 
@@ -87,11 +90,20 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 	if gym == "" {
 		return lambda.ClientError(http.StatusBadRequest, "must specify ?gym query parameter")
 	}
+	seriesID := req.QueryStringParameters["series_id"]
+	if seriesID == "" {
+		return lambda.ClientError(http.StatusBadRequest, "must specify ?series_id query parameter")
+	}
+	log.Info().Msgf("Processing Get ALL: %v", seriesID)
 
 	builder := expression.NewBuilder().WithKeyCondition(expression.Key("dummy").Equal(expression.Value("dumb")))
 	filter := dynamodbsdk.BuildExpression(map[string]dynamodbsdk.Condition{
 		"gym_id": {
 			Value:    gym,
+			Operator: "Equal",
+		},
+		"series_id": {
+			Value:    seriesID,
 			Operator: "Equal",
 		},
 		"difficulty": {
@@ -156,8 +168,6 @@ func (h *GymVideoHandler) ProcessGetAll(ctx context.Context, req events.APIGatew
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("error marshalling response: %v", err))
 	}
-
-	log.Info().Msgf("resp.Data: %v", resp.Data)
 
 	json, err := json.Marshal(resp)
 	if err != nil {

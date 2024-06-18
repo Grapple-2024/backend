@@ -120,8 +120,9 @@ func (h *CognitoHandler) ProcessPut(ctx context.Context, req events.APIGatewayPr
 	log.Info().Msgf("Request path: %s", req.Path)
 
 	switch req.Path {
+
+	// Add user to coach group
 	case reqPathAddCoach:
-		// Validate JWT token
 		token, err := token(req.Headers)
 		if err != nil {
 			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to verify jwt token: %v", err))

@@ -55,27 +55,15 @@ aws dynamodb create-table \
        } \
    }]"
 
-
-## CREATE GYM VIDEOS TABLE
+## CREATE GYM VIDEO SERIES TABLE
 aws dynamodb create-table \
    --endpoint-url http://localhost:8000 --region=local \
-   --table-name grapple-gym-videos \
-   --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=gym_id,AttributeType=S AttributeName=updated_at,AttributeType=S AttributeName=dummy,AttributeType=S \
+   --table-name grapple-gym-video-series \
+   --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=updated_at,AttributeType=S AttributeName=dummy,AttributeType=S \
    --key-schema AttributeName=pk,KeyType=HASH \
    --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
-   --global-secondary-indexes "[{ \
-       \"IndexName\": \"GymIndex\", \
-       \"KeySchema\": [ \
-           {\"AttributeName\":\"gym_id\",\"KeyType\":\"HASH\"} \
-       ], \
-       \"Projection\": { \
-           \"ProjectionType\": \"ALL\" \
-       }, \
-       \"ProvisionedThroughput\": { \
-           \"ReadCapacityUnits\": 5, \
-           \"WriteCapacityUnits\": 5 \
-       } \
-   }, { \
+   --global-secondary-indexes "[
+    { \
        \"IndexName\": \"LastUpdatedIndex\", \
        \"KeySchema\": [ \
            {\"AttributeName\":\"dummy\",\"KeyType\":\"HASH\"}, \
@@ -88,7 +76,45 @@ aws dynamodb create-table \
            \"ReadCapacityUnits\": 20, \
            \"WriteCapacityUnits\": 20 \
        } \
-   }]"
+   }
+]"
+
+## CREATE GYM VIDEOS TABLE
+aws dynamodb create-table \
+   --endpoint-url http://localhost:8000 --region=local \
+   --table-name grapple-gym-videos \
+   --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=series_id,AttributeType=S AttributeName=updated_at,AttributeType=S AttributeName=dummy,AttributeType=S \
+   --key-schema AttributeName=pk,KeyType=HASH \
+   --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
+   --global-secondary-indexes "[
+   { \
+       \"IndexName\": \"SeriesIndex\", \
+       \"KeySchema\": [ \
+           {\"AttributeName\":\"series_id\",\"KeyType\":\"HASH\"} \
+       ], \
+       \"Projection\": { \
+           \"ProjectionType\": \"ALL\" \
+       }, \
+       \"ProvisionedThroughput\": { \
+           \"ReadCapacityUnits\": 5, \
+           \"WriteCapacityUnits\": 5 \
+       } \
+    }, 
+    { \
+       \"IndexName\": \"LastUpdatedIndex\", \
+       \"KeySchema\": [ \
+           {\"AttributeName\":\"dummy\",\"KeyType\":\"HASH\"}, \
+           {\"AttributeName\":\"updated_at\",\"KeyType\":\"RANGE\"} \
+       ], \
+       \"Projection\": { \
+           \"ProjectionType\": \"ALL\" \
+       }, \
+       \"ProvisionedThroughput\": { \
+           \"ReadCapacityUnits\": 20, \
+           \"WriteCapacityUnits\": 20 \
+       } \
+   }
+]"
 
 
 ## CREATE GYM REQUESTS
