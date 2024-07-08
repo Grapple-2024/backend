@@ -59,6 +59,12 @@ func main() {
 	if err != err {
 		panic(err)
 	}
+
+	eh, err := handlers.NewEmailHandler(ctx, dynamoEndpoint)
+	if err != err {
+		panic(err)
+	}
+
 	lambdas := map[string]lambdaext.Lambda{
 		"gyms":              gh,
 		"gym-requests":      grh,
@@ -67,6 +73,7 @@ func main() {
 		"gym-video-series":  gvsh,
 		"s3-presign-url":    s3h,
 		"cognito":           ch,
+		"emails":            eh,
 	}
 
 	router := lambdaext.NewRouter(lambdas)

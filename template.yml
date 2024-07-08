@@ -38,6 +38,10 @@ Parameters:
         Description: 'Name of the Gym Video Series table'
         Type: 'String'
         Default: 'grapple-gym-video-series'
+    EmailsTableName:
+        Description: 'Name of the Emails table'
+        Type: 'String'
+        Default: 'grapple-emails'
 
 Resources:
   Gateway:
@@ -69,6 +73,37 @@ Resources:
             UserPoolArn: arn:aws:cognito-idp:us-west-1:381491926210:userpool/us-west-1_HT5oR6AwO # Can also accept an array
             Identity: # OPTIONAL
               Header: Authorization # OPTIONAL; Default: 'Authorization'
+
+  EmailsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref EmailsTableName
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: created_at
+          AttributeType: S
+        - AttributeName: dummy
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      GlobalSecondaryIndexes:
+        - IndexName: "CreatedAtIndex"
+          KeySchema:
+          - AttributeName: dummy
+            KeyType: HASH
+          - AttributeName: created_at
+            KeyType: RANGE
+          Projection: 
+            ProjectionType: "ALL"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
 
   GymsTable:
     Type: AWS::DynamoDB::Table
@@ -273,7 +308,6 @@ Resources:
       Handler: main
       MemorySize: 512
       Timeout: 30
-      
       Environment:
         Variables:
           DYNAMODB_ENDPOINT: !Sub "https://dynamodb.${AWS::Region}.amazonaws.com"
@@ -282,6 +316,7 @@ Resources:
           GYM_ANNOUNCEMENTS_TABLE_NAME: !Ref GymAnnouncementsTableName
           GYM_VIDEOS_TABLE_NAME: !Ref GymVideosTableName
           GYM_VIDEO_SERIES_TABLE_NAME: !Ref GymVideoSeriesTableName
+          EMAILS_TABLE_NAME: !Ref EmailsTableName
 
       Tracing: Active
       Policies:
@@ -297,6 +332,8 @@ Resources:
             TableName: !Ref GymVideosTable
         - DynamoDBCrudPolicy:
             TableName: !Ref GymVideoSeriesTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref EmailsTableName
         - Version: '2012-10-17' # Policy Document
           Statement:
             - Effect: Allow
@@ -310,6 +347,50 @@ Resources:
                 - cognito-idp:AdminListGroupsForUser
               Resource: '*'
       Events:
+        # Emails - Marketing
+        GetEmail:
+          Type: Api
+          Properties:
+            Path: /emails/{id}
+            Method: GET
+            RestApiId: !Ref Gateway
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
+
+        GetEmails:
+          Type: Api
+          Properties:
+            Path: /emails
+            Method: GET
+            RestApiId: !Ref Gateway
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
+
+        CreateEmail:
+          Type: Api
+          Properties:
+            Path: /emails
+            Method: POST
+            RestApiId: !Ref Gateway
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
+
+        UpdateEmail:
+          Type: Api
+          Properties:
+            Path: /emails/{id}
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        DeleteEmail:
+          Type: Api
+          Properties:
+            Path: /emails/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
+
         # Gyms
         GetGym:
           Type: Api

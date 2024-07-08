@@ -127,11 +127,6 @@ func (c *Client) GetByID(ctx context.Context, table, id string) (*dynamodb.Query
 		return nil, fmt.Errorf("no items found from query for ID: %v", id)
 	}
 
-	// err = attributevalue.UnmarshalListOfMaps(result.Items, data)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
 	return result, nil
 }
 
@@ -245,7 +240,7 @@ func (c *Client) Insert(ctx context.Context, table string, data any) (*dynamodb.
 	if err != nil {
 		return nil, err
 	}
-	log.Info().Any("item", item).Msgf("PUT::Table: %v", table)
+	log.Info().Any("item", item).Msgf("Inserting record into table: %v", table)
 
 	input := &dynamodb.PutItemInput{
 		TableName:           aws.String(table),
@@ -333,11 +328,8 @@ func BuildExpression(conditions map[string]Condition) *expression.ConditionBuild
 	var builder *expression.ConditionBuilder
 	for field, condition := range conditions {
 		if reflect.TypeOf(condition.Value).String() == "[]string" && len(condition.Value.([]string)) == 0 {
-			log.Info().Msgf("skipping empty []string condition")
-
 			continue
 		} else if reflect.TypeOf(condition.Value).String() == "string" && len(condition.Value.(string)) == 0 {
-			log.Info().Msgf("skipping empty string condition")
 			continue
 		}
 

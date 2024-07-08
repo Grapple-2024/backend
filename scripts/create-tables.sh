@@ -162,3 +162,25 @@ aws dynamodb create-table \
            \"WriteCapacityUnits\": 50 \
        } \
    }]"
+
+## CREATE Emails
+aws dynamodb create-table \
+   --endpoint-url http://localhost:8000 --region=local \
+   --table-name grapple-emails \
+   --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=dummy,AttributeType=S AttributeName=created_at,AttributeType=S \
+   --key-schema AttributeName=pk,KeyType=HASH \
+   --provisioned-throughput ReadCapacityUnits=50,WriteCapacityUnits=50 \
+   --global-secondary-indexes "[{ \
+       \"IndexName\": \"CreatedAtIndex\", \
+       \"KeySchema\": [ \
+           {\"AttributeName\":\"dummy\",\"KeyType\":\"HASH\"}, \
+           {\"AttributeName\":\"created_at\",\"KeyType\":\"RANGE\"} \
+       ], \
+       \"Projection\": { \
+           \"ProjectionType\": \"ALL\" \
+       }, \
+       \"ProvisionedThroughput\": { \
+           \"ReadCapacityUnits\": 50, \
+           \"WriteCapacityUnits\": 50 \
+       } \
+   }]"
