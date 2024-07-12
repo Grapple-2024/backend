@@ -35,16 +35,19 @@ type GymRequestHandler struct {
 }
 
 type GymRequest struct {
-	PK string `json:"pk" dynamodbav:"pk"`
+	PK    string `json:"pk" dynamodbav:"pk"`
+	GymID string `json:"gym_id" dynamodbav:"gym_id,omitempty"`
 
-	RequestorID string    `json:"requestor_id" dynamodbav:"requestor_id"`
-	FirstName   string    `json:"first_name" dynamodbav:"first_name,omitempty"`
-	LastName    string    `json:"last_name" dynamodbav:"last_name,omitempty"`
-	Email       string    `json:"email" dynamodbav:"email,omitempty"`
-	GymID       string    `json:"gym_id" dynamodbav:"gym_id,omitempty"`
-	Status      string    `json:"status" dynamodbav:"status,omitempty"`
-	Dummy       string    `json:"-" dynamodbav:"dummy"`
-	CreatedAt   time.Time `json:"created_at" dynamodbav:"created_at"`
+	RequestorID    string `json:"requestor_id" dynamodbav:"requestor_id"`
+	RequestorEmail string `json:"requestor_email" dynamodbav:"requestor_email"`
+
+	FirstName string `json:"first_name" dynamodbav:"first_name,omitempty"`
+	LastName  string `json:"last_name" dynamodbav:"last_name,omitempty"`
+	Email     string `json:"email" dynamodbav:"email,omitempty"`
+	Status    string `json:"status" dynamodbav:"status,omitempty"`
+
+	Dummy     string    `json:"-" dynamodbav:"dummy"`
+	CreatedAt time.Time `json:"created_at" dynamodbav:"created_at"`
 }
 
 func NewGymRequestHandler(ctx context.Context, dynamoEndpoint string) (*GymRequestHandler, error) {
@@ -180,11 +183,12 @@ func (h *GymRequestHandler) ProcessPost(ctx context.Context, req events.APIGatew
 	// create the request
 	gymRequest.PK = base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("gymRequest#%s/%s", token.Sub, gymRequest.GymID)))
 	gymRequest.RequestorID = token.Sub
+	gymRequest.RequestorEmail = token.Email
 	gymRequest.Status = StatusPending
 	gymRequest.Dummy = "dumb"
 	gymRequest.CreatedAt = time.Now().UTC()
 
-	res, err := h.Insert(ctx, h.requestsTable, &gymRequest)
+	res, err := h.Insert(ctx, h.requestsTable, &gymRequest, "pk")
 	if err != nil {
 		return lambda.ServerError(err)
 	}

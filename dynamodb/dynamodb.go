@@ -235,17 +235,18 @@ func (c *Client) Get(ctx context.Context, table string, limit int32, exclusiveSt
 	return result, nil
 }
 
-func (c *Client) Insert(ctx context.Context, table string, data any) (*dynamodb.PutItemOutput, error) {
+func (c *Client) Insert(ctx context.Context, table string, data any, pkFieldName string) (*dynamodb.PutItemOutput, error) {
 	item, err := attributevalue.MarshalMap(data)
 	if err != nil {
 		return nil, err
 	}
 	log.Info().Any("item", item).Msgf("Inserting record into table: %v", table)
 
+	pkConditionExpression := fmt.Sprintf("attribute_not_exists(%s)", pkFieldName)
 	input := &dynamodb.PutItemInput{
 		TableName:           aws.String(table),
 		Item:                item,
-		ConditionExpression: aws.String("attribute_not_exists(pk)"),
+		ConditionExpression: &pkConditionExpression,
 	}
 	o, err := c.PutItem(ctx, input)
 	if err != nil {
@@ -260,6 +261,7 @@ func (c *Client) Insert(ctx context.Context, table string, data any) (*dynamodb.
 }
 
 func (c *Client) Update(ctx context.Context, table string, key map[string]types.AttributeValue, expr *expression.Expression) (*dynamodb.UpdateItemOutput, error) {
+	log.Info().Msgf("Condition Expression: %+v", *expr.Condition())
 	input := &dynamodb.UpdateItemInput{
 		Key:                       key,
 		TableName:                 aws.String(table),

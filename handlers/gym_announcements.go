@@ -9,23 +9,31 @@ import (
 	"os"
 	"time"
 
+	sestypes "github.com/aws/aws-sdk-go-v2/service/ses/types"
 	"github.com/rs/zerolog/log"
 
+	"github.com/Grapple-2024/backend/cognito"
 	dynamodbsdk "github.com/Grapple-2024/backend/dynamodb"
+	"github.com/aws/aws-sdk-go-v2/config"
+
 	"github.com/Grapple-2024/backend/lambda"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
-
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/ses"
 )
 
 type GymAnnouncementHandler struct {
 	*AuthService
 	*dynamodbsdk.Client
-	announcementsTable string
+	CognitoClient *cognito.Client
+
+	sesClient                *ses.Client
+	announcementsTableName   string
+	userPreferencesTableName string
 }
 
 type GymAnnouncement struct {
@@ -50,10 +58,32 @@ func NewGymAnnouncementHandler(ctx context.Context, dynamoEndpoint string) (*Gym
 		return nil, err
 	}
 
+	// Create SES cfg and client
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion("us-west-1"))
+	if err != nil {
+		return nil, err
+	}
+
+	sesClient := ses.NewFromConfig(cfg, func(o *ses.Options) {
+		o.Region = "us-west-1"
+	})
+
+	cc, err := cognito.NewClient(
+		region,
+		cognito.WithClientID(cognitoClientID),
+		cognito.WithClientSecret(cognitoClientSecret),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &GymAnnouncementHandler{
-		AuthService:        authSVC,
-		Client:             db,
-		announcementsTable: os.Getenv("GYM_ANNOUNCEMENTS_TABLE_NAME"),
+		Client:                   db,
+		AuthService:              authSVC,
+		CognitoClient:            cc,
+		sesClient:                sesClient,
+		announcementsTableName:   os.Getenv("GYM_ANNOUNCEMENTS_TABLE_NAME"),
+		userPreferencesTableName: os.Getenv("USER_PREFERENCES_TABLE_NAME"),
 	}, nil
 }
 
@@ -64,7 +94,7 @@ func (h *GymAnnouncementHandler) ProcessGetAll(ctx context.Context, req events.A
 	}
 	ascending := parseBool(req.QueryStringParameters["ascending"], true)
 
-	log.Info().Msgf("Checking if token is coach or student...")
+	// check permissions
 	isNotCoach := h.IsCoach(ctx, req.Headers, gym)
 	isNotStudent := h.IsStudent(ctx, req.Headers, gym)
 	if isNotCoach != nil && isNotStudent != nil {
@@ -72,8 +102,7 @@ func (h *GymAnnouncementHandler) ProcessGetAll(ctx context.Context, req events.A
 	}
 
 	// Build the filter and key expressions
-	builder := expression.NewBuilder().
-		WithKeyCondition(expression.Key("dummy").Equal(expression.Value("dumb")))
+	builder := expression.NewBuilder().WithKeyCondition(expression.Key("dummy").Equal(expression.Value("dumb")))
 	filterExpr := dynamodbsdk.BuildExpression(map[string]dynamodbsdk.Condition{
 		"gym_id": {
 			Operator: "Equal",
@@ -90,7 +119,7 @@ func (h *GymAnnouncementHandler) ProcessGetAll(ctx context.Context, req events.A
 	}
 
 	input := &dynamodb.QueryInput{
-		TableName:                 &h.announcementsTable,
+		TableName:                 &h.announcementsTableName,
 		IndexName:                 aws.String("LastUpdatedIndex"),
 		ScanIndexForward:          &ascending,
 		KeyConditionExpression:    expr.KeyCondition(),
@@ -128,7 +157,7 @@ func (h *GymAnnouncementHandler) ProcessGetAll(ctx context.Context, req events.A
 func (h *GymAnnouncementHandler) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
 	log.Print("Received GET gymAnnouncements by ID request")
 
-	result, err := h.GetByID(ctx, h.announcementsTable, id)
+	result, err := h.GetByID(ctx, h.announcementsTableName, id)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -150,39 +179,45 @@ func (h *GymAnnouncementHandler) ProcessGetByID(ctx context.Context, req events.
 }
 
 func (h *GymAnnouncementHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var gymAnnouncement GymAnnouncement
-	if err := json.Unmarshal([]byte(req.Body), &gymAnnouncement); err != nil {
+	var announcement GymAnnouncement
+	if err := json.Unmarshal([]byte(req.Body), &announcement); err != nil {
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("request body invalid: %v", req.Body))
 	}
 
-	if err := h.IsCoach(ctx, req.Headers, gymAnnouncement.GymID); err != nil {
-		// user is not a coach of this gym, deny the request to create an announcement
-		return lambda.ClientError(http.StatusForbidden, err.Error())
-	}
+	// if err := h.IsCoach(ctx, req.Headers, gymAnnouncement.GymID); err != nil {
+	// 	// user is not a coach of this gym, deny the request to create an announcement
+	// 	return lambda.ClientError(http.StatusForbidden, err.Error())
+	// }
 
-	if err := validate.Struct(&gymAnnouncement); err != nil {
+	if err := validate.Struct(&announcement); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, "request body failed validation")
 	}
 
-	gymAnnouncement.CreatedAt = time.Now().UTC()
-	gymAnnouncement.UpdatedAt = gymAnnouncement.CreatedAt
-	gymAnnouncement.Dummy = "dumb"
-	gymAnnouncement.PK = base64.URLEncoding.EncodeToString([]byte(
-		fmt.Sprintf("gymAnnouncement#%s/%d", gymAnnouncement.GymID, gymAnnouncement.CreatedAt.Unix())),
+	// Create the Gym Announcement record
+	announcement.CreatedAt = time.Now().UTC()
+	announcement.UpdatedAt = announcement.CreatedAt
+	announcement.Dummy = "dumb"
+	announcement.PK = base64.URLEncoding.EncodeToString([]byte(
+		fmt.Sprintf("gymAnnouncement#%s/%d", announcement.GymID, announcement.CreatedAt.Unix())),
 	)
 
-	res, err := h.Insert(ctx, h.announcementsTable, &gymAnnouncement)
+	r, err := h.Insert(ctx, h.announcementsTableName, &announcement, "pk")
 	if err != nil {
 		return lambda.ServerError(err)
+	}
+
+	// notify students of the new announcement via email
+	if err := h.notifyStudents(ctx, &announcement); err != nil {
+		log.Warn().Err(err).Msgf("Failed to send email notification for announcement!")
 	}
 
 	var returnGym GymAnnouncement
-	err = attributevalue.UnmarshalMap(res.Attributes, &returnGym)
+	err = attributevalue.UnmarshalMap(r.Attributes, &returnGym)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
 
-	json, err := json.Marshal(&gymAnnouncement)
+	json, err := json.Marshal(&announcement)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -198,7 +233,7 @@ func (h *GymAnnouncementHandler) ProcessDelete(ctx context.Context, req events.A
 	}
 
 	// Fetch the Gym Request
-	result, err := h.GetByID(ctx, h.announcementsTable, id)
+	result, err := h.GetByID(ctx, h.announcementsTableName, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym request not found: %v", err))
 	}
@@ -221,7 +256,7 @@ func (h *GymAnnouncementHandler) ProcessDelete(ctx context.Context, req events.A
 		"pk": pk,
 	}
 
-	resp, err := h.Delete(ctx, h.announcementsTable, key)
+	resp, err := h.Delete(ctx, h.announcementsTableName, key)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -279,7 +314,7 @@ func (h *GymAnnouncementHandler) ProcessPut(ctx context.Context, req events.APIG
 		"pk": pk,
 	}
 
-	resp, err := h.Update(ctx, h.announcementsTable, key, &expr)
+	resp, err := h.Update(ctx, h.announcementsTableName, key, &expr)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update record: %v", err))
 	}
@@ -295,4 +330,130 @@ func (h *GymAnnouncementHandler) ProcessPut(ctx context.Context, req events.APIG
 	}
 
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
+}
+
+// notifyStudents sends an email to each student of a gym. This function is called on successful announcement creation.
+func (h *GymAnnouncementHandler) notifyStudents(ctx context.Context, a *GymAnnouncement) error {
+	// Get the Gym associated with this announcement
+	gymID, err := attributevalue.Marshal(a.GymID)
+	if err != nil {
+		return err
+	}
+	gymPK := map[string]types.AttributeValue{
+		"pk": gymID,
+	}
+	o, err := h.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: &h.gymsTable,
+		Key:       gymPK,
+	})
+	if err != nil {
+		return err
+	}
+
+	var gym Gym
+	if err = attributevalue.UnmarshalMap(o.Item, &gym); err != nil {
+		return err
+	}
+
+	// Get all GymRequest objects for this gym with status=Accepted
+	builder := expression.NewBuilder().WithKeyCondition(
+		expression.Key("gym_id").Equal(expression.Value(a.GymID)),
+	)
+	filterExpr := dynamodbsdk.BuildExpression(map[string]dynamodbsdk.Condition{
+		"status": {
+			Operator: "Equal",
+			Value:    "Accepted",
+		},
+	})
+	builder = builder.WithFilter(*filterExpr)
+
+	e, err := builder.Build()
+	if err != nil {
+		return err
+	}
+
+	qo, err := h.Client.Query(ctx, &dynamodb.QueryInput{
+		TableName:                 &h.gymRequestsTable,
+		IndexName:                 aws.String("GymIndex"),
+		KeyConditionExpression:    e.KeyCondition(),
+		FilterExpression:          e.Filter(),
+		ExpressionAttributeNames:  e.Names(),
+		ExpressionAttributeValues: e.Values(),
+	})
+	if err != nil {
+		return err
+	}
+
+	var requests []GymRequest
+	if err = attributevalue.UnmarshalListOfMaps(qo.Items, &requests); err != nil {
+		return err
+	}
+
+	log.Info().Msgf("Found %d students for gym %q", len(requests), a.GymID)
+
+	// Send email via AWS SES
+	subject := fmt.Sprintf("%s - %s", gym.Name, a.Title)
+	for _, r := range requests {
+		// get UserPreferences object for this user
+		up, err := h.getUserPreferences(ctx, r.RequestorID)
+		if err != nil {
+			log.Warn().Err(err).Msgf("Unable to find user preferences for user ID %q", r.RequestorID)
+		}
+		// skip the student if they did not opt into emails
+		if !up.NotifyOnAnnouncements {
+			log.Info().Msgf("User %s has opted-out of announcement notifications, no email will be sent!", r.RequestorEmail)
+			continue
+		}
+		log.Info().Msgf("Notifying student email address %s of announcement", r.RequestorEmail)
+
+		_, err = h.sesClient.SendEmail(ctx, &ses.SendEmailInput{
+			Source: aws.String("jordan@dionysustechnologygroup.com"),
+			Destination: &sestypes.Destination{
+				ToAddresses: []string{r.RequestorEmail},
+			},
+			Message: &sestypes.Message{
+				Subject: &sestypes.Content{
+					Data: &subject,
+				},
+				Body: &sestypes.Body{
+					Text: &sestypes.Content{
+						Data: &a.Content,
+					},
+				},
+			},
+		}, func(o *ses.Options) {
+			o.Region = "us-west-1"
+		})
+		if err != nil {
+			log.Warn().Err(err).Msgf("failed to send email notification for announcement!")
+		}
+	}
+
+	return nil
+}
+
+func (h *GymAnnouncementHandler) getUserPreferences(ctx context.Context, id string) (*UserPreferences, error) {
+	// construct key for the object to fetch
+	userID, err := attributevalue.Marshal(id)
+	if err != nil {
+		return nil, err
+	}
+	key := map[string]types.AttributeValue{
+		"user_id": userID,
+	}
+
+	qo, err := h.Client.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: &h.userPreferencesTableName,
+		Key:       key,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var up UserPreferences
+	if err = attributevalue.UnmarshalMap(qo.Item, &up); err != nil {
+		return nil, err
+	}
+
+	return &up, nil
 }

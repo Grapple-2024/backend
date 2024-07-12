@@ -81,10 +81,10 @@ func (h *CognitoHandler) ProcessGetAll(ctx context.Context, req events.APIGatewa
 		// Add user to cognito group: "Coach"
 		u, err := h.CognitoClient.AdminListGroupsForUser(&cip.AdminListGroupsForUserInput{
 			UserPoolId: &userPoolID,
-			Username:   aws.String(token.User),
+			Username:   aws.String(token.Username),
 		})
 		if err != nil {
-			return lambda.ServerError(fmt.Errorf("failed to list Cognito user %q to coach group: %w", token.User, err))
+			return lambda.ServerError(fmt.Errorf("failed to list Cognito user %q to coach group: %w", token.Username, err))
 		}
 
 		// compile list of group names only
@@ -131,13 +131,13 @@ func (h *CognitoHandler) ProcessPut(ctx context.Context, req events.APIGatewayPr
 		// Add user to cognito group: "Coach"
 		_, err = h.CognitoClient.AdminGetUser(&cip.AdminGetUserInput{
 			UserPoolId: &userPoolID,
-			Username:   aws.String(token.User),
+			Username:   aws.String(token.Username),
 		})
 		if err != nil {
-			return lambda.ServerError(fmt.Errorf("failed to add Cognito user %q to coach group: %w", token.User, err))
+			return lambda.ServerError(fmt.Errorf("failed to add Cognito user %q to coach group: %w", token.Username, err))
 		}
 
-		log.Info().Msgf("Successfully added user %s to coach group!", token.User)
+		log.Info().Msgf("Successfully added user %s to coach group!", token.Username)
 	}
 
 	return lambda.NewResponse(http.StatusNotFound, string(`404 not found`), nil), nil

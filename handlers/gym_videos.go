@@ -138,7 +138,7 @@ func (h *GymVideoHandler) ProcessPost(ctx context.Context, req events.APIGateway
 	video.PK = base64.URLEncoding.EncodeToString([]byte(
 		fmt.Sprintf("gymVideo#%s/%s/%d", video.GymID, video.Title, video.CreatedAt.Unix())),
 	)
-	_, err := h.Insert(ctx, h.videosTable, &video)
+	_, err := h.Insert(ctx, h.videosTable, &video, "pk")
 	if err != nil {
 		return lambda.ServerError(err)
 	}

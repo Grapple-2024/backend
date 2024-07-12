@@ -18,6 +18,10 @@ Globals:
     Environment:
 
 Parameters:
+    Stage:
+      Description: "The stage of the deployment, can be either test or prod."
+      Type: 'String'
+      Default: 'test'
     GymsTableName:
         Description: 'Name of the Gyms table'
         Type: 'String'
@@ -42,6 +46,18 @@ Parameters:
         Description: 'Name of the Emails table'
         Type: 'String'
         Default: 'grapple-emails'
+    PublicUserAssetsTableName:
+        Description: 'Name of the User Assets table'
+        Type: 'String'
+        Default: "grapple-public-user-assets"
+    PublicUserAssetsBucketName:
+        Description: 'Name of the User Assets S3 bucket'
+        Type: 'String'
+        Default: "grapple-public-user-assets"
+    UserPreferencesTableName:
+        Description: 'Name of the User preferences table'
+        Type: 'String'
+        Default: "grapple-user-preferences"
 
 Resources:
   Gateway:
@@ -73,6 +89,21 @@ Resources:
             UserPoolArn: arn:aws:cognito-idp:us-west-1:381491926210:userpool/us-west-1_HT5oR6AwO # Can also accept an array
             Identity: # OPTIONAL
               Header: Authorization # OPTIONAL; Default: 'Authorization'
+
+  UserPreferencesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref UserPreferencesTableName
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
 
   EmailsTable:
     Type: AWS::DynamoDB::Table
@@ -300,13 +331,40 @@ Resources:
             ReadCapacityUnits: 1
             WriteCapacityUnits: 1
 
+  UserAssetsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref PublicUserAssetsTableName
+      AttributeDefinitions:
+        - AttributeName: url
+          AttributeType: S
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: url
+          KeyType: HASH
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      GlobalSecondaryIndexes:
+        - IndexName: "UserIndex"
+          KeySchema:
+          - AttributeName: user_id
+            KeyType: HASH
+          Projection: 
+            ProjectionType: "ALL"
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+
   Function:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: grapple-backend
+      FunctionName: !Sub grapple-backend
       CodeUri: ./cmd/backend
       Handler: main
-      MemorySize: 512
+      MemorySize: 1024
       Timeout: 30
       Environment:
         Variables:
@@ -317,11 +375,15 @@ Resources:
           GYM_VIDEOS_TABLE_NAME: !Ref GymVideosTableName
           GYM_VIDEO_SERIES_TABLE_NAME: !Ref GymVideoSeriesTableName
           EMAILS_TABLE_NAME: !Ref EmailsTableName
-
+          USER_PREFERENCES_TABLE_NAME: !Ref UserPreferencesTableName
+          PUBLIC_USER_ASSETS_TABLE_NAME: !Ref PublicUserAssetsTableName
+          PUBLIC_USER_ASSETS_BUCKET_NAME: !Ref PublicUserAssetsBucketName
       Tracing: Active
       Policies:
         - S3FullAccessPolicy:
             BucketName: grapple-gym-videos # bucket name without arn
+        - S3FullAccessPolicy:
+            BucketName: grapple-public-user-assets
         - DynamoDBCrudPolicy:
             TableName: !Ref GymsTable
         - DynamoDBCrudPolicy:
@@ -333,12 +395,16 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref GymVideoSeriesTable
         - DynamoDBCrudPolicy:
-            TableName: !Ref EmailsTableName
+            TableName: !Ref EmailsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserAssetsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UserPreferencesTable
         - Version: '2012-10-17' # Policy Document
           Statement:
             - Effect: Allow
               Action:
-                - cognito-idp:AdminAddUserToGroup
+                - ses:SendEmail
               Resource: '*'
         - Version: '2012-10-17' # Policy Document
           Statement:
@@ -575,12 +641,55 @@ Resources:
             Method: DELETE
             RestApiId: !Ref Gateway
 
+        # User Preferences
+        GetUserPreferences:
+          Type: Api
+          Properties:
+            Path: /user-preferences
+            Method: GET
+            RestApiId: !Ref Gateway
 
-        # Get Pre-signed S3 Upload URL
+        CreateUserPreferences:
+          Type: Api
+          Properties:
+            Path: /user-preferences
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        UpdateUserPreferences:
+          Type: Api
+          Properties:
+            Path: /user-preferences/{id}
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        DeleteUserPreferences:
+          Type: Api
+          Properties:
+            Path: /user-preferences/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
+
+        # Get Pre-signed S3 Upload/Download URLs
         GetS3SignedURL:
           Type: Api
           Properties:
             Path: /s3-presign-url
+            Method: GET
+            RestApiId: !Ref Gateway
+
+        # Get user assets (avatars)
+        AddUserAsset:
+          Type: Api
+          Properties:
+            Path: /user-assets
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        GetUserAssetsByUserID:
+          Type: Api
+          Properties:
+            Path: /user-assets/{id}
             Method: GET
             RestApiId: !Ref Gateway
 

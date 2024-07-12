@@ -250,7 +250,7 @@ func (h *GymHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxy
 	// Insert Gym into dynamodb
 	gymPK := base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("gym#%s/%d", gym.Creator, time.Now().Unix())))
 	gym.PK = gymPK
-	res, err := h.Insert(ctx, h.gymsTable, &gym)
+	res, err := h.Insert(ctx, h.gymsTable, &gym, "pk")
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, err.Error())
 	}
@@ -270,7 +270,7 @@ func (h *GymHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxy
 	coachGroup := "coach"
 	_, err = h.CognitoClient.AdminAddUserToGroup(&cip.AdminAddUserToGroupInput{
 		UserPoolId: &userPoolID,
-		Username:   aws.String(token.User),
+		Username:   aws.String(token.Username),
 		GroupName:  &coachGroup,
 	})
 	if err != nil {
@@ -404,7 +404,10 @@ func (h *GymHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyR
 
 // validateJWT takes a token string and validates it
 type Token struct {
-	User  string   `mapstructure:"cognito:username"`
-	Roles []string `mapstructure:"cognito:roles"`
-	Sub   string   `mapstructure:"sub"`
+	Username string   `mapstructure:"cognito:username"`
+	Email    string   `mapstructure:"email"`
+	Roles    []string `mapstructure:"cognito:roles"`
+	Groups   []string `mapstructure:"cognito:groups"`
+
+	Sub string `mapstructure:"sub"`
 }

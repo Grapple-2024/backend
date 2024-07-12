@@ -153,10 +153,12 @@ func token(hdrs map[string]string) (*Token, error) {
 	}
 
 	log.Info().Msgf("extracted token: %+v", token.Claims)
+
 	var t *Token
 	if err := mapstructure.Decode(token.Claims.(jwt.MapClaims), &t); err != nil {
 		return nil, err
 	}
+	log.Info().Msgf("token email: %+v", t.Email)
 
 	return t, nil
 }

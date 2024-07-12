@@ -184,3 +184,33 @@ aws dynamodb create-table \
            \"WriteCapacityUnits\": 50 \
        } \
    }]"
+
+   ## CREATE user assets
+aws dynamodb create-table \
+   --endpoint-url http://localhost:8000 --region=local \
+   --table-name grapple-test-public-user-assets \
+   --attribute-definitions AttributeName=url,AttributeType=S AttributeName=user_id,AttributeType=S\
+   --key-schema AttributeName=url,KeyType=HASH \
+   --provisioned-throughput ReadCapacityUnits=50,WriteCapacityUnits=50 \
+   --global-secondary-indexes "[{ \
+    \"IndexName\": \"UserIndex\", \
+    \"KeySchema\": [ \
+        {\"AttributeName\":\"user_id\",\"KeyType\":\"HASH\"} \
+    ], \
+    \"Projection\": { \
+        \"ProjectionType\": \"ALL\" \
+    }, \
+    \"ProvisionedThroughput\": { \
+        \"ReadCapacityUnits\": 5, \
+        \"WriteCapacityUnits\": 5 \
+    } \
+}]"
+
+## CREATE user preferences
+aws dynamodb create-table \
+   --endpoint-url http://localhost:8000 --region=local \
+   --table-name grapple-user-preferences \
+   --attribute-definitions AttributeName=user_id,AttributeType=S \
+   --key-schema AttributeName=user_id,KeyType=HASH \
+   --provisioned-throughput ReadCapacityUnits=50,WriteCapacityUnits=50
+

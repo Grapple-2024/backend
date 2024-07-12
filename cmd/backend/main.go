@@ -65,6 +65,16 @@ func main() {
 		panic(err)
 	}
 
+	uah, err := handlers.NewUserAssetHandler(ctx, dynamoEndpoint, region)
+	if err != err {
+		panic(err)
+	}
+
+	uph, err := handlers.NewUserPreferencesHandler(ctx, dynamoEndpoint, region)
+	if err != err {
+		panic(err)
+	}
+
 	lambdas := map[string]lambdaext.Lambda{
 		"gyms":              gh,
 		"gym-requests":      grh,
@@ -74,6 +84,8 @@ func main() {
 		"s3-presign-url":    s3h,
 		"cognito":           ch,
 		"emails":            eh,
+		"user-assets":       uah,
+		"user-preferences":  uph,
 	}
 
 	router := lambdaext.NewRouter(lambdas)

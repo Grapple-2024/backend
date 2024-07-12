@@ -172,7 +172,7 @@ func (h *GymVideoSeriesHandler) ProcessPost(ctx context.Context, req events.APIG
 		fmt.Sprintf("gymVideoSeries#%s/%s/%d", series.GymID, series.Title, series.CreatedAt.Unix())),
 	)
 
-	_, err := h.Insert(ctx, videoSeriesTableName, &series)
+	_, err := h.Insert(ctx, videoSeriesTableName, &series, "pk")
 	if err != nil {
 		return lambda.ServerError(err)
 	}

@@ -91,7 +91,7 @@ func (h *EmailHandler) ProcessPost(ctx context.Context, req events.APIGatewayPro
 	email.CreatedAt = time.Now().UTC()
 
 	// Insert Gym into dynamodb
-	_, err := h.Insert(ctx, h.emailsTable, &email)
+	_, err := h.Insert(ctx, h.emailsTable, &email, "pk")
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, err.Error())
 	}

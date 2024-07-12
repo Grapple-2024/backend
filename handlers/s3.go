@@ -29,6 +29,7 @@ const (
 type S3Handler struct {
 	*AuthService
 	*s3.PresignClient
+	S3Client *s3.Client
 }
 
 func NewS3Handler(ctx context.Context, dynamoEndpoint, region string) (*S3Handler, error) {
@@ -49,6 +50,7 @@ func NewS3Handler(ctx context.Context, dynamoEndpoint, region string) (*S3Handle
 	}
 
 	return &S3Handler{
+		S3Client:      c,
 		PresignClient: psc,
 		AuthService:   authSVC,
 	}, nil
