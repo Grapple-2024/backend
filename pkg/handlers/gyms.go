@@ -13,9 +13,9 @@ import (
 	cip "github.com/aws/aws-sdk-go/service/cognitoidentityprovider"
 	"github.com/rs/zerolog/log"
 
-	"github.com/Grapple-2024/backend/cognito"
-	dynamodbsdk "github.com/Grapple-2024/backend/dynamodb"
-	"github.com/Grapple-2024/backend/lambda"
+	"github.com/Grapple-2024/backend/pkg/cognito"
+	dynamodbsdk "github.com/Grapple-2024/backend/pkg/dynamodb"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
@@ -65,13 +65,13 @@ var (
 	validate = validator.New()
 
 	// AWS Cognito
-	userPoolID          = "us-west-1_HT5oR6AwO"
-	region              = "us-west-1"
-	cognitoClientID     = "40s9oop5e9srair8mljupn000j"
-	cognitoClientSecret = "1fifmgpshit01l5eqppj95o1kjt2v16n32kaunve5ntv2n938ei9"
+	userPoolID = "us-west-1_HT5oR6AwO"
+	region     = "us-west-1"
+	// cognitoClientID     = "40s9oop5e9srair8mljupn000j"
+	// cognitoClientSecret = "1fifmgpshit01l5eqppj95o1kjt2v16n32kaunve5ntv2n938ei9"
 )
 
-func NewGymHandler(ctx context.Context, dynamoEndpoint string) (*GymHandler, error) {
+func NewGymHandler(ctx context.Context, dynamoEndpoint, cognitoClientID, cognitoClientSecret string) (*GymHandler, error) {
 	db, err := dynamodbsdk.NewClient(dynamoEndpoint)
 	if err != nil {
 		return nil, err

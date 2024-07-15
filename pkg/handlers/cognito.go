@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/Grapple-2024/backend/cognito"
-	dynamodbsdk "github.com/Grapple-2024/backend/dynamodb"
-	"github.com/Grapple-2024/backend/lambda"
+	"github.com/Grapple-2024/backend/pkg/cognito"
+	dynamodbsdk "github.com/Grapple-2024/backend/pkg/dynamodb"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -36,7 +36,7 @@ type User struct {
 	Role string `json:"role" dynamodbav:"role"`
 }
 
-func NewCognitoHandler(ctx context.Context, dynamoEndpoint string) (*CognitoHandler, error) {
+func NewCognitoHandler(ctx context.Context, dynamoEndpoint, cognitoClientID, cognitoClientSecret string) (*CognitoHandler, error) {
 	cc, err := cognito.NewClient(
 		region,
 		cognito.WithClientID(cognitoClientID),

@@ -11,8 +11,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	dynamodbsdk "github.com/Grapple-2024/backend/dynamodb"
-	"github.com/Grapple-2024/backend/lambda"
+	dynamodbsdk "github.com/Grapple-2024/backend/pkg/dynamodb"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -308,8 +308,9 @@ func (h *GymVideoSeriesHandler) ProcessPut(ctx context.Context, req events.APIGa
 
 func getPresignedURL(ctx context.Context, client *s3.PresignClient, key string) (*types.AttributeValueMemberS, error) {
 	// Get pre-signed URL
+	bucketName := os.Getenv("GYM_VIDEOS_BUCKET_NAME")
 	params := &s3.GetObjectInput{
-		Bucket: aws.String("grapple-gym-videos"),
+		Bucket: &bucketName,
 		Key:    aws.String(key),
 	}
 

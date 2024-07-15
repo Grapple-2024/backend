@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grapple MMA: %s posted a new announcement</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #F24B4B;
+            color: #000;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+			background-color: #3E3E3E; /* Darker background color for contrast */
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .header {
+            text-align: center;
+        }
+        .content {
+            text-align: center;
+        }
+        .content p {
+            font-size: 18px;
+            color: #F24B4B;
+            margin: 10px 0;
+        }
+        .footer {
+            margin-top: 20px;
+            font-size: 14px;
+            text-align: center;
+            color: #888;
+        }
+        .unsubscribe {
+            margin-top: 10px;
+        }
+        .unsubscribe a {
+            color: #888;
+            text-decoration: none;
+        }
+		.separator {
+            border-top: 1px solid #888; /* Separator line color */
+            margin: 20px 0; /* Adjust margin as needed */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="header">
+            <img src="https://grapplemma.com/logo.png" alt="Grapple MMA Logo">
+        </div>
+		<hr class="separator">
+        <div class="content">
+            <p style="color: white"> A new announcement was posted by %s:</p>
+            <p style="font-style: italic;">%s</p>
+        </div>
+		
+        <div class="footer">
+			<p>Grapple MMA</p>
+            <p>2702 Cepa Uno, San Clemente, California 92673</p>
+            <div class="unsubscribe">
+                <p>To unsubscribe from future emails, <a href="#">click here</a>.</p>
+            </div>
+            <p>This email was sent in compliance with United States and California anti-spam laws.</p>
+        </div>
+    </div>
+
+</body>
+</html>

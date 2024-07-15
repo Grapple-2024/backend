@@ -9,13 +9,3 @@ services:
     ports:
       - 8000:8000
     command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /home/dynamodblocal/data/"
-
-  ses:
-    image: ghcr.io/askrella/aws-ses-mock:1.0.30
-    hostname: aws-ses
-    restart: always
-    # volumes:
-    #   -  ./data-dynamodb:/home/dynamodblocal/data
-    ports:
-      - 8082:8081
-

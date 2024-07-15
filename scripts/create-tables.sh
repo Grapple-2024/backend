@@ -1,7 +1,7 @@
 ## CREATE GYMS TABLE
 aws dynamodb create-table \
    --endpoint-url http://localhost:8000 --region=local \
-   --table-name grapple-gyms \
+   --table-name grapple-local-gyms \
    --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=creator,AttributeType=S \
    --key-schema AttributeName=pk,KeyType=HASH \
    --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
@@ -23,7 +23,7 @@ aws dynamodb create-table \
 ## CREATE GYM ANNOUNCEMENTS
 aws dynamodb create-table \
    --endpoint-url http://localhost:8000 --region=local \
-   --table-name grapple-gym-announcements \
+   --table-name grapple-local-gym-announcements \
    --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=dummy,AttributeType=S AttributeName=updated_at,AttributeType=S AttributeName=gym_id,AttributeType=S \
    --key-schema AttributeName=pk,KeyType=HASH \
    --provisioned-throughput ReadCapacityUnits=20,WriteCapacityUnits=20 \
@@ -58,7 +58,7 @@ aws dynamodb create-table \
 ## CREATE GYM VIDEO SERIES TABLE
 aws dynamodb create-table \
    --endpoint-url http://localhost:8000 --region=local \
-   --table-name grapple-gym-video-series \
+   --table-name grapple-local-gym-video-series \
    --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=updated_at,AttributeType=S AttributeName=dummy,AttributeType=S \
    --key-schema AttributeName=pk,KeyType=HASH \
    --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
@@ -82,7 +82,7 @@ aws dynamodb create-table \
 ## CREATE GYM VIDEOS TABLE
 aws dynamodb create-table \
    --endpoint-url http://localhost:8000 --region=local \
-   --table-name grapple-gym-videos \
+   --table-name grapple-local-gym-videos \
    --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=series_id,AttributeType=S AttributeName=updated_at,AttributeType=S AttributeName=dummy,AttributeType=S \
    --key-schema AttributeName=pk,KeyType=HASH \
    --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
@@ -120,7 +120,7 @@ aws dynamodb create-table \
 ## CREATE GYM REQUESTS
 aws dynamodb create-table \
    --endpoint-url http://localhost:8000 --region=local \
-   --table-name grapple-gym-requests \
+   --table-name grapple-local-gym-requests \
    --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=dummy,AttributeType=S AttributeName=created_at,AttributeType=S AttributeName=requestor_id,AttributeType=S AttributeName=gym_id,AttributeType=S \
    --key-schema AttributeName=pk,KeyType=HASH \
    --provisioned-throughput ReadCapacityUnits=50,WriteCapacityUnits=50 \
@@ -166,7 +166,7 @@ aws dynamodb create-table \
 ## CREATE Emails
 aws dynamodb create-table \
    --endpoint-url http://localhost:8000 --region=local \
-   --table-name grapple-emails \
+   --table-name grapple-local-emails \
    --attribute-definitions AttributeName=pk,AttributeType=S AttributeName=dummy,AttributeType=S AttributeName=created_at,AttributeType=S \
    --key-schema AttributeName=pk,KeyType=HASH \
    --provisioned-throughput ReadCapacityUnits=50,WriteCapacityUnits=50 \
@@ -185,10 +185,10 @@ aws dynamodb create-table \
        } \
    }]"
 
-   ## CREATE user assets
+## CREATE user assets
 aws dynamodb create-table \
    --endpoint-url http://localhost:8000 --region=local \
-   --table-name grapple-test-public-user-assets \
+   --table-name grapple-local-public-user-assets \
    --attribute-definitions AttributeName=url,AttributeType=S AttributeName=user_id,AttributeType=S\
    --key-schema AttributeName=url,KeyType=HASH \
    --provisioned-throughput ReadCapacityUnits=50,WriteCapacityUnits=50 \
@@ -206,10 +206,10 @@ aws dynamodb create-table \
     } \
 }]"
 
-## CREATE user preferences
+## CREATE user profiles
 aws dynamodb create-table \
    --endpoint-url http://localhost:8000 --region=local \
-   --table-name grapple-user-preferences \
+   --table-name grapple-local-user-profiles \
    --attribute-definitions AttributeName=user_id,AttributeType=S \
    --key-schema AttributeName=user_id,KeyType=HASH \
    --provisioned-throughput ReadCapacityUnits=50,WriteCapacityUnits=50

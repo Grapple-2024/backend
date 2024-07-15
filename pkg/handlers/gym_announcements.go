@@ -9,21 +9,20 @@ import (
 	"os"
 	"time"
 
-	sestypes "github.com/aws/aws-sdk-go-v2/service/ses/types"
 	"github.com/rs/zerolog/log"
 
-	"github.com/Grapple-2024/backend/cognito"
-	dynamodbsdk "github.com/Grapple-2024/backend/dynamodb"
-	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/Grapple-2024/backend/pkg/cognito"
+	dynamodbsdk "github.com/Grapple-2024/backend/pkg/dynamodb"
 
-	"github.com/Grapple-2024/backend/lambda"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/aws/aws-sdk-go-v2/service/ses"
+	"github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
 )
 
 type GymAnnouncementHandler struct {
@@ -31,9 +30,9 @@ type GymAnnouncementHandler struct {
 	*dynamodbsdk.Client
 	CognitoClient *cognito.Client
 
-	sesClient                *ses.Client
-	announcementsTableName   string
-	userPreferencesTableName string
+	sendgridClient         *sendgrid.Client
+	announcementsTableName string
+	userProfilesTableName  string
 }
 
 type GymAnnouncement struct {
@@ -47,7 +46,7 @@ type GymAnnouncement struct {
 	Dummy     string    `json:"-" dynamodbav:"dummy,omitempty"`
 }
 
-func NewGymAnnouncementHandler(ctx context.Context, dynamoEndpoint string) (*GymAnnouncementHandler, error) {
+func NewGymAnnouncementHandler(ctx context.Context, dynamoEndpoint, sendGridAPIKey, cognitoClientID, cognitoClientSecret string) (*GymAnnouncementHandler, error) {
 	db, err := dynamodbsdk.NewClient(dynamoEndpoint)
 	if err != nil {
 		return nil, err
@@ -58,16 +57,6 @@ func NewGymAnnouncementHandler(ctx context.Context, dynamoEndpoint string) (*Gym
 		return nil, err
 	}
 
-	// Create SES cfg and client
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion("us-west-1"))
-	if err != nil {
-		return nil, err
-	}
-
-	sesClient := ses.NewFromConfig(cfg, func(o *ses.Options) {
-		o.Region = "us-west-1"
-	})
-
 	cc, err := cognito.NewClient(
 		region,
 		cognito.WithClientID(cognitoClientID),
@@ -77,13 +66,15 @@ func NewGymAnnouncementHandler(ctx context.Context, dynamoEndpoint string) (*Gym
 		return nil, err
 	}
 
+	log.Info().Msgf("Send grid API Key: %s", sendGridAPIKey)
+
 	return &GymAnnouncementHandler{
-		Client:                   db,
-		AuthService:              authSVC,
-		CognitoClient:            cc,
-		sesClient:                sesClient,
-		announcementsTableName:   os.Getenv("GYM_ANNOUNCEMENTS_TABLE_NAME"),
-		userPreferencesTableName: os.Getenv("USER_PREFERENCES_TABLE_NAME"),
+		Client:                 db,
+		AuthService:            authSVC,
+		CognitoClient:          cc,
+		sendgridClient:         sendgrid.NewSendClient(sendGridAPIKey),
+		announcementsTableName: os.Getenv("GYM_ANNOUNCEMENTS_TABLE_NAME"),
+		userProfilesTableName:  os.Getenv("USER_PROFILES_TABLE_NAME"),
 	}, nil
 }
 
@@ -98,7 +89,7 @@ func (h *GymAnnouncementHandler) ProcessGetAll(ctx context.Context, req events.A
 	isNotCoach := h.IsCoach(ctx, req.Headers, gym)
 	isNotStudent := h.IsStudent(ctx, req.Headers, gym)
 	if isNotCoach != nil && isNotStudent != nil {
-		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("user is neither a coach or student of this gym: %v\n %v", isNotStudent, isNotCoach))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("permission denied: %v\n %v", isNotStudent, isNotCoach))
 	}
 
 	// Build the filter and key expressions
@@ -332,6 +323,83 @@ func (h *GymAnnouncementHandler) ProcessPut(ctx context.Context, req events.APIG
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
 
+// email template for gym announcement notifications
+const announcementNotificationEmail = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grapple MMA: %s posted a new announcement</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #F24B4B;
+            color: #000;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+			background-color: #3E3E3E; /* Darker background color for contrast */
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .header {
+            text-align: center;
+        }
+        .content {
+            text-align: center;
+        }
+        .content p {
+            font-size: 18px;
+            color: #F24B4B;
+            margin: 10px 0;
+        }
+        .footer {
+            margin-top: 20px;
+            font-size: 14px;
+            text-align: center;
+            color: #888;
+        }
+        .unsubscribe {
+            margin-top: 10px;
+        }
+        .unsubscribe a {
+            color: #888;
+            text-decoration: none;
+        }
+		.separator {
+            border-top: 1px solid #888; /* Separator line color */
+            margin: 20px 0; /* Adjust margin as needed */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="header">
+            <img src="https://grapplemma.com/logo.png" alt="Grapple MMA Logo">
+        </div>
+		<hr class="separator">
+        <div class="content">
+            <p style="color: white"> A new announcement was posted by %s:</p>
+            <p style="font-style: italic;">%s</p>
+        </div>
+		
+        <div class="footer">
+			<p>Grapple MMA</p>
+            <p>2702 Cepa Uno, San Clemente, California 92673</p>
+            <div class="unsubscribe">
+                <p>To unsubscribe from future emails, <a href="#">click here</a>.</p>
+            </div>
+            <p>This email was sent in compliance with United States and California anti-spam laws.</p>
+        </div>
+    </div>
+
+</body>
+</html>`
+
 // notifyStudents sends an email to each student of a gym. This function is called on successful announcement creation.
 func (h *GymAnnouncementHandler) notifyStudents(ctx context.Context, a *GymAnnouncement) error {
 	// Get the Gym associated with this announcement
@@ -381,7 +449,7 @@ func (h *GymAnnouncementHandler) notifyStudents(ctx context.Context, a *GymAnnou
 		ExpressionAttributeValues: e.Values(),
 	})
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to query table %s: %v", h.gymRequestsTable, err)
 	}
 
 	var requests []GymRequest
@@ -389,50 +457,40 @@ func (h *GymAnnouncementHandler) notifyStudents(ctx context.Context, a *GymAnnou
 		return err
 	}
 
-	log.Info().Msgf("Found %d students for gym %q", len(requests), a.GymID)
-
 	// Send email via AWS SES
-	subject := fmt.Sprintf("%s - %s", gym.Name, a.Title)
+	subject := fmt.Sprintf("Grapple MMA | %s: %s", gym.Name, a.Title)
 	for _, r := range requests {
 		// get UserPreferences object for this user
-		up, err := h.getUserPreferences(ctx, r.RequestorID)
+		up, err := h.getUserProfile(ctx, r.RequestorID)
 		if err != nil {
 			log.Warn().Err(err).Msgf("Unable to find user preferences for user ID %q", r.RequestorID)
 		}
+		log.Info().Msgf("Got user profile: %+v for user id %s", up, r.RequestorID)
+
 		// skip the student if they did not opt into emails
 		if !up.NotifyOnAnnouncements {
-			log.Info().Msgf("User %s has opted-out of announcement notifications, no email will be sent!", r.RequestorEmail)
+			log.Info().Msgf("User %s has opted out of announcement notifications, no email will be sent!", r.RequestorEmail)
 			continue
 		}
 		log.Info().Msgf("Notifying student email address %s of announcement", r.RequestorEmail)
 
-		_, err = h.sesClient.SendEmail(ctx, &ses.SendEmailInput{
-			Source: aws.String("jordan@dionysustechnologygroup.com"),
-			Destination: &sestypes.Destination{
-				ToAddresses: []string{r.RequestorEmail},
-			},
-			Message: &sestypes.Message{
-				Subject: &sestypes.Content{
-					Data: &subject,
-				},
-				Body: &sestypes.Body{
-					Text: &sestypes.Content{
-						Data: &a.Content,
-					},
-				},
-			},
-		}, func(o *ses.Options) {
-			o.Region = "us-west-1"
-		})
+		from := mail.NewEmail("Grapple Notifications", "support@grapplemma.com")
+		to := mail.NewEmail("Grapple Student", r.RequestorEmail)
+		htmlContent := fmt.Sprintf(announcementNotificationEmail, gym.Name, gym.Name, a.Content)
+		message := mail.NewSingleEmail(from, subject, to, "", htmlContent)
+
+		// Send email
+		_, err = h.sendgridClient.Send(message)
 		if err != nil {
-			log.Warn().Err(err).Msgf("failed to send email notification for announcement!")
+			log.Warn().Msgf("Failed to send email notification to student: %v", err)
 		}
+
 	}
 
 	return nil
 }
 
-func (h *GymAnnouncementHandler) getUserPreferences(ctx context.Context, id string) (*UserPreferences, error) {
+func (h *GymAnnouncementHandler) getUserProfile(ctx context.Context, id string) (*UserProfile, error) {
 	// construct key for the object to fetch
 	userID, err := attributevalue.Marshal(id)
 	if err != nil {
@@ -443,14 +501,14 @@ func (h *GymAnnouncementHandler) getUserPreferences(ctx context.Context, id stri
 	}
 
 	qo, err := h.Client.GetItem(ctx, &dynamodb.GetItemInput{
-		TableName: &h.userPreferencesTableName,
+		TableName: &h.userProfilesTableName,
 		Key:       key,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	var up UserPreferences
+	var up UserProfile
 	if err = attributevalue.UnmarshalMap(qo.Item, &up); err != nil {
 		return nil, err
 	}

@@ -1,0 +1,37 @@
+version: 0.1
+
+local:
+  start-api:
+    parameters:
+      stack_name: grapple-local-backend
+      resolve_s3: true
+      capabilities: CAPABILITY_IAM
+      parameter_overrides:
+        Environment: local
+
+test:
+  deploy:
+    parameters:
+      stack_name: grapple-test-backend
+      resolve_s3: true
+      capabilities: CAPABILITY_IAM
+      parameter_overrides:
+        - Environment=test
+        - SendGridAPIKey=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
+        - CognitoClientID=40s9oop5e9srair8mljupn000j
+        - CognitoClientSecret=1fifmgpshit01l5eqppj95o1kjt2v16n32kaunve5ntv2n938ei9
+
+prod:
+  deploy:
+    parameters:
+      stack_name: grapple-prod-backend
+      resolve_s3: true
+      capabilities: CAPABILITY_IAM
+      parameter_overrides:
+        - Environment=prod
+        - SendGridAPIKey=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
+        - CognitoClientID=40s9oop5e9srair8mljupn000j
+        - CognitoClientSecret=1fifmgpshit01l5eqppj95o1kjt2v16n32kaunve5ntv2n938ei9
+
+
+

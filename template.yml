@@ -1,63 +1,35 @@
-# https://docs.aws.amazon.com/AWSCloudFormation/latest/ContentGuide/format-version-structure.html
 AWSTemplateFormatVersion: 2010-09-09
 Description: >-
   Grapple Backend Service
-# Transform section specifies one or more macros that AWS CloudFormation uses to process your template
-# https://docs.aws.amazon.com/AWSCloudFormation/latest/ContentGuide/transform-section-structure.html
 Transform:
   - AWS::Serverless-2016-10-31
 
-# Resources declares the AWS resources that you want to include in the stack
-# https://docs.aws.amazon.com/AWSCloudFormation/latest/ContentGuide/resources-section-structure.html
-
-# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
 Globals:
   Function:
     Timeout: 200
-    Runtime: go1.x
-    Environment:
+    Runtime: provided.al2
 
 Parameters:
-    Stage:
-      Description: "The stage of the deployment, can be either test or prod."
+    # all parameters are overriden by samconfig.toml during 'make deploy' recipe.
+    Environment:
+      Description: "The environment to deploy to, either test or prod is currently supported."
       Type: 'String'
       Default: 'test'
-    GymsTableName:
-        Description: 'Name of the Gyms table'
-        Type: 'String'
-        Default: 'grapple-gyms' 
-    GymRequestsTableName:
-        Description: 'Name of the Gym Requests table'
-        Type: 'String'
-        Default: 'grapple-gym-requests' 
-    GymAnnouncementsTableName:
-        Description: 'Name of the Gym Announcements table'
-        Type: 'String'
-        Default: 'grapple-gym-announcements'
-    GymVideosTableName:
-        Description: 'Name of the Gym Videos table'
-        Type: 'String'
-        Default: 'grapple-gym-videos'
-    GymVideoSeriesTableName:
-        Description: 'Name of the Gym Video Series table'
-        Type: 'String'
-        Default: 'grapple-gym-video-series'
-    EmailsTableName:
-        Description: 'Name of the Emails table'
-        Type: 'String'
-        Default: 'grapple-emails'
-    PublicUserAssetsTableName:
-        Description: 'Name of the User Assets table'
-        Type: 'String'
-        Default: "grapple-public-user-assets"
-    PublicUserAssetsBucketName:
-        Description: 'Name of the User Assets S3 bucket'
-        Type: 'String'
-        Default: "grapple-public-user-assets"
-    UserPreferencesTableName:
-        Description: 'Name of the User preferences table'
-        Type: 'String'
-        Default: "grapple-user-preferences"
+    DynamoDBEndpoint:
+      Description: "The endpoint for dynamodb"
+      Type: 'String'
+      Default: "https://dynamodb.us-west-1.amazonaws.com"
+    SendGridAPIKey:
+      Description: "The send grid API Key"
+      Type: 'String'
+    CognitoClientID:
+      Description: "The endpoint for dynamodb"
+      Type: 'String'
+      Default: ""
+    CognitoClientSecret:
+      Description: "The cognito client secret"
+      Type: 'String'
+      Default: ""
 
 Resources:
   Gateway:
@@ -90,10 +62,10 @@ Resources:
             Identity: # OPTIONAL
               Header: Authorization # OPTIONAL; Default: 'Authorization'
 
-  UserPreferencesTable:
+  UserProfilesTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Ref UserPreferencesTableName
+      TableName: !Sub grapple-${Environment}-user-profiles
       AttributeDefinitions:
         - AttributeName: user_id
           AttributeType: S
@@ -108,7 +80,7 @@ Resources:
   EmailsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Ref EmailsTableName
+      TableName: !Sub grapple-${Environment}-emails
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -139,7 +111,7 @@ Resources:
   GymsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Ref GymsTableName
+      TableName: !Sub grapple-${Environment}-gyms
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -166,7 +138,7 @@ Resources:
   GymRequestsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Ref GymRequestsTableName
+      TableName: !Sub grapple-${Environment}-gym-requests
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -219,7 +191,7 @@ Resources:
   GymAnnouncementsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Ref GymAnnouncementsTableName
+      TableName: !Sub grapple-${Environment}-gym-announcements
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -250,7 +222,7 @@ Resources:
   GymVideosTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Ref GymVideosTableName
+      TableName: !Sub grapple-${Environment}-gym-videos
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -292,7 +264,7 @@ Resources:
   GymVideoSeriesTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Ref GymVideoSeriesTableName
+      TableName: !Sub grapple-${Environment}-gym-video-series
       AttributeDefinitions:
         - AttributeName: pk
           AttributeType: S
@@ -334,7 +306,7 @@ Resources:
   UserAssetsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Ref PublicUserAssetsTableName
+      TableName: !Sub grapple-${Environment}-user-assets
       AttributeDefinitions:
         - AttributeName: url
           AttributeType: S
@@ -360,30 +332,40 @@ Resources:
 
   Function:
     Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: go1.x
     Properties:
-      FunctionName: !Sub grapple-backend
+      FunctionName: !Sub grapple-backend-${Environment}
       CodeUri: ./cmd/backend
-      Handler: main
+      Handler: bootstrap
+      Runtime: provided.al2
+      Architectures:
+        - x86_64
       MemorySize: 1024
       Timeout: 30
       Environment:
         Variables:
-          DYNAMODB_ENDPOINT: !Sub "https://dynamodb.${AWS::Region}.amazonaws.com"
-          GYMS_TABLE_NAME: !Ref GymsTableName
-          GYM_REQUESTS_TABLE_NAME: !Ref GymRequestsTableName
-          GYM_ANNOUNCEMENTS_TABLE_NAME: !Ref GymAnnouncementsTableName
-          GYM_VIDEOS_TABLE_NAME: !Ref GymVideosTableName
-          GYM_VIDEO_SERIES_TABLE_NAME: !Ref GymVideoSeriesTableName
-          EMAILS_TABLE_NAME: !Ref EmailsTableName
-          USER_PREFERENCES_TABLE_NAME: !Ref UserPreferencesTableName
-          PUBLIC_USER_ASSETS_TABLE_NAME: !Ref PublicUserAssetsTableName
-          PUBLIC_USER_ASSETS_BUCKET_NAME: !Ref PublicUserAssetsBucketName
+          DYNAMODB_ENDPOINT: !Ref DynamoDBEndpoint
+          GYMS_TABLE_NAME: !Ref GymsTable
+          GYM_REQUESTS_TABLE_NAME: !Ref GymRequestsTable
+          GYM_ANNOUNCEMENTS_TABLE_NAME: !Ref GymAnnouncementsTable
+          GYM_VIDEOS_TABLE_NAME: !Ref GymVideosTable
+          GYM_VIDEO_SERIES_TABLE_NAME: !Ref GymVideoSeriesTable
+          EMAILS_TABLE_NAME: !Ref EmailsTable
+          USER_PROFILES_TABLE_NAME: !Ref UserProfilesTable
+          PUBLIC_USER_ASSETS_TABLE_NAME: !Ref UserAssetsTable
+          PUBLIC_USER_ASSETS_BUCKET_NAME: !Sub grapple-${Environment}-public-user-assets
+          GYM_VIDEOS_BUCKET_NAME: !Sub grapple-${Environment}-gym-videos
+          SENDGRID_API_KEY: !Ref SendGridAPIKey
+          COGNITO_CLIENT_ID: !Ref CognitoClientID
+          COGNITO_CLIENT_SECRET: !Ref CognitoClientID
+
       Tracing: Active
       Policies:
         - S3FullAccessPolicy:
-            BucketName: grapple-gym-videos # bucket name without arn
+            BucketName: !Sub grapple-${Environment}-gym-videos
         - S3FullAccessPolicy:
-            BucketName: grapple-public-user-assets
+            BucketName: !Sub grapple-${Environment}-public-user-assets
         - DynamoDBCrudPolicy:
             TableName: !Ref GymsTable
         - DynamoDBCrudPolicy:
@@ -399,7 +381,7 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref UserAssetsTable
         - DynamoDBCrudPolicy:
-            TableName: !Ref UserPreferencesTable
+            TableName: !Ref UserProfilesTable
         - Version: '2012-10-17' # Policy Document
           Statement:
             - Effect: Allow
@@ -411,6 +393,12 @@ Resources:
             - Effect: Allow
               Action:
                 - cognito-idp:AdminListGroupsForUser
+              Resource: '*'
+        - Version: '2012-10-17' # Policy Document
+          Statement:
+            - Effect: Allow
+              Action:
+                - cognito-idp:AdminAddUserToGroup
               Resource: '*'
       Events:
         # Emails - Marketing
@@ -641,32 +629,32 @@ Resources:
             Method: DELETE
             RestApiId: !Ref Gateway
 
-        # User Preferences
-        GetUserPreferences:
+        # User Profiles
+        GetUserProfiles:
           Type: Api
           Properties:
-            Path: /user-preferences
+            Path: /user-profiles
             Method: GET
             RestApiId: !Ref Gateway
 
-        CreateUserPreferences:
+        CreateUserProfile:
           Type: Api
           Properties:
-            Path: /user-preferences
+            Path: /user-profiles
             Method: POST
             RestApiId: !Ref Gateway
 
-        UpdateUserPreferences:
+        UpdateUserProfile:
           Type: Api
           Properties:
-            Path: /user-preferences/{id}
+            Path: /user-profiles/{id}
             Method: PUT
             RestApiId: !Ref Gateway
 
-        DeleteUserPreferences:
+        DeleteUserProfile:
           Type: Api
           Properties:
-            Path: /user-preferences/{id}
+            Path: /user-profiles/{id}
             Method: DELETE
             RestApiId: !Ref Gateway
 

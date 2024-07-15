@@ -12,13 +12,13 @@ require (
 	github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression v1.6.16
 	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.27.0
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.51.1
-	github.com/aws/aws-sdk-go-v2/service/ses v1.25.1
 	github.com/aws/smithy-go v1.20.3
 	github.com/go-http-utils/headers v0.0.0-20181008091004-fed159eddc2a
 	github.com/go-playground/validator/v10 v10.14.0
 	github.com/golang-jwt/jwt/v5 v5.2.0
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/rs/zerolog v1.31.0
+	github.com/sendgrid/sendgrid-go v3.14.0+incompatible
 )
 
 require (
@@ -47,6 +47,7 @@ require (
 	github.com/leodido/go-urn v1.2.4 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/sendgrid/rest v2.6.9+incompatible // indirect
 	github.com/stretchr/testify v1.8.3 // indirect
 	golang.org/x/crypto v0.18.0 // indirect
 	golang.org/x/net v0.20.0 // indirect

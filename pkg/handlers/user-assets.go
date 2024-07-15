@@ -7,9 +7,10 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/expression"
@@ -18,13 +19,18 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/rs/zerolog/log"
 
-	dynamodbsdk "github.com/Grapple-2024/backend/dynamodb"
-	"github.com/Grapple-2024/backend/lambda"
+	dynamodbsdk "github.com/Grapple-2024/backend/pkg/dynamodb"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/aws/aws-lambda-go/events"
 )
 
 type UserAsset struct {
-	UserID    string `json:"user_id" dynamodbav:"user_id"`
+	UserID string `json:"user_id" dynamodbav:"user_id"`
+
+	// the presigned upload url returned to client upon creation of a UserAsset. Not stored in Dynamo.
+	UploadURL string `json:"upload_url,omitempty"`
+
+	// the absolute url to the image in S3
 	URL       string `json:"url" dynamodbav:"url"`
 	AssetName string `json:"asset_name" dynamodbav:"asset_name"`
 }
@@ -138,24 +144,26 @@ func (h *UserAssetHandler) ProcessPost(ctx context.Context, req events.APIGatewa
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	}
 
-	// create the presigned upload URL
-	objectKey := fmt.Sprintf("%s/%s", token.Email, key)
-	_, err = h.uploadObject(ctx, h.userAssetsBucketName, objectKey, strings.NewReader(req.Body))
-	if err != nil {
-		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("error uploading object to s3: %v", err))
-	}
-
-	url := fmt.Sprintf("https://%s.s3.us-west-1.amazonaws.com/%s", h.userAssetsBucketName, objectKey)
+	// create UserAsset object
+	objectKey := fmt.Sprintf("%s/%s", token.Sub, key)
+	s3URL := fmt.Sprintf("https://%s.s3.us-west-1.amazonaws.com/%s", h.userAssetsBucketName, objectKey)
 	ua := &UserAsset{
 		UserID:    token.Sub,
-		URL:       url,
+		URL:       s3URL,
 		AssetName: assetName,
 	}
 
-	_, err = h.DynamoClient.Insert(ctx, h.userAssetsTableName, ua, "user_id")
+	_, err = h.DynamoClient.Insert(ctx, h.userAssetsTableName, ua, "skip")
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to insert user asset into dynamo: %v", err))
 	}
+
+	// create the presigned upload URL
+	presignedURL, err := h.createPresignedUploadURL(h.userAssetsBucketName, objectKey, 5*time.Minute)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to create presigned upload url: %v", err))
+	}
+	ua.UploadURL = presignedURL.URL
 
 	bytes, err := json.Marshal(ua)
 	if err != nil {
@@ -163,6 +171,23 @@ func (h *UserAssetHandler) ProcessPost(ctx context.Context, req events.APIGatewa
 	}
 
 	return lambda.NewResponse(http.StatusOK, string(bytes), nil), nil
+}
+
+func (h *UserAssetHandler) createPresignedUploadURL(bucketName string, objectKey string, ttl time.Duration) (*v4.PresignedHTTPRequest, error) {
+	params := &s3.PutObjectInput{
+		Bucket: aws.String(bucketName),
+		Key:    aws.String(objectKey),
+	}
+
+	request, err := h.PresignClient.PresignPutObject(context.TODO(), params, func(opts *s3.PresignOptions) {
+		opts.Expires = ttl
+	})
+	if err != nil {
+		log.Info().Msgf("couldn't get a presigned request to put %v:%v. Here's why: %v", bucketName, objectKey, err)
+		return nil, err
+	}
+
+	return request, nil
 }
 
 func (h *UserAssetHandler) uploadObject(ctx context.Context, bucketName string, objectKey string, body io.Reader) (*s3.PutObjectOutput, error) {

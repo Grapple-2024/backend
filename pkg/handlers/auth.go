@@ -6,8 +6,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/Grapple-2024/backend/dynamodb"
-	dynamodbsdk "github.com/Grapple-2024/backend/dynamodb"
+	"github.com/Grapple-2024/backend/pkg/dynamodb"
+	dynamodbsdk "github.com/Grapple-2024/backend/pkg/dynamodb"
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
@@ -152,13 +152,10 @@ func token(hdrs map[string]string) (*Token, error) {
 		return nil, err
 	}
 
-	log.Info().Msgf("extracted token: %+v", token.Claims)
-
 	var t *Token
 	if err := mapstructure.Decode(token.Claims.(jwt.MapClaims), &t); err != nil {
 		return nil, err
 	}
-	log.Info().Msgf("token email: %+v", t.Email)
 
 	return t, nil
 }

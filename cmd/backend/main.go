@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/Grapple-2024/backend/handlers"
-	lambdaext "github.com/Grapple-2024/backend/lambda"
+	"github.com/Grapple-2024/backend/pkg/handlers"
+	lambdaext "github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -24,8 +24,14 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	sendGridAPIKey := os.Getenv("SENDGRID_API_KEY")
+	cognitoClientID := os.Getenv("COGNITO_CLIENT_ID")
+	cognitoClientSecret := os.Getenv("COGNITO_CLIENT_SECRET")
 	dynamoEndpoint := os.Getenv("DYNAMODB_ENDPOINT")
-	gh, err := handlers.NewGymHandler(ctx, dynamoEndpoint)
+	log.Info().Msgf("Dynamo endpoint: %s", dynamoEndpoint)
+
+	// Create handlers
+	gh, err := handlers.NewGymHandler(ctx, dynamoEndpoint, cognitoClientID, cognitoClientSecret)
 	if err != err {
 		panic(err)
 	}
@@ -35,7 +41,7 @@ func main() {
 		panic(err)
 	}
 
-	gas, err := handlers.NewGymAnnouncementHandler(ctx, dynamoEndpoint)
+	gas, err := handlers.NewGymAnnouncementHandler(ctx, dynamoEndpoint, sendGridAPIKey, cognitoClientID, cognitoClientSecret)
 	if err != err {
 		panic(err)
 	}
@@ -55,7 +61,7 @@ func main() {
 		panic(err)
 	}
 
-	ch, err := handlers.NewCognitoHandler(ctx, dynamoEndpoint)
+	ch, err := handlers.NewCognitoHandler(ctx, dynamoEndpoint, cognitoClientID, cognitoClientSecret)
 	if err != err {
 		panic(err)
 	}
@@ -70,7 +76,7 @@ func main() {
 		panic(err)
 	}
 
-	uph, err := handlers.NewUserPreferencesHandler(ctx, dynamoEndpoint, region)
+	uph, err := handlers.NewUserProfileHandler(ctx, dynamoEndpoint, region)
 	if err != err {
 		panic(err)
 	}
@@ -85,7 +91,7 @@ func main() {
 		"cognito":           ch,
 		"emails":            eh,
 		"user-assets":       uah,
-		"user-preferences":  uph,
+		"user-profiles":     uph,
 	}
 
 	router := lambdaext.NewRouter(lambdas)

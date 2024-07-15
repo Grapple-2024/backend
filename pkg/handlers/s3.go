@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -14,13 +15,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/rs/zerolog/log"
 
-	"github.com/Grapple-2024/backend/lambda"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/aws/aws-lambda-go/events"
 )
 
 const (
-	gymVideosBucket = "grapple-gym-videos"
-	coachGroupARN   = "arn:aws:iam::381491926210:role/us-west-1_HT5oR6AwO-coachGroupRole"
+	coachGroupARN = "arn:aws:iam::381491926210:role/us-west-1_HT5oR6AwO-coachGroupRole"
 
 	operationDownload = "download"
 	operationUpload   = "upload"
@@ -29,7 +29,8 @@ const (
 type S3Handler struct {
 	*AuthService
 	*s3.PresignClient
-	S3Client *s3.Client
+	S3Client         *s3.Client
+	videosBucketName string
 }
 
 func NewS3Handler(ctx context.Context, dynamoEndpoint, region string) (*S3Handler, error) {
@@ -50,9 +51,10 @@ func NewS3Handler(ctx context.Context, dynamoEndpoint, region string) (*S3Handle
 	}
 
 	return &S3Handler{
-		S3Client:      c,
-		PresignClient: psc,
-		AuthService:   authSVC,
+		S3Client:         c,
+		PresignClient:    psc,
+		AuthService:      authSVC,
+		videosBucketName: os.Getenv("GYM_VIDEOS_BUCKET_NAME"),
 	}, nil
 }
 
@@ -93,7 +95,7 @@ func (h *S3Handler) ProcessGetAll(ctx context.Context, req events.APIGatewayProx
 
 		// create the presigned upload URL
 		objectKey := fmt.Sprintf("%s/%s", gym, keys[0])
-		r, err := h.createPresignedUploadURL(gymVideosBucket, objectKey, ttlDur)
+		r, err := h.createPresignedUploadURL(h.videosBucketName, objectKey, ttlDur)
 		if err != nil {
 			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("error creating presigned upload url: %v", err))
 		}
@@ -115,7 +117,7 @@ func (h *S3Handler) ProcessGetAll(ctx context.Context, req events.APIGatewayProx
 		presignedURLs := []map[string]any{}
 		for _, key := range keys {
 			objectKey := fmt.Sprintf("%s/%s", gym, key)
-			r, err := h.createPresignedDownloadURL(gymVideosBucket, objectKey, ttlDur)
+			r, err := h.createPresignedDownloadURL(h.videosBucketName, objectKey, ttlDur)
 			if err != nil {
 				return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("error creating presigned download url: %v", err))
 			}

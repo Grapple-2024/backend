@@ -1,16 +1,17 @@
+ENV?=test
+
 build:
-	sam build
+	sam build --config-env=${ENV}
 
 deploy: build
+	echo "Deploying SAM template to ${ENV} test environment"
 	sam deploy \
-		--template-file .aws-sam/build/template.yaml \
 		--profile=grapple-sam-deployer \
-		--stack-name grapple-dev \
-		--capabilities CAPABILITY_IAM \
-		--region us-west-1 --resolve-s3
+		--config-env=${ENV} \
+		--config-file=$$PWD/samconfig.yaml
 
 run: up build
-	sam local start-api --docker-network=backend_default --region local --env-vars=env.json
+	sam local start-api --docker-network=backend_default --region local --config-env=local
 
 up:
 	docker compose up --build -d

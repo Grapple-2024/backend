@@ -1,3 +1,5 @@
 cmd/auth
 
 cmd/wipe-db
+
+samconfig.yaml

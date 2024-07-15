@@ -8,8 +8,8 @@ import (
 	"os"
 	"time"
 
-	dynamodbsdk "github.com/Grapple-2024/backend/dynamodb"
-	"github.com/Grapple-2024/backend/lambda"
+	dynamodbsdk "github.com/Grapple-2024/backend/pkg/dynamodb"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"

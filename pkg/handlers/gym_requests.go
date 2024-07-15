@@ -11,8 +11,8 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	dynamodbsdk "github.com/Grapple-2024/backend/dynamodb"
-	"github.com/Grapple-2024/backend/lambda"
+	dynamodbsdk "github.com/Grapple-2024/backend/pkg/dynamodb"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
@@ -41,10 +41,7 @@ type GymRequest struct {
 	RequestorID    string `json:"requestor_id" dynamodbav:"requestor_id"`
 	RequestorEmail string `json:"requestor_email" dynamodbav:"requestor_email"`
 
-	FirstName string `json:"first_name" dynamodbav:"first_name,omitempty"`
-	LastName  string `json:"last_name" dynamodbav:"last_name,omitempty"`
-	Email     string `json:"email" dynamodbav:"email,omitempty"`
-	Status    string `json:"status" dynamodbav:"status,omitempty"`
+	Status string `json:"status" dynamodbav:"status,omitempty"`
 
 	Dummy     string    `json:"-" dynamodbav:"dummy"`
 	CreatedAt time.Time `json:"created_at" dynamodbav:"created_at"`
