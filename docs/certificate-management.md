@@ -8,7 +8,7 @@ SSL certificates are currently managed and rotated manually.
 Follow the guide below to generate a new certificate for Grapple.
 
 1. Download `certbot` and the `certbot-dns-route53` plugin: https://certbot-dns-route53.readthedocs.io/en/stable/
-2. Generate/rotate existing certificate:
+2. Generate/rotate existing certificate: (You will need AWS Access key credentials with permission in the Grapple Route53 hosted zone. The current IAM user for this is named `certbot`. Reach out to Jordan if you need the credentials.
 ```sh
 certbot certonly \
 -n \
@@ -26,7 +26,7 @@ certbot certonly \
 4. `scp ~/local/letsencrypt/live/grapplemma.com/fullchain.pem grapple:/home/ec2-user/fullchain.pem`
 4. `scp ~/local/letsencrypt/live/grapplemma.com/privkey.pem grapple:/home/ec2-user/privkey.pem`
 5. Next, login to the EC2 instance and run `sudo su`:
-6. `ssh grapple` -> `sudo su`
+6. `ssh grapple` -> `sudo su`. Reach out to Jordan if you need the credentials to the Grapple EC2 instance.
 7. Next, copy the files from /home/ec2-user/ to the letsencrypt directory:
 ```sh
 cp /home/ec2-user/privkey.pem /root/local/letsencrypt/live/grapplemma.com/privkey.pem
