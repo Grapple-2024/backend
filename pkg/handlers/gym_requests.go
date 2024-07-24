@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog/log"
+	"github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
 
 	dynamodbsdk "github.com/Grapple-2024/backend/pkg/dynamodb"
 	"github.com/Grapple-2024/backend/pkg/lambda"
@@ -31,6 +33,8 @@ const (
 type GymRequestHandler struct {
 	*dynamodbsdk.Client
 	*AuthService
+	sendgridClient *sendgrid.Client
+
 	requestsTable string
 }
 
@@ -41,13 +45,17 @@ type GymRequest struct {
 	RequestorID    string `json:"requestor_id" dynamodbav:"requestor_id"`
 	RequestorEmail string `json:"requestor_email" dynamodbav:"requestor_email"`
 
+	FirstName string `json:"first_name" dynamodbav:"first_name,omitempty"`
+	LastName  string `json:"last_name" dynamodbav:"last_name,omitempty"`
+	Email     string `json:"email" dynamodbav:"email,omitempty"`
+
 	Status string `json:"status" dynamodbav:"status,omitempty"`
 
 	Dummy     string    `json:"-" dynamodbav:"dummy"`
 	CreatedAt time.Time `json:"created_at" dynamodbav:"created_at"`
 }
 
-func NewGymRequestHandler(ctx context.Context, dynamoEndpoint string) (*GymRequestHandler, error) {
+func NewGymRequestHandler(ctx context.Context, dynamoEndpoint, sendGridAPIKey string) (*GymRequestHandler, error) {
 	db, err := dynamodbsdk.NewClient(dynamoEndpoint)
 	if err != nil {
 		return nil, err
@@ -59,9 +67,10 @@ func NewGymRequestHandler(ctx context.Context, dynamoEndpoint string) (*GymReque
 	}
 
 	return &GymRequestHandler{
-		Client:        db,
-		AuthService:   authSVC,
-		requestsTable: os.Getenv("GYM_REQUESTS_TABLE_NAME"),
+		Client:         db,
+		AuthService:    authSVC,
+		sendgridClient: sendgrid.NewSendClient(sendGridAPIKey),
+		requestsTable:  os.Getenv("GYM_REQUESTS_TABLE_NAME"),
 	}, nil
 }
 
@@ -190,10 +199,14 @@ func (h *GymRequestHandler) ProcessPost(ctx context.Context, req events.APIGatew
 		return lambda.ServerError(err)
 	}
 
-	var returnGym GymRequest
-	err = attributevalue.UnmarshalMap(res.Attributes, &returnGym)
+	var returnRequest GymRequest
+	err = attributevalue.UnmarshalMap(res.Attributes, &returnRequest)
 	if err != nil {
 		return lambda.ServerError(err)
+	}
+
+	if err := h.notifyCoach(ctx, &gymRequest); err != nil {
+		log.Warn().Msgf("Failed to notify coach by email of new gym request for Gym ID %q: %v", gymRequest.GymID, err)
 	}
 
 	json, err := json.Marshal(&gymRequest)
@@ -337,4 +350,121 @@ func (h *GymRequestHandler) ProcessPut(ctx context.Context, req events.APIGatewa
 	}
 
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
+}
+
+// email template for gym announcement notifications
+const requestNotificationEmail = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grapple MMA: a student requests to join your gym</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #F24B4B;
+            color: #000;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+			background-color: #3E3E3E; /* Darker background color for contrast */
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .header {
+            text-align: center;
+        }
+        .content {
+            text-align: center;
+        }
+        .content p {
+            font-size: 18px;
+            color: #F24B4B;
+            margin: 10px 0;
+        }
+        .footer {
+            margin-top: 20px;
+            font-size: 14px;
+            text-align: center;
+            color: #888;
+        }
+        .unsubscribe {
+            margin-top: 10px;
+        }
+        .unsubscribe a {
+            color: #888;
+            text-decoration: none;
+        }
+		.separator {
+            border-top: 1px solid #888; /* Separator line color */
+            margin: 20px 0; /* Adjust margin as needed */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="header">
+            <img src="https://grapplemma.com/logo.png" alt="Grapple MMA Logo">
+        </div>
+		<hr class="separator">
+        <div class="content">
+            <p style="color: white"> A student has requested to join your gym, %s. The user's email address is: %s</p>
+            <p style="font-style: italic;">Please <a href="https://grapplemma.com/coach/my-gym">login</a> to Grapple to approve or deny the student access to your gym.</p>
+        </div>
+		
+        <div class="footer">
+			<p>Grapple MMA</p>
+            <p>2702 Cepa Uno, San Clemente, California 92673</p>
+            <div class="unsubscribe">
+                <p>To unsubscribe from future emails, <a href="#">click here</a>.</p>
+            </div>
+            <p>This email was sent in compliance with United States and California anti-spam laws.</p>
+        </div>
+    </div>
+
+</body>
+</html>`
+
+// notifyCoach sends an email to the coach when a student requests to join their gym.
+func (h *GymRequestHandler) notifyCoach(ctx context.Context, r *GymRequest) error {
+	// Get the Gym associated with this announcement
+	gymID, err := attributevalue.Marshal(r.GymID)
+	if err != nil {
+		return err
+	}
+	gymPK := map[string]types.AttributeValue{
+		"pk": gymID,
+	}
+	o, err := h.GetItem(ctx, &dynamodb.GetItemInput{
+		TableName: &h.gymsTable,
+		Key:       gymPK,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get item in table %s: %v", h.gymsTable, err)
+	}
+
+	var gym Gym
+	if err = attributevalue.UnmarshalMap(o.Item, &gym); err != nil {
+		return err
+	}
+
+	// Craft email content
+	subject := fmt.Sprintf("Grapple MMA | %s: a student has requested to join your gym", gym.Name)
+	from := mail.NewEmail("Grapple Notifications", "support@grapplemma.com")
+	to := mail.NewEmail("Grapple Coach", gym.CoachEmail)
+	htmlContent := fmt.Sprintf(requestNotificationEmail, gym.Name, r.RequestorEmail)
+	message := mail.NewSingleEmail(from, subject, to, "", htmlContent)
+
+	// Send email
+	log.Info().Msgf("Notifying coach of new request: %+v", message)
+	_, err = h.sendgridClient.Send(message)
+	if err != nil {
+		log.Warn().Msgf("Failed to send email notification to student: %v", err)
+	}
+
+	return nil
 }

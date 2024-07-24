@@ -36,7 +36,7 @@ func main() {
 		panic(err)
 	}
 
-	grh, err := handlers.NewGymRequestHandler(ctx, dynamoEndpoint)
+	grh, err := handlers.NewGymRequestHandler(ctx, dynamoEndpoint, sendGridAPIKey)
 	if err != err {
 		panic(err)
 	}

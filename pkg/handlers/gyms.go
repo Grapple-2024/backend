@@ -46,6 +46,7 @@ type Gym struct {
 	ZIP          string `json:"zip,omitempty" dynamodbav:"zip,omitempty"`
 	Country      string `json:"country,omitempty" dynamodbav:"country,omitempty"`
 	PublicEmail  string `json:"public_email,omitempty" dynamodbav:"public_email,omitempty"`
+	CoachEmail   string `json:"coach_email" dynamodbav:"coach_email,omitempty"`
 
 	// s3 object key of banner image in grapple s3 bucket
 	BannerImage string `json:"banner_image,omitempty" dynamodbav:"banner_image,omitempty"`
@@ -250,6 +251,7 @@ func (h *GymHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxy
 	// Insert Gym into dynamodb
 	gymPK := base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("gym#%s/%d", gym.Creator, time.Now().Unix())))
 	gym.PK = gymPK
+	gym.CoachEmail = token.Email
 	res, err := h.Insert(ctx, h.gymsTable, &gym, "pk")
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, err.Error())

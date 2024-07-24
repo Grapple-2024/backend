@@ -120,10 +120,10 @@ Resources:
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
-      BillingMode: PROVISIONED
-      ProvisionedThroughput:
-        ReadCapacityUnits: 1
-        WriteCapacityUnits: 1
+      BillingMode: PAY_PER_REQUEST
+      OnDemandThroughput:
+        MaxReadRequestUnits: 10
+        MaxWriteRequestUnits: 1
       GlobalSecondaryIndexes:
         - IndexName: "CreatorIndex"
           KeySchema: 
@@ -131,9 +131,9 @@ Resources:
             KeyType: HASH
           Projection: 
             ProjectionType: "ALL"
-          ProvisionedThroughput:
-            ReadCapacityUnits: 1
-            WriteCapacityUnits: 1
+          OnDemandThroughput:
+            MaxReadRequestUnits: 10
+            MaxWriteRequestUnits: 1
 
   GymRequestsTable:
     Type: AWS::DynamoDB::Table
