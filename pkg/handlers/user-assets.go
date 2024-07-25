@@ -171,6 +171,7 @@ func (h *UserAssetHandler) ProcessPost(ctx context.Context, req events.APIGatewa
 	profile := UserProfile{
 		UserID:                token.Sub,
 		NotifyOnAnnouncements: true,
+		NotifyOnGymRequests:   true,
 	}
 	_, err = h.Insert(ctx, h.userProfilesTableName, &profile, "user_id")
 	if err != nil {
