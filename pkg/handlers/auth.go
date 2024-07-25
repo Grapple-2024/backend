@@ -20,8 +20,8 @@ import (
 // Service provides authorization checks against resources in the database.
 type AuthService struct {
 	*dynamodb.Client
-	gymsTable        string
-	gymRequestsTable string
+	gymsTable            string
+	gymRequestsTableName string
 }
 
 func NewAuthService(dynamoEndpoint string) (*AuthService, error) {
@@ -31,9 +31,9 @@ func NewAuthService(dynamoEndpoint string) (*AuthService, error) {
 	}
 
 	return &AuthService{
-		Client:           db,
-		gymsTable:        os.Getenv("GYMS_TABLE_NAME"),
-		gymRequestsTable: os.Getenv("GYM_REQUESTS_TABLE_NAME"),
+		Client:               db,
+		gymsTable:            os.Getenv("GYMS_TABLE_NAME"),
+		gymRequestsTableName: os.Getenv("GYM_REQUESTS_TABLE_NAME"),
 	}, nil
 }
 
@@ -66,7 +66,7 @@ func (s *AuthService) IsStudent(ctx context.Context, headers map[string]string, 
 		},
 	}
 
-	so, err := s.Get(ctx, s.gymRequestsTable, 10, nil, aws.String("RequestorIndex"), &filter)
+	so, err := s.Get(ctx, s.gymRequestsTableName, 10, nil, aws.String("RequestorIndex"), &filter)
 	if err != nil {
 		return err
 	}

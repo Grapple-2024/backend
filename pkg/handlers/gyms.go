@@ -27,8 +27,9 @@ import (
 type GymHandler struct {
 	*dynamodbsdk.Client
 	*AuthService
-	CognitoClient *cognito.Client
-	gymsTable     string
+	CognitoClient         *cognito.Client
+	gymsTableName         string
+	userProfilesTableName string
 }
 
 type Gym struct {
@@ -93,16 +94,17 @@ func NewGymHandler(ctx context.Context, dynamoEndpoint, cognitoClientID, cognito
 	}
 
 	return &GymHandler{
-		Client:        db,
-		CognitoClient: cc,
-		AuthService:   authSVC,
-		gymsTable:     os.Getenv("GYMS_TABLE_NAME"),
+		Client:                db,
+		CognitoClient:         cc,
+		AuthService:           authSVC,
+		gymsTableName:         os.Getenv("GYMS_TABLE_NAME"),
+		userProfilesTableName: os.Getenv("USER_PROFILES_TABLE_NAME"),
 	}, nil
 }
 
 func (h *GymHandler) scanGyms(ctx context.Context, expr *expression.Expression, limit *int32, startKey map[string]types.AttributeValue) (*dynamodbsdk.GetResponse, error) {
 	input := &dynamodb.ScanInput{
-		TableName: &h.gymsTable,
+		TableName: &h.gymsTableName,
 		Limit:     limit,
 	}
 	if startKey != nil {
@@ -137,7 +139,7 @@ func (h *GymHandler) queryGymsByCreator(ctx context.Context, limit *int32, creat
 	}
 
 	input := &dynamodb.QueryInput{
-		TableName:                 &h.gymsTable,
+		TableName:                 &h.gymsTableName,
 		IndexName:                 aws.String("CreatorIndex"),
 		ExpressionAttributeNames:  expr.Names(),
 		ExpressionAttributeValues: expr.Values(),
@@ -204,7 +206,7 @@ func (h *GymHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayPro
 func (h *GymHandler) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
 	log.Info().Msgf("Received GET Gym by ID request with ID: %v", id)
 
-	result, err := h.GetByID(ctx, h.gymsTable, id)
+	result, err := h.GetByID(ctx, h.gymsTableName, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, err.Error())
 	}
@@ -252,9 +254,19 @@ func (h *GymHandler) ProcessPost(ctx context.Context, req events.APIGatewayProxy
 	gymPK := base64.URLEncoding.EncodeToString([]byte(fmt.Sprintf("gym#%s/%d", gym.Creator, time.Now().Unix())))
 	gym.PK = gymPK
 	gym.CoachEmail = token.Email
-	res, err := h.Insert(ctx, h.gymsTable, &gym, "pk")
+	res, err := h.Insert(ctx, h.gymsTableName, &gym, "pk")
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, err.Error())
+	}
+
+	// create a user profile if it doesn't exist (no-op with a warning if it doesn't)
+	profile := UserProfile{
+		UserID:              token.Sub,
+		NotifyOnGymRequests: true,
+	}
+	_, err = h.Insert(ctx, h.userProfilesTableName, &profile, "user_id")
+	if err != nil {
+		log.Warn().Msgf("failed to create user profile (it may already exist and this is just a noop): %v", err)
 	}
 
 	var returnGym Gym
@@ -291,7 +303,7 @@ func (h *GymHandler) ProcessDelete(ctx context.Context, req events.APIGatewayPro
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("you must be the coach of the gym to delete it: %v", err))
 	}
 
-	result, err := h.GetByID(ctx, h.gymsTable, id)
+	result, err := h.GetByID(ctx, h.gymsTableName, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym not found: %v", err))
 	}
@@ -308,7 +320,7 @@ func (h *GymHandler) ProcessDelete(ctx context.Context, req events.APIGatewayPro
 	key := map[string]types.AttributeValue{
 		"pk": pk,
 	}
-	resp, err := h.Delete(ctx, h.gymsTable, key)
+	resp, err := h.Delete(ctx, h.gymsTableName, key)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -332,7 +344,7 @@ func (h *GymHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	// Fetch the Gym
-	result, err := h.GetByID(ctx, h.gymsTable, id)
+	result, err := h.GetByID(ctx, h.gymsTableName, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym not found: %v", err))
 	}
@@ -378,13 +390,13 @@ func (h *GymHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyR
 		"pk": pk,
 	}
 
-	resp, err := h.Update(ctx, h.gymsTable, key, &expr, false)
+	resp, err := h.Update(ctx, h.gymsTableName, key, &expr, false)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update record: %v", err))
 	}
 	log.Info().Msgf("Update metadata: %v", resp.ResultMetadata)
 
-	o, err := h.GetByID(ctx, h.gymsTable, id)
+	o, err := h.GetByID(ctx, h.gymsTableName, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, err.Error())
 	}

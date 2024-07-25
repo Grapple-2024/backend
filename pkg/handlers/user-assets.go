@@ -38,10 +38,11 @@ type UserAsset struct {
 type UserAssetHandler struct {
 	*AuthService
 	*s3.PresignClient
-	DynamoClient         *dynamodbsdk.Client
-	S3Client             *s3.Client
-	userAssetsTableName  string
-	userAssetsBucketName string
+	DynamoClient          *dynamodbsdk.Client
+	S3Client              *s3.Client
+	userAssetsTableName   string
+	userAssetsBucketName  string
+	userProfilesTableName string
 }
 
 func NewUserAssetHandler(ctx context.Context, dynamoEndpoint, region string) (*UserAssetHandler, error) {
@@ -67,12 +68,13 @@ func NewUserAssetHandler(ctx context.Context, dynamoEndpoint, region string) (*U
 	}
 
 	return &UserAssetHandler{
-		DynamoClient:         db,
-		S3Client:             c,
-		PresignClient:        psc,
-		AuthService:          authSVC,
-		userAssetsTableName:  os.Getenv("PUBLIC_USER_ASSETS_TABLE_NAME"),
-		userAssetsBucketName: os.Getenv("PUBLIC_USER_ASSETS_BUCKET_NAME"),
+		DynamoClient:          db,
+		S3Client:              c,
+		PresignClient:         psc,
+		AuthService:           authSVC,
+		userAssetsTableName:   os.Getenv("PUBLIC_USER_ASSETS_TABLE_NAME"),
+		userAssetsBucketName:  os.Getenv("PUBLIC_USER_ASSETS_BUCKET_NAME"),
+		userProfilesTableName: os.Getenv("USER_PROFILES_TABLE_NAME"),
 	}, nil
 }
 
@@ -164,6 +166,16 @@ func (h *UserAssetHandler) ProcessPost(ctx context.Context, req events.APIGatewa
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to create presigned upload url: %v", err))
 	}
 	ua.UploadURL = presignedURL.URL
+
+	// create a user profile if it doesn't exist (no-op with a warning if it doesn't)
+	profile := UserProfile{
+		UserID:                token.Sub,
+		NotifyOnAnnouncements: true,
+	}
+	_, err = h.Insert(ctx, h.userProfilesTableName, &profile, "user_id")
+	if err != nil {
+		log.Warn().Msgf("failed to create user profile (it may already exist and this is just a noop): %v", err)
+	}
 
 	bytes, err := json.Marshal(ua)
 	if err != nil {

@@ -66,10 +66,6 @@ func NewGymAnnouncementHandler(ctx context.Context, dynamoEndpoint, sendGridAPIK
 		return nil, err
 	}
 
-	log.Info().Msgf("Send grid API Key: %s", sendGridAPIKey)
-	log.Info().Msgf("profiles table name: %s", os.Getenv("USER_PROFILES_TABLE_NAME"))
-	log.Info().Msgf("announcements table name: %s", os.Getenv("GYM_ANNOUNCEMENTS_TABLE_NAME"))
-
 	return &GymAnnouncementHandler{
 		Client:                 db,
 		AuthService:            authSVC,
@@ -443,7 +439,7 @@ func (h *GymAnnouncementHandler) notifyStudents(ctx context.Context, a *GymAnnou
 	}
 
 	qo, err := h.Client.Query(ctx, &dynamodb.QueryInput{
-		TableName:                 &h.gymRequestsTable,
+		TableName:                 &h.gymRequestsTableName,
 		IndexName:                 aws.String("GymIndex"),
 		KeyConditionExpression:    e.KeyCondition(),
 		FilterExpression:          e.Filter(),
@@ -451,7 +447,7 @@ func (h *GymAnnouncementHandler) notifyStudents(ctx context.Context, a *GymAnnou
 		ExpressionAttributeValues: e.Values(),
 	})
 	if err != nil {
-		return fmt.Errorf("failed to query table %s: %v", h.gymRequestsTable, err)
+		return fmt.Errorf("failed to query gym requests table %q: %v", h.gymRequestsTableName, err)
 	}
 
 	var requests []GymRequest

@@ -35,7 +35,8 @@ type GymRequestHandler struct {
 	*AuthService
 	sendgridClient *sendgrid.Client
 
-	requestsTable string
+	requestsTableName     string
+	userProfilesTableName string
 }
 
 type GymRequest struct {
@@ -67,10 +68,11 @@ func NewGymRequestHandler(ctx context.Context, dynamoEndpoint, sendGridAPIKey st
 	}
 
 	return &GymRequestHandler{
-		Client:         db,
-		AuthService:    authSVC,
-		sendgridClient: sendgrid.NewSendClient(sendGridAPIKey),
-		requestsTable:  os.Getenv("GYM_REQUESTS_TABLE_NAME"),
+		Client:                db,
+		AuthService:           authSVC,
+		sendgridClient:        sendgrid.NewSendClient(sendGridAPIKey),
+		requestsTableName:     os.Getenv("GYM_REQUESTS_TABLE_NAME"),
+		userProfilesTableName: os.Getenv("USER_PROFILES_TABLE_NAME"),
 	}, nil
 }
 
@@ -109,7 +111,7 @@ func (h *GymRequestHandler) ProcessGetAll(ctx context.Context, req events.APIGat
 	// Send Query request to DynamoDB
 	scanLimit := limit + 1000
 	result, err := h.Query(ctx, &dynamodb.QueryInput{
-		TableName:                 &h.gymRequestsTable,
+		TableName:                 &h.requestsTableName,
 		Limit:                     &scanLimit,
 		ExclusiveStartKey:         startKey,
 		ScanIndexForward:          &ascending,
@@ -142,7 +144,7 @@ func (h *GymRequestHandler) ProcessGetAll(ctx context.Context, req events.APIGat
 func (h *GymRequestHandler) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
 	log.Print("Received GET gymRequests by ID request")
 
-	result, err := h.GetByID(ctx, h.requestsTable, id)
+	result, err := h.GetByID(ctx, h.requestsTableName, id)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -194,7 +196,7 @@ func (h *GymRequestHandler) ProcessPost(ctx context.Context, req events.APIGatew
 	gymRequest.Dummy = "dumb"
 	gymRequest.CreatedAt = time.Now().UTC()
 
-	res, err := h.Insert(ctx, h.requestsTable, &gymRequest, "pk")
+	res, err := h.Insert(ctx, h.requestsTableName, &gymRequest, "pk")
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -230,7 +232,7 @@ func (h *GymRequestHandler) ProcessDelete(ctx context.Context, req events.APIGat
 	}
 
 	// Fetch the Gym Request
-	result, err := h.GetByID(ctx, h.requestsTable, id)
+	result, err := h.GetByID(ctx, h.requestsTableName, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym request not found: %v", err))
 	}
@@ -258,7 +260,7 @@ func (h *GymRequestHandler) ProcessDelete(ctx context.Context, req events.APIGat
 		"pk": pk,
 	}
 
-	resp, err := h.Delete(ctx, h.requestsTable, key)
+	resp, err := h.Delete(ctx, h.requestsTableName, key)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
@@ -270,14 +272,15 @@ func (h *GymRequestHandler) ProcessDelete(ctx context.Context, req events.APIGat
 
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
+
 func (h *GymRequestHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id, ok := req.PathParameters["id"]
 	if !ok {
 		return lambda.ClientError(http.StatusBadRequest, "id parameter not found")
 	}
 
-	// Fetch the Gym Request the user is trying to modify
-	result, err := h.GetByID(ctx, h.requestsTable, id)
+	// Fetch the Gym Request the coach is trying to modify
+	result, err := h.GetByID(ctx, h.requestsTableName, id)
 	if err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("gym request not found: %v", err))
 	} else if result.Count == 0 {
@@ -289,20 +292,36 @@ func (h *GymRequestHandler) ProcessPut(ctx context.Context, req events.APIGatewa
 	if err != nil {
 		return lambda.ServerError(err)
 	}
+	request := requests[0] // fetch first record from result
 
 	// check if the token has permission to modify the request (They must be the gym's coach)
-	log.Info().Msgf("Checking if user request token is associated with the coach of gym %++v", requests[0])
 	if err := h.IsCoach(ctx, req.Headers, requests[0].GymID); err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: must be a coach to modify a gym request: %v", err))
 	}
 
+	// unmarhal JSON request body to GymRequest struct
 	var payload GymRequest
 	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to unmarshal request body: %v", err))
 	}
 
+	// validate the payload status field is one of the possible enum values, fail if not.
 	if payload.Status != StatusAccepted && payload.Status != StatusPending && payload.Status != StatusDenied {
-		return lambda.ClientError(http.StatusBadRequest, "status field must be one of [Accepted, Pending, Denied] %v")
+		return lambda.ClientError(http.StatusBadRequest, "status field must be one of [Accepted, Pending, Denied]")
+	}
+
+	// check if the coach is approving a gym request
+	log.Info().Msgf("Requestor ID: %v", payload.RequestorID)
+	if payload.Status == StatusAccepted {
+		// if the coach is approving a request, create a user profile (no-op if the user already has a profile)
+		profile := UserProfile{
+			UserID:                request.RequestorID,
+			NotifyOnAnnouncements: true,
+		}
+		_, err := h.Insert(ctx, h.userProfilesTableName, &profile, "user_id")
+		if err != nil {
+			log.Warn().Msgf("failed to create user profile (it may already exist and this is just a noop): %v", err)
+		}
 	}
 
 	builder := expression.NewBuilder().WithCondition(
@@ -333,7 +352,7 @@ func (h *GymRequestHandler) ProcessPut(ctx context.Context, req events.APIGatewa
 		"pk": pk,
 	}
 
-	resp, err := h.Update(ctx, h.requestsTable, key, &expr, false)
+	resp, err := h.Update(ctx, h.requestsTableName, key, &expr, false)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update record: %v", err))
 	}
