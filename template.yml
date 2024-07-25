@@ -22,6 +22,7 @@ Parameters:
     SendGridAPIKey:
       Description: "The send grid API Key"
       Type: 'String'
+      Default: "<sendgrid-api-key>"
     CognitoClientID:
       Description: "The endpoint for dynamodb"
       Type: 'String'
@@ -346,14 +347,14 @@ Resources:
       Environment:
         Variables:
           DYNAMODB_ENDPOINT: !Ref DynamoDBEndpoint
-          GYMS_TABLE_NAME: !Ref GymsTable
-          GYM_REQUESTS_TABLE_NAME: !Ref GymRequestsTable
-          GYM_ANNOUNCEMENTS_TABLE_NAME: !Ref GymAnnouncementsTable
-          GYM_VIDEOS_TABLE_NAME: !Ref GymVideosTable
-          GYM_VIDEO_SERIES_TABLE_NAME: !Ref GymVideoSeriesTable
-          EMAILS_TABLE_NAME: !Ref EmailsTable
-          USER_PROFILES_TABLE_NAME: !Ref UserProfilesTable
-          PUBLIC_USER_ASSETS_TABLE_NAME: !Ref UserAssetsTable
+          GYMS_TABLE_NAME: !Sub grapple-${Environment}-gyms
+          GYM_REQUESTS_TABLE_NAME: !Sub grapple-${Environment}-gym-requests
+          GYM_ANNOUNCEMENTS_TABLE_NAME: !Sub grapple-${Environment}-gym-announcements
+          GYM_VIDEOS_TABLE_NAME: !Sub grapple-${Environment}-gym-videos
+          GYM_VIDEO_SERIES_TABLE_NAME: !Sub grapple-${Environment}-gym-video-series
+          EMAILS_TABLE_NAME: !Sub grapple-${Environment}-emails
+          USER_PROFILES_TABLE_NAME: !Sub grapple-${Environment}-user-profiles
+          PUBLIC_USER_ASSETS_TABLE_NAME: !Sub grapple-${Environment}-user-assets
           PUBLIC_USER_ASSETS_BUCKET_NAME: !Sub grapple-${Environment}-public-user-assets
           GYM_VIDEOS_BUCKET_NAME: !Sub grapple-${Environment}-gym-videos
           SENDGRID_API_KEY: !Ref SendGridAPIKey

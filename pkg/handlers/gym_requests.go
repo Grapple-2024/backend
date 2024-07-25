@@ -333,7 +333,7 @@ func (h *GymRequestHandler) ProcessPut(ctx context.Context, req events.APIGatewa
 		"pk": pk,
 	}
 
-	resp, err := h.Update(ctx, h.requestsTable, key, &expr)
+	resp, err := h.Update(ctx, h.requestsTable, key, &expr, false)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update record: %v", err))
 	}

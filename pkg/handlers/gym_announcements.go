@@ -67,6 +67,8 @@ func NewGymAnnouncementHandler(ctx context.Context, dynamoEndpoint, sendGridAPIK
 	}
 
 	log.Info().Msgf("Send grid API Key: %s", sendGridAPIKey)
+	log.Info().Msgf("profiles table name: %s", os.Getenv("USER_PROFILES_TABLE_NAME"))
+	log.Info().Msgf("announcements table name: %s", os.Getenv("GYM_ANNOUNCEMENTS_TABLE_NAME"))
 
 	return &GymAnnouncementHandler{
 		Client:                 db,
@@ -305,7 +307,7 @@ func (h *GymAnnouncementHandler) ProcessPut(ctx context.Context, req events.APIG
 		"pk": pk,
 	}
 
-	resp, err := h.Update(ctx, h.announcementsTableName, key, &expr)
+	resp, err := h.Update(ctx, h.announcementsTableName, key, &expr, false)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update record: %v", err))
 	}

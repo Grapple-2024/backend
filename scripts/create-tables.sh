@@ -188,7 +188,7 @@ aws dynamodb create-table \
 ## CREATE user assets
 aws dynamodb create-table \
    --endpoint-url http://localhost:8000 --region=local \
-   --table-name grapple-local-public-user-assets \
+   --table-name grapple-local-user-assets \
    --attribute-definitions AttributeName=url,AttributeType=S AttributeName=user_id,AttributeType=S\
    --key-schema AttributeName=url,KeyType=HASH \
    --provisioned-throughput ReadCapacityUnits=50,WriteCapacityUnits=50 \

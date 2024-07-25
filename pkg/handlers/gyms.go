@@ -378,7 +378,7 @@ func (h *GymHandler) ProcessPut(ctx context.Context, req events.APIGatewayProxyR
 		"pk": pk,
 	}
 
-	resp, err := h.Update(ctx, h.gymsTable, key, &expr)
+	resp, err := h.Update(ctx, h.gymsTable, key, &expr, false)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update record: %v", err))
 	}

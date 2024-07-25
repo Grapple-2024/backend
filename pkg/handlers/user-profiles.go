@@ -30,7 +30,7 @@ type UserProfile struct {
 	NotifyOnGymRequests bool `json:"notify_on_gym_requests" dynamodbav:"notify_on_gym_request"`
 
 	// list of users public assets (profile images for now)
-	Assets []UserAsset `json:"assets"`
+	Assets []UserAsset `json:"assets" dynamodbav:"assets"`
 
 	CreatedAt time.Time `json:"created_at,omitempty" dynamodbav:"created_at,omitempty"`
 	UpdatedAt time.Time `json:"updated_at,omitempty" dynamodbav:"updated_at,omitempty"`
@@ -159,11 +159,15 @@ func (h UserProfileHandler) updateUserProfile(ctx context.Context, id string, up
 		update = update.Set(expression.Name(k), expression.Value(v))
 	}
 	update = update.Set(expression.Name("updated_at"), expression.Value(time.Now().UTC()))
-	builder := expression.NewBuilder().WithCondition(expression.Equal(
-		expression.Name("user_id"),
-		expression.Value(id),
-	),
-	).WithUpdate(update)
+	// update = update.Set(expression.Name("user_id"), expression.Value(id))
+
+	// // builder := expression.NewBuilder().WithCondition(expression.Equal(
+	// // 	expression.Name("user_id"),
+	// // 	expression.Value(id),
+	// // ),
+	// ).WithUpdate(update)
+
+	builder := expression.NewBuilder().WithUpdate(update)
 
 	expr, err := builder.Build()
 	if err != nil {
@@ -180,7 +184,7 @@ func (h UserProfileHandler) updateUserProfile(ctx context.Context, id string, up
 	}
 
 	log.Info().Msgf("Updating user profile with Key: %+v", key["user_id"])
-	return h.Update(ctx, h.userProfilesTableName, key, &expr)
+	return h.Update(ctx, h.userProfilesTableName, key, &expr, true)
 }
 
 func (h *UserProfileHandler) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, startKey map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {

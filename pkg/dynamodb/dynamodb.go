@@ -90,7 +90,7 @@ func NewClient(endpoint string) (*Client, error) {
 			})),
 	)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
 
 	return &Client{
@@ -260,8 +260,7 @@ func (c *Client) Insert(ctx context.Context, table string, data any, pkFieldName
 	return o, nil
 }
 
-func (c *Client) Update(ctx context.Context, table string, key map[string]types.AttributeValue, expr *expression.Expression) (*dynamodb.UpdateItemOutput, error) {
-	log.Info().Msgf("Condition Expression: %+v", *expr.Condition())
+func (c *Client) Update(ctx context.Context, table string, key map[string]types.AttributeValue, expr *expression.Expression, upsert bool) (*dynamodb.UpdateItemOutput, error) {
 	input := &dynamodb.UpdateItemInput{
 		Key:                       key,
 		TableName:                 aws.String(table),
@@ -271,6 +270,16 @@ func (c *Client) Update(ctx context.Context, table string, key map[string]types.
 		ConditionExpression:       expr.Condition(),
 		ReturnValues:              types.ReturnValue(*aws.String("ALL_NEW")),
 	}
+
+	if upsert {
+		// no condition for the item to exist already if we are upserting
+		input.ConditionExpression = nil
+		// input.ExpressionAttributeNames = nil
+		// input.ExpressionAttributeValues = nil
+	}
+	log.Info().Msgf("Expression names: %v", input.ExpressionAttributeNames)
+	log.Info().Msgf("Expression values: %v", input.ExpressionAttributeValues)
+	log.Info().Msgf("Update expression: %v", *input.UpdateExpression)
 
 	res, err := c.UpdateItem(ctx, input)
 	if err != nil {

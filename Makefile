@@ -11,7 +11,7 @@ deploy: build
 		--config-file=$$PWD/samconfig.yaml
 
 run: up build
-	sam local start-api --docker-network=backend_default --region local --config-env=local
+	sam local start-api --docker-network=backend_default --region us-west-1 --config-env=local --config-file=$$PWD/samconfig.yaml
 
 up:
 	docker compose up --build -d

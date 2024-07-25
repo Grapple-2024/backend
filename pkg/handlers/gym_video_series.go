@@ -288,7 +288,7 @@ func (h *GymVideoSeriesHandler) ProcessPut(ctx context.Context, req events.APIGa
 		"pk": pk,
 	}
 
-	resp, err := h.Update(ctx, videoSeriesTableName, key, &expr)
+	resp, err := h.Update(ctx, videoSeriesTableName, key, &expr, false)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update record: %v", err))
 	}

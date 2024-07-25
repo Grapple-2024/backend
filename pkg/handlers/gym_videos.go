@@ -43,6 +43,7 @@ type GymVideo struct {
 	Difficulty  string   `validator:"nonzero" json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
 	Disciplines []string `validator:"nonzero" json:"disciplines,omitempty" dynamodbav:"disciplines,stringsets,omitempty"`
 	S3Object    string   `validator:"nonzero" json:"s3_object,omitempty" dynamodbav:"s3_object,omitempty"`
+	SortOrder   int32    `json:"sort_order" dynamodbav:"sort_order"`
 
 	// Computed fields on any GET:
 	PresignedURL string `json:"presigned_url,omitempty" dynamodbav:"presigned_url,omitempty"`
@@ -223,7 +224,8 @@ func (h *GymVideoHandler) ProcessPut(ctx context.Context, req events.APIGatewayP
 
 	// Sync the updated videos' series
 	if err := h.syncSeries(ctx, video.SeriesID); err != nil {
-		return lambda.ServerError(fmt.Errorf("failed to sync the video's associated series: %w", err))
+		log.Warn().Msgf("failed to sync the video's associated series: %v", err)
+		// return lambda.ServerError(fmt.Errorf("failed to sync the video's associated series: %w", err))
 	}
 
 	// Unmarshal Dynamodb response into GymVideo
@@ -363,7 +365,7 @@ func (h GymVideoHandler) updateGymVideoSeries(ctx context.Context, id string, se
 		"pk": pk,
 	}
 
-	return h.Update(ctx, videoSeriesTableName, key, &expr)
+	return h.Update(ctx, videoSeriesTableName, key, &expr, false)
 }
 
 func (h GymVideoHandler) updateGymVideo(ctx context.Context, id string, video *GymVideo) (*dynamodb.UpdateItemOutput, error) {
@@ -401,5 +403,5 @@ func (h GymVideoHandler) updateGymVideo(ctx context.Context, id string, video *G
 		"pk": pk,
 	}
 
-	return h.Update(ctx, h.videosTable, key, &expr)
+	return h.Update(ctx, h.videosTable, key, &expr, false)
 }
