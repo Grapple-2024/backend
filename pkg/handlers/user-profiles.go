@@ -24,10 +24,10 @@ type UserProfile struct {
 	UserID string `json:"user_id" dynamodbav:"user_id"`
 
 	// only for students
-	NotifyOnAnnouncements bool `json:"notify_on_announcements" dynamodbav:"notify_on_announcement"`
+	NotifyOnAnnouncements bool `json:"notify_on_announcements" dynamodbav:"notify_on_announcements"`
 
 	// only for coaches
-	NotifyOnGymRequests bool `json:"notify_on_gym_requests" dynamodbav:"notify_on_gym_request"`
+	NotifyOnGymRequests bool `json:"notify_on_gym_requests" dynamodbav:"notify_on_gym_requests"`
 
 	// list of users public assets (profile images for now)
 	Assets []UserAsset `json:"assets" dynamodbav:"assets"`
