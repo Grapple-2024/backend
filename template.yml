@@ -14,7 +14,16 @@ Parameters:
     Environment:
       Description: "The environment to deploy to, either test or prod is currently supported."
       Type: 'String'
-      Default: 'test'
+      Default: 'local'
+    # all parameters are overriden by samconfig.toml during 'make deploy' recipe.
+    ApiUrl:
+      Description: "The base api url for grapple, must be hard-coded in samconfig.yaml!"
+      Type: 'String'
+      Default: ''
+    MongoEndpoint:
+      Description: "The endpoint for mongodb"
+      Type: 'String'
+      Default: "mongodb://mongodb:27017"
     DynamoDBEndpoint:
       Description: "The endpoint for dynamodb"
       Type: 'String'
@@ -330,8 +339,26 @@ Resources:
           ProvisionedThroughput:
             ReadCapacityUnits: 1
             WriteCapacityUnits: 1
+ 
+  CreateProfileOnSignupLambda:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: go1.x
+    Properties:
+      FunctionName: !Sub grapple-${Environment}-CreateProfileOnSignup
+      CodeUri: ./cmd/post-signup-lambda
+      Handler: post-signup
+      Runtime: provided.al2
+      Architectures:
+        - x86_64
+      MemorySize: 1024
+      Timeout: 30
+      Environment:
+        Variables:
+          MONGO_ENDPOINT: !Ref MongoEndpoint
+      Tracing: Active
 
-  Function:
+  GrappleLambda:
     Type: AWS::Serverless::Function
     Metadata:
       BuildMethod: go1.x
@@ -346,6 +373,8 @@ Resources:
       Timeout: 30
       Environment:
         Variables:
+          API_URL: !Ref ApiUrl
+          MONGO_ENDPOINT: !Ref MongoEndpoint
           DYNAMODB_ENDPOINT: !Ref DynamoDBEndpoint
           GYMS_TABLE_NAME: !Sub grapple-${Environment}-gyms
           GYM_REQUESTS_TABLE_NAME: !Sub grapple-${Environment}-gym-requests
@@ -360,48 +389,154 @@ Resources:
           SENDGRID_API_KEY: !Ref SendGridAPIKey
           COGNITO_CLIENT_ID: !Ref CognitoClientID
           COGNITO_CLIENT_SECRET: !Ref CognitoClientID
-
       Tracing: Active
-      Policies:
-        - S3FullAccessPolicy:
-            BucketName: !Sub grapple-${Environment}-gym-videos
-        - S3FullAccessPolicy:
-            BucketName: !Sub grapple-${Environment}-public-user-assets
-        - DynamoDBCrudPolicy:
-            TableName: !Ref GymsTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref GymRequestsTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref GymAnnouncementsTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref GymVideosTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref GymVideoSeriesTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref EmailsTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref UserAssetsTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref UserProfilesTable
-        - Version: '2012-10-17' # Policy Document
-          Statement:
-            - Effect: Allow
-              Action:
-                - ses:SendEmail
-              Resource: '*'
-        - Version: '2012-10-17' # Policy Document
-          Statement:
-            - Effect: Allow
-              Action:
-                - cognito-idp:AdminListGroupsForUser
-              Resource: '*'
-        - Version: '2012-10-17' # Policy Document
-          Statement:
-            - Effect: Allow
-              Action:
-                - cognito-idp:AdminAddUserToGroup
-              Resource: '*'
+      Role: !GetAtt FunctionRole.Arn
       Events:
+        ##### V2 Events
+        # Gyms
+        GetGymV2:
+          Type: Api
+          Properties:
+            Path: /gyms/{id}
+            Method: GET
+            RestApiId: !Ref Gateway
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
+
+        GetGymsV2:
+          Type: Api
+          Properties:
+            Path: /gyms
+            Method: GET
+            RestApiId: !Ref Gateway
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
+
+        CreateGymV2:
+          Type: Api
+          Properties:
+            Path: /gyms
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        UpdateGymV2:
+          Type: Api
+          Properties:
+            Path: /gyms/{id}
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        DeleteGymV2:
+          Type: Api
+          Properties:
+            Path: /gyms/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
+
+        # AnnouncementsV2
+        GetAnnouncementV2:
+          Type: Api
+          Properties:
+            Path: /announcements/{id}
+            Method: GET
+            RestApiId: !Ref Gateway
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
+
+        GetAnnouncementsV2:
+          Type: Api
+          Properties:
+            Path: /announcements
+            Method: GET
+            RestApiId: !Ref Gateway
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
+
+        CreateAnnouncementV2:
+          Type: Api
+          Properties:
+            Path: /announcements
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        UpdateAnnouncementV2:
+          Type: Api
+          Properties:
+            Path: /announcements/{id}
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        DeleteAnnouncementV2:
+          Type: Api
+          Properties:
+            Path: /annoncements/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
+
+        # Techniques
+        GetTechniques:
+          Type: Api
+          Properties:
+            Path: /techniques/{id}
+            Method: GET
+            RestApiId: !Ref Gateway
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
+
+        GetTechnique:
+          Type: Api
+          Properties:
+            Path: /techniques
+            Method: GET
+            RestApiId: !Ref Gateway
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
+
+        CreateTechnique:
+          Type: Api
+          Properties:
+            Path: /techniques
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        UpdateTechnique:
+          Type: Api
+          Properties:
+            Path: /techniques/{id}
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        DeleteTechnique:
+          Type: Api
+          Properties:
+            Path: /techniques/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
+
+        # Profiles
+        GetProfiles:
+          Type: Api
+          Properties:
+            Path: /profiles
+            Method: GET
+            RestApiId: !Ref Gateway
+
+        UpsertUserProfile:
+          Type: Api
+          Properties:
+            Path: /profiles
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        # DeleteUserProfile:
+        #   Type: Api
+        #   Properties:
+        #     Path: /profiles/{id}
+        #     Method: DELETE
+        #     RestApiId: !Ref Gateway
+
+
+        #### V1 Events
         # Emails - Marketing
         GetEmail:
           Type: Api
@@ -445,46 +580,6 @@ Resources:
             RestApiId: !Ref Gateway
             Auth:
               Authorizer: NONE # Turn off Authorization for this event
-
-        # Gyms
-        GetGym:
-          Type: Api
-          Properties:
-            Path: /gyms/{id}
-            Method: GET
-            RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
-
-        GetGyms:
-          Type: Api
-          Properties:
-            Path: /gyms
-            Method: GET
-            RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
-
-        CreateGym:
-          Type: Api
-          Properties:
-            Path: /gyms
-            Method: POST
-            RestApiId: !Ref Gateway
-
-        UpdateGym:
-          Type: Api
-          Properties:
-            Path: /gyms/{id}
-            Method: PUT
-            RestApiId: !Ref Gateway
-
-        DeleteGym:
-          Type: Api
-          Properties:
-            Path: /gyms/{id}
-            Method: DELETE
-            RestApiId: !Ref Gateway
 
         # Gym Requests
         GetGymRequest:
@@ -630,35 +725,6 @@ Resources:
             Method: DELETE
             RestApiId: !Ref Gateway
 
-        # User Profiles
-        GetUserProfiles:
-          Type: Api
-          Properties:
-            Path: /user-profiles
-            Method: GET
-            RestApiId: !Ref Gateway
-
-        CreateUserProfile:
-          Type: Api
-          Properties:
-            Path: /user-profiles
-            Method: POST
-            RestApiId: !Ref Gateway
-
-        UpdateUserProfile:
-          Type: Api
-          Properties:
-            Path: /user-profiles/{id}
-            Method: PUT
-            RestApiId: !Ref Gateway
-
-        DeleteUserProfile:
-          Type: Api
-          Properties:
-            Path: /user-profiles/{id}
-            Method: DELETE
-            RestApiId: !Ref Gateway
-
         # Get Pre-signed S3 Upload/Download URLs
         GetS3SignedURL:
           Type: Api
@@ -702,13 +768,76 @@ Resources:
             Auth:
               Authorizer: NONE # Turn off Authorization for this event
 
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "grapple-${Environment}-backend-execution-role"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - s3:*
+                Resource:
+                  - !Sub arn:aws:s3:::grapple-${Environment}-gym-videos
+                  - !Sub arn:aws:s3:::grapple-${Environment}-gym-videos/*
+                  - !Sub arn:aws:s3:::grapple-${Environment}-public-user-assets
+                  - !Sub arn:aws:s3:::grapple-${Environment}-public-user-assets/*
+        - PolicyName: DynamoDBAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - dynamodb:*
+                Resource:
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${GymRequestsTable}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${GymVideosTable}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${GymVideoSeriesTable}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailsTable}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UserAssetsTable}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UserProfilesTable}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${GymAnnouncementsTable}
+                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${GymsTable}
+        - PolicyName: SESAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ses:SendEmail
+                Resource: '*'
+        - PolicyName: CognitoIdpAccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-idp:AdminListGroupsForUser
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - cognito-idp:AdminAddUserToGroup
+                Resource: '*'
 Outputs:
   API:
     Description: "API Gateway endpoint URL for the Lambda function"
     Value: !Sub "https://${Gateway}.execute-api.${AWS::Region}.amazonaws.com/"
-  FunctionARN:
-    Description: "Content Service Function ARN"
-    Value: !GetAtt Function.Arn
-  FunctionIAMRole:
+  GrappleLambdaARN:
+    Description: "Content Service Lambda Function ARN"
+    Value: !GetAtt GrappleLambda.Arn
+  GrappleFunctionIAMRole:
     Description: "Implicit IAM Role created for Grapple Backend Lambda function"
     Value: !GetAtt FunctionRole.Arn

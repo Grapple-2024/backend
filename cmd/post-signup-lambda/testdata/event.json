@@ -1,0 +1,25 @@
+{
+
+	"callerContext": {
+		"awsSdkVersion": "aws-sdk-unknown-unknown",
+		"clientId": "40mqkksspk6di3f70636ec46fr"
+	  },
+	  "region": "us-west-1",
+	  "request": {
+		"userAttributes": {
+		  "cognito:user_status": "CONFIRMED",
+		  "email": "jleevinn@gmail.com",
+		  "email_verified": true,
+		  "family_name": "Levin",
+		  "given_name": "Jordan",
+		  "phone_number": "+19498705588",
+		  "phone_number_verified": false,
+		  "sub": "c2d932c3-9ad1-4838-a7b0-152af673bb53"
+		}
+	  },
+	  "response": {},
+	  "triggerSource": "PostConfirmation_ConfirmSignUp",
+	  "userName": "jleevinn@gmail.com",
+	  "userPoolId": "us-west-1_HT5oR6AwO",
+	  "version": 1
+	}

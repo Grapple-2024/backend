@@ -1,0 +1,22 @@
+package announcements
+
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+// Gym represents the Gym document structure in MongoDB.
+type Announcement struct {
+	ID          primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
+	GymID       primitive.ObjectID `json:"gym_id,omitempty" bson:"gym_id,omitempty"`
+	CoachName   string             `json:"coach_name,omitempty" bson:"coach_name,omitempty" validate:"required"`
+	CoachAvatar string             `json:"coach_avatar,omitempty" bson:"coach_avatar,omitempty" validate:"required"`
+	Title       string             `json:"title" bson:"title,omitempty" validate:"required"`
+	Content     string             `json:"content" bson:"description,omitempty" validate:"required"`
+
+	CreatedAtWeek int       `json:"created_at_week" bson:"created_at_week"`
+	CreatedAtYear int       `json:"created_at_year" bson:"created_at_year"`
+	CreatedAt     time.Time `json:"created_at" bson:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at" bson:"updated_at"`
+}

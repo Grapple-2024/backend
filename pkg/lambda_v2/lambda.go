@@ -1,4 +1,4 @@
-package lambda
+package lambda_v2
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/rs/zerolog/log"
 )
@@ -28,13 +27,19 @@ type Lambda interface {
 	ProcessDelete(context.Context, events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error)
 }
 
+// NewRouter creates the main HTTP listener for Grapple backend, given a slice of Lambda endpoints to be registered.
+// Each lambda represents a subpath on the backend API, ie /users, /gyms, /announcements, etc.
 func NewRouter(lambdas map[string]Lambda) func(context.Context, events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// Main handler function for all HTTP requests on this Lambda API.
 	return func(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-		base := strings.Split(strings.TrimPrefix(req.Path, "/"), "/")[0]
-		handler := lambdas[base]
+		s := strings.Split(strings.TrimPrefix(req.Path, "/"), "/")
+		if len(s) == 0 {
+			return ClientError(http.StatusBadRequest, "bad request path: "+req.Path)
+		}
+		endpoint := s[0]
+
+		handler := lambdas[endpoint]
 		if handler == nil {
-			return ClientError(http.StatusNotFound, http.StatusText(http.StatusNotFound))
+			return ClientError(http.StatusNotFound, fmt.Sprintf("endpoint not registered: %s", endpoint))
 		}
 
 		switch req.HTTPMethod {
@@ -68,23 +73,8 @@ func ProcessGet(ctx context.Context, l Lambda, req events.APIGatewayProxyRequest
 		}
 	}
 
-	startKey := strings.ReplaceAll(req.QueryStringParameters[exclusiveStartKeyKey], "\\", "")
-	if startKey == "" {
-		return l.ProcessGetAll(ctx, req, int32(limitInt), nil)
-	}
-
-	var exclusiveStartKey map[string]string
-	if err := json.Unmarshal([]byte(startKey), &exclusiveStartKey); err != nil {
-		log.Info().Err(err).Msgf("failed to unmarshal string %s into map[string]string", string(startKey))
-		return ClientError(http.StatusBadRequest, fmt.Sprintf("invalid exclusive start key: %v", err))
-	}
-
-	av, err := attributevalue.MarshalMap(exclusiveStartKey)
-	if err != nil {
-		return ClientError(http.StatusBadRequest, fmt.Sprintf("failed to marshal %v", err))
-	}
-
-	return l.ProcessGetAll(ctx, req, int32(limitInt), av)
+	// TODO: remove the dynamodb from the function after switching off dynamo
+	return l.ProcessGetAll(ctx, req, int32(limitInt), nil)
 }
 
 // helper functions below this point
@@ -122,6 +112,8 @@ func ClientError(status int, msgs ...string) (events.APIGatewayProxyResponse, er
 func ServerError(err error) (events.APIGatewayProxyResponse, error) {
 	log.Error().Err(err).Msgf("Server error: %v", err.Error())
 
+	// TODO: We shouldn't return server-sided error messages to the consumer of Grapple backend.
+	// Return user-friendly error message like "A system error has occured, please try again or contact your system admin."
 	resp := map[string]any{
 		"error": err.Error(),
 	}
