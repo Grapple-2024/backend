@@ -1,4 +1,4 @@
-package gym_requests
+package gym_series
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/service"
-	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
@@ -24,8 +23,8 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-// Service is the object that handles the business logic of all gymRequest related operations.
-// Service talks to the underlying Mongo Client (Data access layer) to CRUD gymRequest objects.
+// Service is the object that handles the business logic of all gymSeries related operations.
+// Service talks to the underlying Mongo Client (Data access layer) to CRUD gymSeries objects.
 type Service struct {
 	mongo.Session
 
@@ -33,9 +32,9 @@ type Service struct {
 	*mongo.Collection
 }
 
-// NewService creates a new instance of a GymRequest Service given a mongo client
+// NewService creates a new instance of a GymSeries Service given a mongo client
 func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
-	c := mc.Database("grapple").Collection("gymRequests")
+	c := mc.Database("grapple").Collection("series")
 
 	// Create Mongo Session (needed for transactions)
 	svc := &Service{Client: mc, Collection: c}
@@ -94,13 +93,13 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	// Fetch records with pagination
-	var records []GymRequest
+	var records []GymSeries
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, &records); err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
 	if records == nil {
-		records = []GymRequest{}
+		records = []GymSeries{}
 	}
 
 	// Get the total count of documents
@@ -109,39 +108,39 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda_v2.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
-	resp, err := service.NewGetAllResponse("gymRequests", records, totalCount, len(records), pageInt, pageSizeInt)
+	resp, err := service.NewGetAllResponse("gymSeries", records, totalCount, len(records), pageInt, pageSizeInt)
 	if err != nil {
 		return lambda_v2.ServerError(err)
 	}
 	return lambda_v2.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
-// ProcessGet handles HTTP requests for GET /gymRequests/{id}
+// ProcessGet handles HTTP requests for GET /gym-series/{id}
 func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
-	// Get the gymRequest by ID
-	var gymRequest GymRequest
-	if err := mongoext.FindByID(ctx, s.Collection, id, &gymRequest); err != nil {
-		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gymRequest by ID: %v", err))
+	// Get the gymSeries by ID
+	var gymSeries GymSeries
+	if err := mongoext.FindByID(ctx, s.Collection, id, &gymSeries); err != nil {
+		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gymSeries by ID: %v", err))
 	}
 
 	// Return record as JSON
-	json, err := json.Marshal(gymRequest)
+	json, err := json.Marshal(gymSeries)
 	if err != nil {
 		return lambda_v2.ServerError(err)
 	}
 	return lambda_v2.NewResponse(http.StatusOK, string(json), nil), nil
 }
 
-// ProcessPost handles HTTP requests for POST /gymRequests
+// ProcessPost handles HTTP requests for POST /gym-series
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var gymRequest GymRequest
-	if err := json.Unmarshal([]byte(req.Body), &gymRequest); err != nil {
+	var gymSeries GymSeries
+	if err := json.Unmarshal([]byte(req.Body), &gymSeries); err != nil {
 		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 	}
 
 	// Validate request body for required fields
 	validate := validator.New()
-	if err := validate.Struct(gymRequest); err != nil {
+	if err := validate.Struct(gymSeries); err != nil {
 		var errMsgs []string
 		for _, err := range err.(validator.ValidationErrors) {
 			errMsgs = append(errMsgs, fmt.Sprintf("Field '%s' failed validation with tag '%s'", err.Field(), err.Tag()))
@@ -149,12 +148,12 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 		return lambda_v2.ClientError(http.StatusUnprocessableEntity, errMsgs...)
 	}
 
-	gymRequest.CreatedAt = time.Now().Local().UTC()
-	gymRequest.UpdatedAt = gymRequest.CreatedAt
+	gymSeries.CreatedAt = time.Now().Local().UTC()
+	gymSeries.UpdatedAt = gymSeries.CreatedAt
 
-	// insert the GymRequest, store the resulting record in 'result' variable
-	var result GymRequest
-	if err := mongoext.Insert(ctx, s.Collection, &gymRequest, &result); err != nil {
+	// insert the GymSeries, store the resulting record in 'result' variable
+	var result GymSeries
+	if err := mongoext.Insert(ctx, s.Collection, &gymSeries, &result); err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to insert gym request ooc: %v", err))
 	}
 
@@ -166,18 +165,18 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	return lambda_v2.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
-// ProcessPut handles HTTP requests for PUT /gymRequests/{id}
+// ProcessPut handles HTTP requests for PUT /gym-series/{id}
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var gymRequest GymRequest
-	if err := json.Unmarshal([]byte(req.Body), &gymRequest); err != nil {
+	var gymSeries GymSeries
+	if err := json.Unmarshal([]byte(req.Body), &gymSeries); err != nil {
 		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 	}
 
 	// update the record in mongo
 	id := req.PathParameters["id"]
-	result, err := s.updateGymRequestTX(ctx, &gymRequest, id)
-	if err != nil {
-		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to finish updateGymRequest transaction: %v", err))
+	var result GymSeries
+	if err := mongoext.UpdateByID(ctx, s.Collection, id, gymSeries, &result, nil); err != nil {
+		return lambda_v2.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 	}
 
 	// Marshal result to JSON and return it in the response
@@ -189,7 +188,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	return lambda_v2.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
-// ProcessDelete handles HTTP requests for DELETE /gymRequests/{id}
+// ProcessDelete handles HTTP requests for DELETE /gym-series/{id}
 func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id := req.PathParameters["id"]
 	objID, err := primitive.ObjectIDFromHex(id)
@@ -213,63 +212,25 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	return lambda_v2.NewResponse(http.StatusOK, ``, nil), nil
 }
 
-func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, id string) (*GymRequest, error) {
+func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSeries, id string) (*GymSeries, error) {
 	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
 
 	result, err := s.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (interface{}, error) {
-		var request GymRequest
-		if err := mongoext.UpdateByID(ctx, s.Collection, id, payload, &request, nil); err != nil {
+		var result GymSeries
+		if err := mongoext.UpdateByID(ctx, s.Collection, id, payload, &result, nil); err != nil {
 			return lambda_v2.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 		}
+		log.Info().Msgf("Update GymSeries result: %v", result)
 
-		if payload.Status != RequestApproved {
-			return request, nil
-		}
-
-		log.Debug().Msgf("a gym request was approved by coach for student %q (%s)", request.RequestorEmail, request.RequestorID)
-
-		// The request was approved by the coach: update the student profile's gym_associations field.
-		coll := s.Client.Database("grapple").Collection("profiles")
-
-		// create new profile
-		gymAssociation := profiles.GymAssociation{
-			CoachName: "TODO",
-			GymID:     request.GymID,
-			Role:      "Student",
-			EmailPreferences: &profiles.EmailPreferences{
-				NotifyOnAnnouncements: true,
-			},
-		}
-
-		// create filter & update statements, send to mongodb to update the student's profile.
-		filter := bson.M{
-			"cognito_id": request.RequestorID,
-		}
-		update := bson.M{
-			"$push": bson.M{
-				"gyms": gymAssociation,
-			},
-		}
-
-		var upsertResult profiles.Profile
-		if err := mongoext.Update(ctx, coll, update, filter, &upsertResult, nil); err != nil {
-			return nil, fmt.Errorf("failed to upsert student profile after creating a gym request: %v", err)
-		}
-
-		log.Info().Msgf("Successfully added gym association to user profile: %s", request.RequestorID)
-		return request, nil
+		return result, nil
 	}, transactionOptions)
 
 	if err != nil {
-		log.Warn().Err(err).Msgf("failed to run mongo transaction for profile creation")
+		log.Warn().Err(err).Msgf("Failed to run mongo transaction for profile creation")
 		return nil, err
 	} else {
 		log.Info().Msgf("createProfile transaction completed successfully!")
 	}
 
-	if request, ok := result.(GymRequest); ok {
-		return &request, nil
-	}
-
-	return nil, err
+	return result.(*GymSeries), nil
 }

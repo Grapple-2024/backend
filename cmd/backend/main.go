@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/service/announcements"
+	"github.com/Grapple-2024/backend/internal/service/gym_requests"
 	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/internal/service/techniques"
@@ -41,22 +42,19 @@ func main() {
 		}
 	}()
 
+	log.Printf("connected to mongo server: %s", mongoURL)
+
 	// Create V1 Handlers
 	handlerCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	sendGridAPIKey := os.Getenv("SENDGRID_API_KEY")
+	// sendGridAPIKey := os.Getenv("SENDGRID_API_KEY")
 	cognitoClientID := os.Getenv("COGNITO_CLIENT_ID")
 	cognitoClientSecret := os.Getenv("COGNITO_CLIENT_SECRET")
 	dynamoEndpoint := os.Getenv("DYNAMODB_ENDPOINT")
 	log.Info().Msgf("Dynamo endpoint: %s", dynamoEndpoint)
 
 	// Create handlers
-
-	grh, err := handlers.NewGymRequestHandler(handlerCtx, dynamoEndpoint, sendGridAPIKey)
-	if err != err {
-		panic(err)
-	}
 
 	gvh, err := handlers.NewGymVideoHandler(handlerCtx, dynamoEndpoint)
 	if err != err {
@@ -91,25 +89,29 @@ func main() {
 	// Create V2 Handlers (Mongo DB)
 	gyms, err := gyms.NewService(ctx, mongoClient)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to initialize new Gym Service")
+		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
 	}
 	announcements, err := announcements.NewService(ctx, mongoClient)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to initialize new Gym Service")
+		log.Fatal().Err(err).Msgf("failed to initialize Announcements Service")
 	}
 	techniques, err := techniques.NewService(ctx, mongoClient)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to initialize new Gym Service")
+		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
 	}
 	profiles, err := profiles.NewService(ctx, mongoClient)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to initialize new Gym Service")
+		log.Fatal().Err(err).Msgf("failed to initialize Profiles Service")
+	}
+
+	requests, err := gym_requests.NewService(ctx, mongoClient)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Gym Requests Service")
 	}
 
 	log.Info().Msgf("Base API URL: %v", os.Getenv("API_URL"))
 
 	lambdas := map[string]lambdaext.Lambda{
-		"gym-requests":     grh,
 		"gym-videos":       gvh,
 		"gym-video-series": gvsh,
 		"s3-presign-url":   s3h,
@@ -122,6 +124,7 @@ func main() {
 		"gyms":          gyms,
 		"announcements": announcements,
 		"techniques":    techniques,
+		"gym-requests":  requests,
 	}
 
 	router := lambdaext.NewRouter(lambdas)

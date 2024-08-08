@@ -19,7 +19,7 @@ type Profile struct {
 	PhoneNumber string `json:"phone_number" bson:"phone_number"`
 
 	AvatarURL string           `json:"avatar_url" bson:"avatar_url"`
-	Gyms      []GymAssociation `json:"gyms,omit" bson:"gyms,omitempty"`
+	Gyms      []GymAssociation `json:"gyms,omit" bson:"gyms"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at"`

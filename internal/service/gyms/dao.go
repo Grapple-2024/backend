@@ -16,7 +16,8 @@ type Gym struct {
 	Name        string             `json:"name" bson:"name,omitempty" validate:"required,alphanumeric_and_spaces"`
 	Description string             `json:"description" bson:"description,omitempty" validate:"required"`
 
-	TechniquesOfTheWeek []primitive.ObjectID `json:"techniques_of_the_week,omitempty" bson:"techniques_of_the_week,omitempty"`
+	// Should probably handle this in a separate response to avoid too large of a response when dealing with historical data
+	// TechniquesOfTheWeek []primitive.ObjectID `json:"techniques_of_the_week,omitempty" bson:"techniques_of_the_week,omitempty"`
 
 	// Cognito User ID for the creator of the gym
 	Creator string `json:"creator" bson:"creator,omitempty" validate:"required"`

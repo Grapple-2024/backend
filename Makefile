@@ -14,9 +14,11 @@ deploy:
 		--config-file=$$PWD/samconfig.yaml
 
 
+
 # Runs the post-signup lambda (cmd/post-signup-lambda)
+EVENT?=./cmd/post-signup-lambda/testdata/event.json
 run-post-signup: up build
-	sam local invoke --docker-network=backend_default CreateProfileOnSignupLambda --event event.json
+	sam local invoke --docker-network=backend_default CreateProfileOnSignupLambda --event ${EVENT}
 
 # Runs the grapple backend lambda (cmd/backend)
 run: up build

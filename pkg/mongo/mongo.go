@@ -48,6 +48,13 @@ func Insert(ctx context.Context, collection *mongo.Collection, payload, result a
 	return nil
 }
 
+func Find(ctx context.Context, collection *mongo.Collection, filter bson.M, result any) error {
+	if err := collection.FindOne(ctx, filter).Decode(result); err != nil {
+		return err
+	}
+	return nil
+}
+
 func FindByID(ctx context.Context, collection *mongo.Collection, id string, result any) error {
 	// Convert the id to a primitive.ObjectID
 	objID, err := primitive.ObjectIDFromHex(id)
@@ -65,23 +72,19 @@ func FindByID(ctx context.Context, collection *mongo.Collection, id string, resu
 }
 
 func Update(ctx context.Context, c *mongo.Collection, update bson.M, filter bson.M, result any, opts *options.UpdateOptions) error {
-	// filter := bson.M{"_id": objID}
-	// update := bson.M{"$set": payload}
-
 	// update the record in mongo
-	res, err := c.UpdateOne(ctx, filter, update, opts)
+	_, err := c.UpdateOne(ctx, filter, update, opts)
 	if err != nil {
 		return err
 	}
 
-	log.Printf("Upserted record ID: %v", res.UpsertedID)
-
-	if err := FindByID(ctx, c, res.UpsertedID.(string), result); err != nil {
+	if err := Find(ctx, c, filter, &result); err != nil {
 		return err
 	}
 
 	return nil
 }
+
 func UpdateByID(ctx context.Context, c *mongo.Collection, id string, payload any, result any, opts *options.UpdateOptions) error {
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
