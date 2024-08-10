@@ -18,12 +18,12 @@ const (
 // GymRequest represents the GymRequest document structure in MongoDB.
 type GymRequest struct {
 	ID    primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
-	GymID primitive.ObjectID `json:"gym_id" bson:"gym_id,omitempty"`
+	GymID primitive.ObjectID `json:"gym_id" bson:"gym_id,omitempty" validate:"required"`
 
-	RequestorID    string `json:"requestor_id" bson:"requestor_id,omitempty"`
-	RequestorEmail string `json:"requestor_email" bson:"requestor_email,omitempty"`
-	FirstName      string `json:"first_name" bson:"first_name,omitempty"`
-	LastName       string `json:"last_name" bson:"last_name,omitempty"`
+	RequestorID    string `json:"requestor_id" bson:"requestor_id,omitempty" validate:"required"`
+	RequestorEmail string `json:"requestor_email" bson:"requestor_email,omitempty" validate:"required"`
+	FirstName      string `json:"first_name" bson:"first_name,omitempty" validate:"required"`
+	LastName       string `json:"last_name" bson:"last_name,omitempty" validate:"required"`
 
 	// The status of the gym request either "Approved", "Pending", or "Rejected"
 	Status string `json:"status" bson:"status,omitempty"`

@@ -95,7 +95,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	// Fetch records with pagination
 	var records []GymRequest
-	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, &records); err != nil {
+	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, true, &records); err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
@@ -218,6 +218,8 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, i
 
 	result, err := s.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (interface{}, error) {
 		var request GymRequest
+		request.UpdatedAt = time.Now().Local().UTC()
+
 		if err := mongoext.UpdateByID(ctx, s.Collection, id, payload, &request, nil); err != nil {
 			return lambda_v2.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 		}

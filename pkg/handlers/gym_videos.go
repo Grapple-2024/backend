@@ -33,16 +33,16 @@ type GymVideoHandler struct {
 }
 
 type GymVideo struct {
-	PK       string `json:"pk,omitempty" dynamodbav:"pk,omitempty"`                         // primary key
-	SeriesID string `validator:"nonzero" json:"series_id" dynamodbav:"series_id,omitempty"` // foreign key
+	PK       string `json:"pk,omitempty" dynamodbav:"pk,omitempty"`     // primary key
+	SeriesID string `json:"series_id" dynamodbav:"series_id,omitempty"` // foreign key
 
 	// attributes
-	GymID       string   `validator:"nonzero" json:"gym_id,omitempty" dynamodbav:"gym_id,omitempty"`
-	Title       string   `validator:"nonzero" json:"title,omitempty" dynamodbav:"title,omitempty"`
-	Description string   `validator:"nonzero" json:"description,omitempty" dynamodbav:"description,omitempty"`
-	Difficulty  string   `validator:"nonzero" json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
-	Disciplines []string `validator:"nonzero" json:"disciplines,omitempty" dynamodbav:"disciplines,stringsets,omitempty"`
-	S3Object    string   `validator:"nonzero" json:"s3_object,omitempty" dynamodbav:"s3_object,omitempty"`
+	GymID       string   `json:"gym_id,omitempty" dynamodbav:"gym_id,omitempty"`
+	Title       string   `json:"title,omitempty" dynamodbav:"title,omitempty"`
+	Description string   `json:"description,omitempty" dynamodbav:"description,omitempty"`
+	Difficulty  string   `json:"difficulty,omitempty" dynamodbav:"difficulty,omitempty"`
+	Disciplines []string `json:"disciplines,omitempty" dynamodbav:"disciplines,stringsets,omitempty"`
+	S3Object    string   `json:"s3_object,omitempty" dynamodbav:"s3_object,omitempty"`
 	SortOrder   int32    `json:"sort_order" dynamodbav:"sort_order"`
 
 	// Computed fields on any GET:

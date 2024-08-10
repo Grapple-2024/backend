@@ -88,7 +88,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	// Fetch records with pagination
 	var records []Announcement
-	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, &records); err != nil {
+	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, true, &records); err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
@@ -167,11 +167,13 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 	}
 
+	announcement.UpdatedAt = time.Now().Local().UTC()
+
 	// update the record in mongo
 	id := req.PathParameters["id"]
 	var result Announcement
 	if err := mongoext.UpdateByID(ctx, s.Collection, id, announcement, &result, nil); err != nil {
-		return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
+		return lambda.ServerError(fmt.Errorf("failed to update announcement: %v", err))
 	}
 
 	// Marshal result to JSON and return it in the response

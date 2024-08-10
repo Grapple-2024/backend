@@ -132,17 +132,21 @@ func Delete(ctx context.Context, collection *mongo.Collection, id string) error 
 	return nil
 }
 
-func Paginate(ctx context.Context, c *mongo.Collection, filter bson.M, page int, pageSize int, result any) error {
+func Paginate(ctx context.Context, c *mongo.Collection, filter bson.M, page int, pageSize int, sortByCreated bool, result any) error {
 	// Calculate the number of documents to skip
 	skip := (page - 1) * pageSize
 
 	// Query options
-	findOptions := options.Find()
-	findOptions.SetSkip(int64(skip))
-	findOptions.SetLimit(int64(pageSize))
+	opts := options.Find()
+	opts.SetSkip(int64(skip))
+	opts.SetLimit(int64(pageSize))
+
+	if sortByCreated {
+		opts.SetSort(bson.M{"created_at": 1})
+	}
 
 	// Execute the query
-	cursor, err := c.Find(ctx, filter, findOptions)
+	cursor, err := c.Find(ctx, filter, opts)
 	if err != nil {
 		return err
 	}

@@ -10,12 +10,12 @@ import (
 type GymSeries struct {
 	// keys
 	ID    primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
-	GymID primitive.ObjectID `json:"gym_id" bson:"gym_id,omitempty"`
+	GymID primitive.ObjectID `json:"gym_id" bson:"gym_id,omitempty" validate:"required"`
 
 	// attributes
-	Title       string  `validator:"nonzero" json:"title,omitempty" bson:"title,omitempty"`
-	Description string  `validator:"nonzero" json:"description,omitempty" bson:"description,omitempty"`
-	Videos      []Video `json:"videos" bson:"videos,omitempty"`
+	Title       string  `json:"title,omitempty" bson:"title,omitempty" validate:"required"`
+	Description string  `json:"description,omitempty" bson:"description,omitempty" validate:"required"`
+	Videos      []Video `json:"videos" bson:"videos,omitempty" validate:"required"`
 
 	// computed fields
 	Disciplines  []string `json:"disciplines,omitempty" bson:"disciplines,stringsets,omitempty"`
@@ -29,10 +29,10 @@ type GymSeries struct {
 type Video struct {
 	ID primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
 
-	Title       string   `validator:"nonzero" json:"title,omitempty" bson:"title,omitempty" validate:"required"`
-	Description string   `validator:"nonzero" json:"description,omitempty" bson:"description,omitempty" validate:"required"`
-	Difficulty  string   `validator:"nonzero" json:"difficulty,omitempty" bson:"difficulty,omitempty"`
-	Disciplines []string `validator:"nonzero" json:"disciplines,omitempty" bson:"disciplines,stringsets,omitempty"`
+	Title       string   `json:"title,omitempty" bson:"title,omitempty" validate:"required"`
+	Description string   `json:"description,omitempty" bson:"description,omitempty" validate:"required"`
+	Difficulty  string   `json:"difficulty,omitempty" bson:"difficulty,omitempty" validate:"required"`
+	Disciplines []string `json:"disciplines,omitempty" bson:"disciplines,stringsets,omitempty" validate:"required"`
 	SortOrder   int32    `json:"sort_order,omitempty" bson:"sort_order,omitempty" validate:"required"`
 	S3ObjectKey string   `json:"s3_object_key,omitempty" bson:"s3_object_key,omitempty" validate:"required"`
 

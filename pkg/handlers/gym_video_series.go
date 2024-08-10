@@ -43,7 +43,7 @@ type GymVideoSeries struct {
 	PK string `json:"pk" dynamodbav:"pk"`
 
 	GymID       string     `json:"gym_id" dynamodbav:"gym_id,omitempty"`
-	Title       string     `validator:"nonzero" json:"title,omitempty" dynamodbav:"title,omitempty"`
+	Title       string     `json:"title,omitempty" dynamodbav:"title,omitempty"`
 	Description string     `json:"description" dynamodbav:"description,omitempty"`
 	Videos      []GymVideo `json:"videos,omitempty" dynamodbav:"videos,omitempty"`
 

@@ -352,6 +352,42 @@ Resources:
             Method: DELETE
             RestApiId: !Ref Gateway
 
+        # Gym Requests
+        GetGymRequest:
+          Type: Api
+          Properties:
+            Path: /gym-requests/{id}
+            Method: GET
+            RestApiId: !Ref Gateway
+
+        GetGymRequests:
+          Type: Api
+          Properties:
+            Path: /gym-requests
+            Method: GET
+            RestApiId: !Ref Gateway
+
+        CreateGymRequest:
+          Type: Api
+          Properties:
+            Path: /gym-requests
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        UpdateGymRequest:
+          Type: Api
+          Properties:
+            Path: /gym-requests/{id}
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        DeleteGymRequest:
+          Type: Api
+          Properties:
+            Path: /gym-requests/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
+
         # Announcements
         GetAnnouncement:
           Type: Api
