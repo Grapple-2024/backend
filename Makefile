@@ -20,7 +20,7 @@ EVENT?=./cmd/post-signup-lambda/testdata/event.json
 run-post-signup: up build
 	sam local invoke --docker-network=backend_default CreateProfileOnSignupLambda --event ${EVENT}
 
-# Runs the grapple backend lambda (cmd/backend)
+# Runs the grapple backend lambda (cmd/backend) LOCAL ONLY
 run: up build
 	sam local start-api --docker-network=backend_default --region us-west-1 --config-env=local --config-file=$$PWD/samconfig.yml --skip-pull-image
 

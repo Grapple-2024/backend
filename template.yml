@@ -384,7 +384,7 @@ Resources:
         DeleteAnnouncement:
           Type: Api
           Properties:
-            Path: /annoncements/{id}
+            Path: /announcements/{id}
             Method: DELETE
             RestApiId: !Ref Gateway
 
