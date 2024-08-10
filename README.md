@@ -28,4 +28,4 @@ To deploy the backend (Lambda Function, Roles, API Gateway, and other resources)
 make deploy ENV={ENV}
 ```
 
-> **Note:** `{ENV}` can either be `test` or `prod`. Be cautious when deploying to the `prod`` environment -- triple check all changes are tested in `test` before proceeding.
+> **Note:** `{ENV}` can either be `test` or `prod`. Be cautious when deploying to the `prod` environment -- triple check all changes are tested in `test` before proceeding.
