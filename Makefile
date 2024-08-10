@@ -22,7 +22,7 @@ run-post-signup: up build
 
 # Runs the grapple backend lambda (cmd/backend)
 run: up build
-	sam local start-api --docker-network=backend_default --region us-west-1 --config-env=local --config-file=$$PWD/samconfig.yml
+	sam local start-api --docker-network=backend_default --region us-west-1 --config-env=local --config-file=$$PWD/samconfig.yml --skip-pull-image
 
 up:
 	docker compose up --build -d

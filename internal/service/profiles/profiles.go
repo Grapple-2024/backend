@@ -9,12 +9,14 @@ import (
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/service"
+	"github.com/Grapple-2024/backend/pkg/cognito"
 	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
-	"github.com/go-playground/validator/v10"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -30,14 +32,40 @@ type Service struct {
 	*mongoext.Client
 	*mongo.Collection
 	mongo.Session
+	*s3.PresignClient
+
+	publicAssetsBucketName string
+
+	CognitoClient *cognito.Client
 }
 
 // NewService creates a new instance of a Profile Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, publicAssetsBucketName, region, cognitoClientID, cognitoClientSecret string) (*Service, error) {
 	c := mc.Database("grapple").Collection("profiles")
 
-	// Create unique index for profile names
-	svc := &Service{Client: mc, Collection: c}
+	cc, err := cognito.NewClient(
+		region,
+		cognito.WithClientID(cognitoClientID),
+		cognito.WithClientSecret(cognitoClientSecret),
+	)
+	if err != nil {
+		return nil, err
+	}
+	// Using the SDK's default configuration, loading additional config
+	// and credentials values from the environment variables, shared
+	// credentials, and shared configuration files
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return nil, err
+	}
+
+	svc := &Service{
+		Client:                 mc,
+		Collection:             c,
+		CognitoClient:          cc,
+		PresignClient:          s3.NewPresignClient(s3.NewFromConfig(cfg)),
+		publicAssetsBucketName: publicAssetsBucketName,
+	}
 
 	// Create Mongo Session (needed for transactions)
 	session, err := svc.StartSession()
@@ -56,10 +84,19 @@ func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
 // ProcessGetAll handles HTTP requests for GET /profiles/
 // TODO: remove dynamodb map after switching off fully
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, _ map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
-	// parse filter query parameters
-	gymID := req.QueryStringParameters["gym_id"]
-	showByWeek := req.QueryStringParameters["show_by_week"]
-
+	// build query filter if current_user=true
+	var filter bson.M
+	currentUser := req.QueryStringParameters["current_user"]
+	if currentUser == "true" {
+		token, err := service.GetToken(req.Headers)
+		if err != nil {
+			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		}
+		// create the filter based on query parameters in the request
+		filter = bson.M{
+			"cognito_id": token.Sub,
+		}
+	}
 	// parse pagination query parameters
 	page := req.QueryStringParameters["page"]
 	if page == "" {
@@ -78,26 +115,6 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
 	}
 
-	// create the filter based on query parameters in the request
-	filter := bson.M{}
-	if gymID != "" {
-		gymObjID, err := primitive.ObjectIDFromHex(gymID)
-		if err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
-		}
-		filter["gym_id"] = gymObjID
-	}
-
-	if showByWeek != "" {
-		time, err := time.Parse(time.RFC3339, showByWeek)
-		if err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err))
-		}
-		year, week := time.ISOWeek()
-		filter["created_at_year"] = year
-		filter["created_at_week"] = week
-	}
-
 	// Fetch records with pagination
 	var records []Profile
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, &records); err != nil {
@@ -114,88 +131,87 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda_v2.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
-	resp, err := service.NewGetAllResponse("profiles", records, totalCount, len(records), pageInt, pageSizeInt)
-	if err != nil {
-		return lambda_v2.ServerError(err)
+	var result []byte
+	if req.QueryStringParameters["current_user"] == "true" {
+		// marshal response as single profile object for easier frontend consumption
+		resp, err := json.Marshal(records[0])
+		if err != nil {
+			return lambda_v2.ServerError(fmt.Errorf("failed to marshal current user profile to json: %v", err))
+		}
+		result = resp
+	} else {
+		// marshal response as array
+		result, err = service.NewGetAllResponse("profiles", records, totalCount, len(records), pageInt, pageSizeInt)
+		if err != nil {
+			return lambda_v2.ServerError(err)
+		}
 	}
-	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
+	return lambda.NewResponse(http.StatusOK, string(result), nil), nil
 }
 
 // ProcessGet handles HTTP requests for GET /profiles/{id}
 func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
 	// Get the profile by ID
-	var profile Profile
-	if err := mongoext.FindByID(ctx, s.Collection, id, &profile); err != nil {
-		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find profile by ID: %v", err))
-	}
+	// var profile Profile
+	// if err := mongoext.FindByID(ctx, s.Collection, id, &profile); err != nil {
+	// 	return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find profile by ID: %v", err))
+	// }
 
-	// Return record as JSON
-	json, err := json.Marshal(profile)
-	if err != nil {
-		return lambda.ServerError(err)
-	}
-	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
+	// // Return record as JSON
+	// json, err := json.Marshal(profile)
+	// if err != nil {
+	// 	return lambda.ServerError(err)
+	// }
+	return lambda.NewResponse(http.StatusOK, string(``), nil), nil
 }
 
-// ProcessPost handles HTTP requests for POST /profiles
+// ProcessPost is a no-operation. Updating and inserting a profile is handled via PUT /profiles
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var profile Profile
-	if err := json.Unmarshal([]byte(req.Body), &profile); err != nil {
-		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
-	}
-
-	// Validate request body for required fields
-	validate := validator.New()
-	if err := validate.Struct(profile); err != nil {
-		var errMsgs []string
-		for _, err := range err.(validator.ValidationErrors) {
-			errMsgs = append(errMsgs, fmt.Sprintf("Field '%s' failed validation with tag '%s'", err.Field(), err.Tag()))
-		}
-		return lambda.ClientError(http.StatusUnprocessableEntity, errMsgs...)
-	}
-
-	profile.CreatedAt = time.Now().Local().UTC()
-	profile.UpdatedAt = profile.CreatedAt
-
-	// insert the profile, store the resulting record in 'result' variable
-	result, err := s.createProfile(ctx, &profile)
-	if err != nil {
-		log.Warn().Err(err).Msgf("createProfile transaction failed!")
-		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("createProfile transaction failed: %v", err))
-	}
-
-	resp, err := json.Marshal(result)
-	if err != nil {
-		return lambda.ServerError(err)
-	}
-
-	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
+	return lambda.NewResponse(http.StatusOK, string(``), nil), nil
 }
 
-// ProcessPut handles HTTP requests for PUT /profiles/{id}
+// ProcessPut handles HTTP requests for
+// 1. PUT /profiles - insert/update a profile document
+// 2. PUT /profiles/avatar - generate presigned upload url for profile avatar
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// parse path parameter
-	var profile Profile
-	if err := json.Unmarshal([]byte(req.Body), &profile); err != nil {
-		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
-	}
+	var result any
+	switch req.Path {
+	case "/profiles/avatar":
+		// generate presigned avatar upload url
+		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.publicAssetsBucketName, "upload", "avatar.png")
+		if err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to generate presigned upload url: %v", err))
+		}
 
-	// If request body contains an ID: we are doing and update
-	// Else: we are doing a create operation (generate a new object ID)
-	var id string
-	if profile.ID != primitive.NilObjectID {
-		id = profile.ID.Hex()
-		profile.ID = primitive.NilObjectID
-	} else {
-		id = primitive.NewObjectID().Hex()
-		profile.CreatedAt = time.Now().Local().UTC()
-	}
+		result = p
+	case "/profiles":
+		var profile Profile
+		if err := json.Unmarshal([]byte(req.Body), &profile); err != nil {
+			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+		}
+		log.Debug().Msgf("Updating user profile with payload: %v", profile)
 
-	// update the record in mongo, store the result in "result" variable.
-	var result Profile
-	opts := options.Update().SetUpsert(true) // allow for upserts
-	if err := mongoext.UpdateByID(ctx, s.Collection, id, profile, &result, opts); err != nil {
-		return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
+		// If request body contains an ID: we are doing and update
+		// Else: we are doing a create operation (generate a new object ID)
+		var id string
+		if profile.ID != primitive.NilObjectID {
+			id = profile.ID.Hex()
+			profile.ID = primitive.NilObjectID
+		} else {
+			id = primitive.NewObjectID().Hex()
+			profile.CreatedAt = time.Now().Local().UTC()
+		}
+
+		// update the record in mongo, store the result in "result" variable.
+		var p Profile
+		opts := options.Update().SetUpsert(true) // allow for upserts
+		if err := mongoext.UpdateByID(ctx, s.Collection, id, profile, &p, opts); err != nil {
+			return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
+		}
+
+		result = p
+	default:
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid request path: %v", req.Path))
 	}
 
 	// Marshal result to JSON and return it in the response

@@ -1,13 +1,23 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
 	"os"
 	"regexp"
+	"strings"
+	"time"
 
+	"github.com/MicahParks/keyfunc/v3"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/go-http-utils/headers"
 	"github.com/go-playground/validator/v10"
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/mitchellh/mapstructure"
 	"github.com/rs/zerolog/log"
 )
 
@@ -84,4 +94,95 @@ func IsState(fl validator.FieldLevel) bool {
 
 	// Check if the string matches the pattern
 	return re.MatchString(fl.Field().String())
+}
+
+// Token represents the AWS Cognito user token
+type Token struct {
+	Username string   `mapstructure:"cognito:username"`
+	Email    string   `mapstructure:"email"`
+	Roles    []string `mapstructure:"cognito:roles"`
+	Groups   []string `mapstructure:"cognito:groups"`
+
+	Sub string `mapstructure:"sub"`
+}
+
+func GetToken(hdrs map[string]string) (*Token, error) {
+	authHeader := hdrs[headers.Authorization]
+	if len(authHeader) <= 1 {
+		return nil, fmt.Errorf("auth header not valid: %v", authHeader)
+	}
+	bearer := strings.Split(authHeader, "Bearer")
+	var err error
+	if len(bearer) <= 1 {
+		return nil, fmt.Errorf("auth header not valid: %v", authHeader)
+	}
+
+	tokenString := strings.TrimSpace(bearer[1])
+
+	regionID := "us-west-1"
+	userPoolID := "us-west-1_HT5oR6AwO"
+	jwksURL := fmt.Sprintf("https://cognito-idp.%s.amazonaws.com/%s/.well-known/jwks.json", regionID, userPoolID)
+
+	// Create the keyfunc.Keyfunc.
+	jwks, err := keyfunc.NewDefault([]string{jwksURL})
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse the JWT.
+	token, err := jwt.Parse(tokenString, jwks.Keyfunc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if the token is valid.
+	if !token.Valid {
+		return nil, err
+	}
+	// log.Info().Msgf("token before decode: %+v", token.Claims)
+
+	var t *Token
+	if err := mapstructure.Decode(token.Claims.(jwt.MapClaims), &t); err != nil {
+		return nil, err
+	}
+	// log.Info().Msgf("Token: %+v", t)
+
+	return t, nil
+}
+
+// generatePresignedURL generates a presigned URL given a urlType of either "upload" or "download".
+// if urlType is 'upload': the presigned URL will be for an upload PUT request to the bucket.
+// if urlType is 'download': the presigned URL will be for a download (GET) request to the bucket.
+func GeneratePresignedURL(ctx context.Context, psc *s3.PresignClient, bucketName, operation, key string) (*v4.PresignedHTTPRequest, error) {
+	opts := func(opts *s3.PresignOptions) {
+		opts.Expires = time.Minute * 30
+	}
+
+	switch operation {
+	case "upload":
+		params := &s3.PutObjectInput{
+			Bucket: aws.String(bucketName),
+			Key:    aws.String(key),
+		}
+		r, err := psc.PresignPutObject(ctx, params, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get presigned upload url for object %q in bucket %q: %v", key, bucketName, err)
+		}
+
+		return r, nil
+	case "download":
+		params := &s3.GetObjectInput{
+			Bucket: aws.String(bucketName),
+			Key:    aws.String(key),
+		}
+
+		r, err := psc.PresignGetObject(ctx, params, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get presigned upload url for object %q in bucket %q: %v", key, bucketName, err)
+		}
+
+		return r, nil
+	default:
+		return nil, fmt.Errorf("urlType must be either 'upload' or 'download!'")
+	}
 }

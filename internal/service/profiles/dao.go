@@ -13,13 +13,15 @@ type Profile struct {
 	CognitoID string `json:"cognito_id,omitempty" bson:"cognito_id,omitempty" validate:"required"`
 
 	// Personal Data is duplicated from Cognito via post-signup-lambda function
-	Email       string `json:"email" bson:"email"`
-	FirstName   string `json:"first_name" bson:"first_name"`
-	LastName    string `json:"last_name" bson:"last_name"`
-	PhoneNumber string `json:"phone_number" bson:"phone_number"`
+	Email       string `json:"email" bson:"email,omitempty" validate:"required"`
+	FirstName   string `json:"first_name" bson:"first_name,omitempty" validate:"required"`
+	LastName    string `json:"last_name" bson:"last_name,omitempty" validate:"required"`
+	PhoneNumber string `json:"phone_number" bson:"phone_number,omitempty" validate:"required"`
 
-	AvatarURL string           `json:"avatar_url" bson:"avatar_url"`
-	Gyms      []GymAssociation `json:"gyms,omit" bson:"gyms"`
+	AvatarURL         string `json:"avatar_url" bson:"avatar_url,omitempty"`
+	AvatarS3ObjectKey string `json:"s3_object_key" bson:"s3_object_key,omitempty"`
+
+	Gyms []GymAssociation `json:"gyms,omit" bson:"gyms,omitempty"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at"`
@@ -34,7 +36,7 @@ type GymAssociation struct {
 	// The status of the gym association
 	CoachName        string            `json:"coach_name,omitempty" bson:"coach_name,omitempty"`
 	Role             string            `json:"role,omitempty" bson:"role,omitempty"`
-	EmailPreferences *EmailPreferences `json:"email_preferences,omitempty" bson:"email_preferences"`
+	EmailPreferences *EmailPreferences `json:"email_preferences,omitempty" bson:"email_preferences,omitempty"`
 }
 
 // EmailPreferences represent the email preferences for a specific Gym Association.

@@ -13,11 +13,13 @@ type GymSeries struct {
 	GymID primitive.ObjectID `json:"gym_id" bson:"gym_id,omitempty"`
 
 	// attributes
-	Title       string   `validator:"nonzero" json:"title,omitempty" bson:"title,omitempty"`
-	Description string   `validator:"nonzero" json:"description,omitempty" bson:"description,omitempty"`
-	Difficulty  string   `validator:"nonzero" json:"difficulty,omitempty" bson:"difficulty,omitempty"`
-	Disciplines []string `validator:"nonzero" json:"disciplines,omitempty" bson:"disciplines,stringsets,omitempty"`
-	Videos      []Video  `json:"videos" bson:"videos,omitempty"`
+	Title       string  `validator:"nonzero" json:"title,omitempty" bson:"title,omitempty"`
+	Description string  `validator:"nonzero" json:"description,omitempty" bson:"description,omitempty"`
+	Videos      []Video `json:"videos" bson:"videos,omitempty"`
+
+	// computed fields
+	Disciplines  []string `json:"disciplines,omitempty" bson:"disciplines,stringsets,omitempty"`
+	Difficulties []string `json:"difficulties,omitempty" bson:"difficulties,stringsets,omitempty"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`

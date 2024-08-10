@@ -6,13 +6,15 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// Technique represents the "Technique of the Week" mongodb entity
+// Technique represents the "Technique" mongodb entity
 type Technique struct {
-	ID          primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
-	GymID       primitive.ObjectID `json:"gym_id,omitempty" bson:"gym_id,omitempty" validate:"required"`
-	Title       string             `json:"title" bson:"title,omitempty" validate:"required"`
-	Description string             `json:"description" bson:"description,omitempty" validate:"required"`
-	Disciplines []string           `json:"disciplines" bson:"disciplines,omitempty" validate:"required"`
+	ID       primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
+	GymID    primitive.ObjectID `json:"gym_id,omitempty" bson:"gym_id,omitempty" validate:"required"`
+	SeriesID primitive.ObjectID `json:"series_id,omitempty" bson:"series_id,omitempty" validate:"required"`
+
+	Title       string   `json:"title" bson:"title,omitempty" validate:"required"`
+	Description string   `json:"description" bson:"description,omitempty" validate:"required"`
+	Disciplines []string `json:"disciplines" bson:"disciplines,omitempty" validate:"required"`
 
 	// metadata
 	CreatedAtWeek int       `json:"created_at_week" bson:"created_at_week"`

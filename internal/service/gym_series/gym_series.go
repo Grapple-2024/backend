@@ -12,11 +12,9 @@ import (
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
-	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go/aws"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -70,10 +68,83 @@ func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, regi
 
 // ProcessGetAll handles HTTP requests for GET /gym-requests/
 // TODO: remove dynamodb map after switching off fully
-func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, _ map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
-	// Parse filter query params
+func (s *Service) buildGetAllFilter(ctx context.Context, req *events.APIGatewayProxyRequest) (bson.M, error) {
+	title := req.QueryStringParameters["title"]
+	disciplines := req.MultiValueQueryStringParameters["discipline"]
+	difficulties := req.MultiValueQueryStringParameters["difficulty"]
 	showByWeek := req.QueryStringParameters["show_by_week"]
 	gymID := req.QueryStringParameters["gym_id"]
+
+	filter := bson.M{}
+	var and []bson.M
+	if gymID != "" {
+		gymObjID, err := primitive.ObjectIDFromHex(gymID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid object ID specified for gym_id query param: %s", gymID)
+		}
+		and = append(and, bson.M{
+			"gym_id": gymObjID,
+		})
+	}
+
+	if showByWeek != "" {
+		time, err := time.Parse(time.RFC3339, showByWeek)
+		if err != nil {
+			return nil, fmt.Errorf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err)
+		}
+		year, week := time.ISOWeek()
+
+		and = append(and,
+			bson.M{
+				"created_at_week": week,
+			},
+			bson.M{
+				"created_at_year": year,
+			},
+		)
+
+	}
+
+	if title != "" {
+		and = append(and, bson.M{
+			"title": bson.M{
+				"$regex": fmt.Sprintf("^%s", title),
+			},
+		})
+	}
+
+	if len(disciplines) > 0 {
+		and = append(and, bson.M{
+			"disciplines": bson.M{
+				"$in": disciplines,
+			},
+		})
+	}
+
+	if len(difficulties) > 0 {
+		and = append(and, bson.M{
+			"difficulties": bson.M{
+				"$in": difficulties,
+			},
+		})
+	}
+
+	if len(and) > 0 {
+		filter = bson.M{
+			"$and": and,
+		}
+	}
+
+	log.Debug().Msgf("Filter: %v", filter)
+	return filter, nil
+}
+
+func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, _ map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
+	// Parse filter query params
+	filter, err := s.buildGetAllFilter(ctx, &req)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid filter param: %v", err))
+	}
 
 	// parse pagination query params
 	page := req.QueryStringParameters["page"]
@@ -93,25 +164,25 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
 	}
 
-	// create the filter based on query parameters in the request
-	filter := bson.M{}
-	if gymID != "" {
-		gymObjID, err := primitive.ObjectIDFromHex(gymID)
-		if err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
-		}
-		filter["gym_id"] = gymObjID
-	}
+	// create the filter based on the query parameters in the request
+	// filter := bson.M{}
+	// if gymID != "" {
+	// 	gymObjID, err := primitive.ObjectIDFromHex(gymID)
+	// 	if err != nil {
+	// 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
+	// 	}
+	// 	filter["gym_id"] = gymObjID
+	// }
 
-	if showByWeek != "" {
-		time, err := time.Parse(time.RFC3339, showByWeek)
-		if err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err))
-		}
-		year, week := time.ISOWeek()
-		filter["created_at_year"] = year
-		filter["created_at_week"] = week
-	}
+	// if showByWeek != "" {
+	// 	time, err := time.Parse(time.RFC3339, showByWeek)
+	// 	if err != nil {
+	// 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err))
+	// 	}
+	// 	year, week := time.ISOWeek()
+	// 	filter["created_at_year"] = year
+	// 	filter["created_at_week"] = week
+	// }
 
 	// Fetch records with pagination
 	var records []GymSeries
@@ -126,7 +197,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	// generate presigned url for each video in the series
 	for i, series := range records {
 		for j, video := range series.Videos {
-			p, err := s.generatePresignedURL(ctx, "download", video.S3ObjectKey)
+			p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "download", video.S3ObjectKey)
 			if err != nil {
 				return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 			}
@@ -140,7 +211,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda_v2.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
-	resp, err := service.NewGetAllResponse("gymSeries", records, totalCount, len(records), pageInt, pageSizeInt)
+	resp, err := service.NewGetAllResponse("gym-series", records, totalCount, len(records), pageInt, pageSizeInt)
 	if err != nil {
 		return lambda_v2.ServerError(err)
 	}
@@ -232,7 +303,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		key := fmt.Sprintf("%s/%s", id, file)
 
 		log.Debug().Msgf("Generating presigned upload url for a new series video %q in series %q", file, id)
-		p, err := s.generatePresignedURL(ctx, "upload", key)
+		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "upload", key)
 		if err != nil {
 			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
 		}
@@ -387,41 +458,4 @@ func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSerie
 	}
 
 	return result.(*GymSeries), nil
-}
-
-// generatePresignedURL generates a presigned URL given a urlType of either "upload" or "download".
-// if urlType is 'upload': the presigned URL will be for an upload PUT request to the bucket.
-// if urlType is 'download': the presigned URL will be for a download (GET) request to the bucket.
-func (s *Service) generatePresignedURL(ctx context.Context, urlType string, key string) (*v4.PresignedHTTPRequest, error) {
-	opts := func(opts *s3.PresignOptions) {
-		opts.Expires = time.Minute * 30
-	}
-
-	switch urlType {
-	case "upload":
-		params := &s3.PutObjectInput{
-			Bucket: aws.String(s.videosBucketName),
-			Key:    aws.String(key),
-		}
-		r, err := s.PresignPutObject(ctx, params, opts)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get presigned upload url for object %q in bucket %q: %v", key, s.videosBucketName, err)
-		}
-
-		return r, nil
-	case "download":
-		params := &s3.GetObjectInput{
-			Bucket: aws.String(s.videosBucketName),
-			Key:    aws.String(key),
-		}
-
-		r, err := s.PresignGetObject(ctx, params, opts)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get presigned upload url for object %q in bucket %q: %v", key, s.videosBucketName, err)
-		}
-
-		return r, nil
-	default:
-		return nil, fmt.Errorf("urlType must be either 'upload' or 'download!'")
-	}
 }

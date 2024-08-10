@@ -302,6 +302,8 @@ Resources:
           PUBLIC_USER_ASSETS_TABLE_NAME: !Sub grapple-${Environment}-user-assets
           PUBLIC_USER_ASSETS_BUCKET_NAME: !Sub grapple-${Environment}-public-user-assets
           GYM_VIDEOS_BUCKET_NAME: !Sub grapple-${Environment}-gym-videos
+          PUBLIC_ASSETS_BUCKET_NAME: !Sub grapple-${Environment}-public-assets
+
           SENDGRID_API_KEY: !Ref SendGridAPIKey
           COGNITO_CLIENT_ID: !Ref CognitoClientID
           COGNITO_CLIENT_SECRET: !Ref CognitoClientID
@@ -489,6 +491,13 @@ Resources:
           Properties:
             Path: /profiles
             Method: GET
+            RestApiId: !Ref Gateway
+
+        GeneratePresignedAvatarUploadURL:
+          Type: Api
+          Properties:
+            Path: /profiles/avatar
+            Method: PUT
             RestApiId: !Ref Gateway
 
         UpsertUserProfile:

@@ -27,13 +27,14 @@ const (
 	region = "us-west-1"
 
 	// env variable keys
-	EnvCognitoClientID       = "COGNITO_CLIENT_ID"
-	EnvCognitoClientSecretID = "COGNITO_CLIENT_SECRET"
-	EnvDynamoEndpoint        = "DYNAMODB_ENDPOINT"
-	EnvMongoEndpoint         = "MONGO_ENDPOINT"
-	EnvSendGridAPIKey        = "SENDGRID_API_KEY"
-	EnvVideosBucketName      = "GYM_VIDEOS_BUCKET_NAME"
-	EnvAWSRegion             = "AWS_REGION"
+	EnvCognitoClientID        = "COGNITO_CLIENT_ID"
+	EnvCognitoClientSecretID  = "COGNITO_CLIENT_SECRET"
+	EnvDynamoEndpoint         = "DYNAMODB_ENDPOINT"
+	EnvMongoEndpoint          = "MONGO_ENDPOINT"
+	EnvSendGridAPIKey         = "SENDGRID_API_KEY"
+	EnvVideosBucketName       = "GYM_VIDEOS_BUCKET_NAME"
+	EnvPublicAssetsBucketName = "PUBLIC_ASSETS_BUCKET_NAME"
+	EnvAWSRegion              = "AWS_REGION"
 )
 
 func main() {
@@ -61,6 +62,10 @@ func main() {
 	gymVideosBucketName, ok := os.LookupEnv(EnvVideosBucketName)
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", EnvCognitoClientSecretID)
+	}
+	publicAssetsBucketName, ok := os.LookupEnv(EnvPublicAssetsBucketName)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", EnvPublicAssetsBucketName)
 	}
 
 	awsRegion, ok := os.LookupEnv(EnvAWSRegion)
@@ -122,7 +127,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
 	}
-	profiles, err := profiles.NewService(ctx, mongoClient)
+	profiles, err := profiles.NewService(ctx, mongoClient, publicAssetsBucketName, awsRegion, cognitoClientID, cognitoClientSecret)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Profiles Service")
 	}
