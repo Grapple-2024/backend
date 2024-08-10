@@ -78,9 +78,11 @@ func Update(ctx context.Context, c *mongo.Collection, update bson.M, filter bson
 		return err
 	}
 
+	log.Debug().Msgf("Finding record with filter: %v", filter)
 	if err := Find(ctx, c, filter, &result); err != nil {
 		return err
 	}
+	log.Debug().Msgf("result : %+v", result)
 
 	return nil
 }

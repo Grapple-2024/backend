@@ -11,7 +11,7 @@ deploy:
 	sam deploy \
 		--profile=grapple-sam-deployer \
 		--config-env=${ENV} \
-		--config-file=$$PWD/samconfig.yaml
+		--config-file=$$PWD/samconfig.yml
 
 
 
@@ -22,7 +22,7 @@ run-post-signup: up build
 
 # Runs the grapple backend lambda (cmd/backend)
 run: up build
-	sam local start-api --docker-network=backend_default --region us-west-1 --config-env=local --config-file=$$PWD/samconfig.yaml
+	sam local start-api --docker-network=backend_default --region us-west-1 --config-env=local --config-file=$$PWD/samconfig.yml
 
 up:
 	docker compose up --build -d

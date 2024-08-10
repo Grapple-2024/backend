@@ -25,15 +25,17 @@ type GymSeries struct {
 }
 
 type Video struct {
-	Title       string   `validator:"nonzero" json:"title,omitempty" bson:"title,omitempty"`
-	Description string   `validator:"nonzero" json:"description,omitempty" bson:"description,omitempty"`
+	ID primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
+
+	Title       string   `validator:"nonzero" json:"title,omitempty" bson:"title,omitempty" validate:"required"`
+	Description string   `validator:"nonzero" json:"description,omitempty" bson:"description,omitempty" validate:"required"`
 	Difficulty  string   `validator:"nonzero" json:"difficulty,omitempty" bson:"difficulty,omitempty"`
 	Disciplines []string `validator:"nonzero" json:"disciplines,omitempty" bson:"disciplines,stringsets,omitempty"`
-	SortOrder   int32    `json:"sort_order,omitempty" bson:"sort_order,omitempty"`
-	S3ObjectURI string   `json:"s3_object_uri,omitempty" bson:"s3_object_uri,omitempty"`
+	SortOrder   int32    `json:"sort_order,omitempty" bson:"sort_order,omitempty" validate:"required"`
+	S3ObjectKey string   `json:"s3_object_key,omitempty" bson:"s3_object_key,omitempty" validate:"required"`
 
 	// Computed fields
-	PresignedURL string `json:"presigned_url,omitempty" bson:"presigned_url,omitempty"`
+	PresignedURL string `json:"presigned_url,omitempty" bson:"presigned_url,omitempty"` // computed by requesting a presigned URL given the S3ObjectURI
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`

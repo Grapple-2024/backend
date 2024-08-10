@@ -17,7 +17,7 @@ Parameters:
       Default: 'local'
     # all parameters are overriden by samconfig.toml during 'make deploy' recipe.
     ApiUrl:
-      Description: "The base api url for grapple, must be hard-coded in samconfig.yaml!"
+      Description: "The base api url for grapple, must be hard-coded in samconfig.yml!"
       Type: 'String'
       Default: ''
     MongoEndpoint:
@@ -229,90 +229,6 @@ Resources:
             ReadCapacityUnits: 1
             WriteCapacityUnits: 1
 
-  GymVideosTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub grapple-${Environment}-gym-videos
-      AttributeDefinitions:
-        - AttributeName: pk
-          AttributeType: S
-        - AttributeName: gym_id
-          AttributeType: S
-        - AttributeName: dummy
-          AttributeType: S
-        - AttributeName: updated_at
-          AttributeType: S
-      KeySchema:
-        - AttributeName: pk
-          KeyType: HASH
-      BillingMode: PROVISIONED
-      ProvisionedThroughput:
-        ReadCapacityUnits: 1
-        WriteCapacityUnits: 1
-      GlobalSecondaryIndexes:
-        - IndexName: "GymIndex"
-          KeySchema: 
-          - AttributeName: gym_id
-            KeyType: HASH
-          Projection:
-            ProjectionType: "ALL"
-          ProvisionedThroughput:
-            ReadCapacityUnits: 1
-            WriteCapacityUnits: 1
-        - IndexName: "LastUpdatedIndex"
-          KeySchema:
-          - AttributeName: dummy
-            KeyType: HASH
-          - AttributeName: updated_at
-            KeyType: RANGE
-          Projection: 
-            ProjectionType: "ALL"
-          ProvisionedThroughput:
-            ReadCapacityUnits: 1
-            WriteCapacityUnits: 1
-
-  GymVideoSeriesTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub grapple-${Environment}-gym-video-series
-      AttributeDefinitions:
-        - AttributeName: pk
-          AttributeType: S
-        - AttributeName: gym_id
-          AttributeType: S
-        - AttributeName: dummy
-          AttributeType: S
-        - AttributeName: updated_at
-          AttributeType: S
-      KeySchema:
-        - AttributeName: pk
-          KeyType: HASH
-      BillingMode: PROVISIONED
-      ProvisionedThroughput:
-        ReadCapacityUnits: 1
-        WriteCapacityUnits: 1
-      GlobalSecondaryIndexes:
-        - IndexName: "GymIndex"
-          KeySchema: 
-          - AttributeName: gym_id
-            KeyType: HASH
-          Projection:
-            ProjectionType: "ALL"
-          ProvisionedThroughput:
-            ReadCapacityUnits: 1
-            WriteCapacityUnits: 1
-        - IndexName: "LastUpdatedIndex"
-          KeySchema:
-          - AttributeName: dummy
-            KeyType: HASH
-          - AttributeName: updated_at
-            KeyType: RANGE
-          Projection: 
-            ProjectionType: "ALL"
-          ProvisionedThroughput:
-            ReadCapacityUnits: 1
-            WriteCapacityUnits: 1
-
   UserAssetsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -389,12 +305,13 @@ Resources:
           SENDGRID_API_KEY: !Ref SendGridAPIKey
           COGNITO_CLIENT_ID: !Ref CognitoClientID
           COGNITO_CLIENT_SECRET: !Ref CognitoClientID
+          AWS_REGION: !Sub ${AWS::Region}
       Tracing: Active
       Role: !GetAtt FunctionRole.Arn
       Events:
         ##### V2 Events
         # Gyms
-        GetGymV2:
+        GetGym:
           Type: Api
           Properties:
             Path: /gyms/{id}
@@ -403,7 +320,7 @@ Resources:
             Auth:
               Authorizer: NONE # Turn off Authorization for this event
 
-        GetGymsV2:
+        GetGyms:
           Type: Api
           Properties:
             Path: /gyms
@@ -412,64 +329,117 @@ Resources:
             Auth:
               Authorizer: NONE # Turn off Authorization for this event
 
-        CreateGymV2:
+        CreateGym:
           Type: Api
           Properties:
             Path: /gyms
             Method: POST
             RestApiId: !Ref Gateway
 
-        UpdateGymV2:
+        UpdateGym:
           Type: Api
           Properties:
             Path: /gyms/{id}
             Method: PUT
             RestApiId: !Ref Gateway
 
-        DeleteGymV2:
+        DeleteGym:
           Type: Api
           Properties:
             Path: /gyms/{id}
             Method: DELETE
             RestApiId: !Ref Gateway
 
-        # AnnouncementsV2
-        GetAnnouncementV2:
+        # Announcements
+        GetAnnouncement:
           Type: Api
           Properties:
             Path: /announcements/{id}
             Method: GET
             RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
 
-        GetAnnouncementsV2:
+        GetAnnouncements:
           Type: Api
           Properties:
             Path: /announcements
             Method: GET
             RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
 
-        CreateAnnouncementV2:
+        CreateAnnouncement:
           Type: Api
           Properties:
             Path: /announcements
             Method: POST
             RestApiId: !Ref Gateway
 
-        UpdateAnnouncementV2:
+        UpdateAnnouncement:
           Type: Api
           Properties:
             Path: /announcements/{id}
             Method: PUT
             RestApiId: !Ref Gateway
 
-        DeleteAnnouncementV2:
+        DeleteAnnouncement:
           Type: Api
           Properties:
             Path: /annoncements/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
+
+        # Gym Series
+        GetSeriesByID:
+          Type: Api
+          Properties:
+            Path: /gym-series/{id}
+            Method: GET
+            RestApiId: !Ref Gateway
+
+        GetSeries:
+          Type: Api
+          Properties:
+            Path: /gym-series
+            Method: GET
+            RestApiId: !Ref Gateway
+
+        CreateSeries:
+          Type: Api
+          Properties:
+            Path: /gym-series
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        GenerateUploadURL:
+          Type: Api
+          Properties:
+            Path: /gym-series/{id}/presign
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        UpsertVideo:
+          Type: Api
+          Properties:
+            Path: /gym-series/{id}/videos
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        UpdateSeries:
+          Type: Api
+          Properties:
+            Path: /gym-series/{id}
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        DeleteSeries:
+          Type: Api
+          Properties:
+            Path: /gym-series/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
+
+        DeleteSeriesVideo:
+          Type: Api
+          Properties:
+            Path: /gym-series/{id}/videos/{video_id}
             Method: DELETE
             RestApiId: !Ref Gateway
 
@@ -581,150 +551,6 @@ Resources:
             Auth:
               Authorizer: NONE # Turn off Authorization for this event
 
-        # Gym Requests
-        GetGymRequest:
-          Type: Api
-          Properties:
-            Path: /gym-requests/{id}
-            Method: GET
-            RestApiId: !Ref Gateway
-            
-        GetGymRequests:
-          Type: Api
-          Properties:
-            Path: /gym-requests
-            Method: GET
-            RestApiId: !Ref Gateway
-
-        CreateGymRequest:
-          Type: Api
-          Properties:
-            Path: /gym-requests
-            Method: POST
-            RestApiId: !Ref Gateway
-
-        UpdateGymRequest:
-          Type: Api
-          Properties:
-            Path: /gym-requests/{id}
-            Method: PUT
-            RestApiId: !Ref Gateway
-
-        DeleteGymRequest:
-          Type: Api
-          Properties:
-            Path: /gym-requests/{id}
-            Method: DELETE
-            RestApiId: !Ref Gateway
-
-        # Gym Announcements
-        GetGymAnnouncement:
-          Type: Api
-          Properties:
-            Path: /gym-announcements/{id}
-            Method: GET
-            RestApiId: !Ref Gateway
-            
-        GetGymAnnouncements:
-          Type: Api
-          Properties:
-            Path: /gym-announcements
-            Method: GET
-            RestApiId: !Ref Gateway
-
-        CreateGymAnnouncement:
-          Type: Api
-          Properties:
-            Path: /gym-announcements
-            Method: POST
-            RestApiId: !Ref Gateway
-
-        UpdateGymAnnouncement:
-          Type: Api
-          Properties:
-            Path: /gym-announcements/{id}
-            Method: PUT
-            RestApiId: !Ref Gateway
-
-        DeleteGymAnnouncement:
-          Type: Api
-          Properties:
-            Path: /gym-announcements/{id}
-            Method: DELETE
-            RestApiId: !Ref Gateway
-
-        # Gym Videos
-        GetGymVideo:
-          Type: Api
-          Properties:
-            Path: /gym-videos/{id}
-            Method: GET
-            RestApiId: !Ref Gateway
-            
-        GetGymVideos:
-          Type: Api
-          Properties:
-            Path: /gym-videos
-            Method: GET
-            RestApiId: !Ref Gateway
-
-        CreateGymVideo:
-          Type: Api
-          Properties:
-            Path: /gym-videos
-            Method: POST
-            RestApiId: !Ref Gateway
-
-        UpdateGymVideo:
-          Type: Api
-          Properties:
-            Path: /gym-videos/{id}
-            Method: PUT
-            RestApiId: !Ref Gateway
-
-        DeleteGymVideo:
-          Type: Api
-          Properties:
-            Path: /gym-videos/{id}
-            Method: DELETE
-            RestApiId: !Ref Gateway
-
-        # Gym Video Series
-        GetGymVideoSeriesByID:
-          Type: Api
-          Properties:
-            Path: /gym-video-series/{id}
-            Method: GET
-            RestApiId: !Ref Gateway
-            
-        GetGymVideoSeries:
-          Type: Api
-          Properties:
-            Path: /gym-video-series
-            Method: GET
-            RestApiId: !Ref Gateway
-
-        CreateGymVideoSeries:
-          Type: Api
-          Properties:
-            Path: /gym-video-series
-            Method: POST
-            RestApiId: !Ref Gateway
-
-        UpdateGymVideoSeries:
-          Type: Api
-          Properties:
-            Path: /gym-video-series/{id}
-            Method: PUT
-            RestApiId: !Ref Gateway
-
-        DeleteGymVideoSeries:
-          Type: Api
-          Properties:
-            Path: /gym-video-series/{id}
-            Method: DELETE
-            RestApiId: !Ref Gateway
-
         # Get Pre-signed S3 Upload/Download URLs
         GetS3SignedURL:
           Type: Api
@@ -803,14 +629,8 @@ Resources:
                 Action:
                   - dynamodb:*
                 Resource:
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${GymRequestsTable}
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${GymVideosTable}
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${GymVideoSeriesTable}
                   - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailsTable}
                   - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UserAssetsTable}
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UserProfilesTable}
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${GymAnnouncementsTable}
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${GymsTable}
         - PolicyName: SESAccessPolicy
           PolicyDocument:
             Version: '2012-10-17'

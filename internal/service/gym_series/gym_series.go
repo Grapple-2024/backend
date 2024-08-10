@@ -12,7 +12,11 @@ import (
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go/aws"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -23,21 +27,38 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
-// Service is the object that handles the business logic of all gymSeries related operations.
-// Service talks to the underlying Mongo Client (Data access layer) to CRUD gymSeries objects.
+// Service is the object that handles the business logic of all Gym Series related operations.
+// Service talks to the underlying Mongo Client (Data access layer or DAO) to CRUD Gym Series objects.
 type Service struct {
 	mongo.Session
 
 	*mongoext.Client
 	*mongo.Collection
+	*s3.PresignClient
+
+	videosBucketName string // S3 Bucket name to store gym videos in
 }
 
 // NewService creates a new instance of a GymSeries Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, region string) (*Service, error) {
 	c := mc.Database("grapple").Collection("series")
 
+	// Using the SDK's default configuration, loading additional config
+	// and credentials values from the environment variables, shared
+	// credentials, and shared configuration files
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return nil, err
+	}
+
+	svc := &Service{
+		Client:           mc,
+		Collection:       c,
+		videosBucketName: videosBucketName,
+		PresignClient:    s3.NewPresignClient(s3.NewFromConfig(cfg)),
+	}
+
 	// Create Mongo Session (needed for transactions)
-	svc := &Service{Client: mc, Collection: c}
 	session, err := svc.StartSession()
 	if err != nil {
 		return nil, err
@@ -100,6 +121,17 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
 	if records == nil {
 		records = []GymSeries{}
+	}
+
+	// generate presigned url for each video in the series
+	for i, series := range records {
+		for j, video := range series.Videos {
+			p, err := s.generatePresignedURL(ctx, "download", video.S3ObjectKey)
+			if err != nil {
+				return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
+			}
+			records[i].Videos[j].PresignedURL = p.URL
+		}
 	}
 
 	// Get the total count of documents
@@ -165,18 +197,105 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	return lambda_v2.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
-// ProcessPut handles HTTP requests for PUT /gym-series/{id}
+// ProcessPut handles HTTP requests for three endpoints:
+// 1. PUT /gym-series/{id} -- Series Update)
+// 2. /gym-videos/{id}/video/{id} -- Video update
+// 3. /gym-series/{id}/presign -- generate presigned upload url for a new video
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var gymSeries GymSeries
-	if err := json.Unmarshal([]byte(req.Body), &gymSeries); err != nil {
-		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+	id := req.PathParameters["id"]
+	if id == "" {
+		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("must specify {id} in request url"))
 	}
 
-	// update the record in mongo
-	id := req.PathParameters["id"]
-	var result GymSeries
-	if err := mongoext.UpdateByID(ctx, s.Collection, id, gymSeries, &result, nil); err != nil {
-		return lambda_v2.ServerError(fmt.Errorf("failed to update gym record: %v", err))
+	log.Debug().Msgf("Request path: %s", req.Path)
+	log.Debug().Msgf("Series ID: %s", id)
+	var result any
+	switch req.Path {
+	case fmt.Sprintf("/gym-series/%s", id):
+		var gymSeries GymSeries
+		if err := json.Unmarshal([]byte(req.Body), &gymSeries); err != nil {
+			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+		}
+		if gymSeries.Videos != nil {
+			return lambda_v2.ClientError(http.StatusUnprocessableEntity, "must use /gym-series/{id}/videos/{id} to update a video in a series %v")
+		}
+
+		// update the record in mongo
+		if err := mongoext.UpdateByID(ctx, s.Collection, id, gymSeries, &result, nil); err != nil {
+			return lambda_v2.ServerError(fmt.Errorf("failed to update gym record: %v", err))
+		}
+		log.Debug().Msgf("Updated mongo document by ID: %v", result)
+
+	case fmt.Sprintf("/gym-series/%s/presign", id):
+		// uploading a video to the series, generate presigned upload URL
+		file := req.QueryStringParameters["file"]
+		key := fmt.Sprintf("%s/%s", id, file)
+
+		log.Debug().Msgf("Generating presigned upload url for a new series video %q in series %q", file, id)
+		p, err := s.generatePresignedURL(ctx, "upload", key)
+		if err != nil {
+			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
+		}
+
+		result = p
+	case fmt.Sprintf("/gym-series/%s/videos", id):
+		var video Video
+		if err := json.Unmarshal([]byte(req.Body), &video); err != nil {
+			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+		}
+
+		id, err := primitive.ObjectIDFromHex(id)
+		if err != nil {
+			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid series ID: %v", err))
+		}
+
+		var filter bson.M
+		var update bson.M
+		if video.ID == primitive.NilObjectID {
+			video.ID = primitive.NewObjectIDFromTimestamp(time.Now())
+			video.UpdatedAt = time.Now().Local().UTC()
+			video.CreatedAt = video.UpdatedAt
+			validate := validator.New()
+
+			// validate the struct has required field set
+			if err := validate.Struct(video); err != nil {
+				var errMsgs []string
+				for _, err := range err.(validator.ValidationErrors) {
+					errMsgs = append(errMsgs, fmt.Sprintf("Field '%s' failed validation with tag '%s'", err.Field(), err.Tag()))
+				}
+				return lambda_v2.ClientError(http.StatusUnprocessableEntity, errMsgs...)
+			}
+
+			// create a new video
+			filter = bson.M{
+				"_id": id,
+			}
+			update = bson.M{
+				"$push": bson.M{
+					"videos": video,
+				},
+			}
+		} else {
+			video.UpdatedAt = time.Now().Local().UTC()
+			filter = bson.M{
+				"_id":        id,
+				"videos._id": video.ID,
+			}
+			update = bson.M{
+				"$set": bson.M{
+					"videos.$": video,
+				},
+			}
+		}
+
+		log.Info().Msgf("Filter: %v", filter)
+		log.Info().Msgf("Update: %v", update)
+
+		if err := mongoext.Update(ctx, s.Collection, update, filter, &result, nil); err != nil {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update existing video document: %v", err))
+		}
+	default:
+		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("invalid request url: %v", req.Path))
 	}
 
 	// Marshal result to JSON and return it in the response
@@ -188,7 +307,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	return lambda_v2.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
-// ProcessDelete handles HTTP requests for DELETE /gym-series/{id}
+// ProcessDelete handles HTTP requests for DELETE /gym-series/{id} and /gym-series/{id}/videos/{id}.
 func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id := req.PathParameters["id"]
 	objID, err := primitive.ObjectIDFromHex(id)
@@ -196,20 +315,55 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object id specified in url %q: %v", id, err))
 	}
 
-	// create filter and options
-	filter := bson.M{"_id": objID}
-	opts := options.Delete().SetHint(bson.M{"_id": 1}) // use _id index to find object
+	videoID := req.PathParameters["video_id"]
 
-	result, err := s.Collection.DeleteOne(context.TODO(), filter, opts)
+	var result any
+	var opts *options.DeleteOptions
+	var filter bson.M
+	switch req.Path {
+	case fmt.Sprintf("/gym-series/%s", id):
+		filter = bson.M{"_id": objID}
+		opts = options.Delete().SetHint(bson.M{"_id": 1}) // use series ID index to delete the object
+
+		result, err = s.Collection.DeleteOne(ctx, filter, opts)
+		if err != nil {
+			return lambda_v2.ServerError(err)
+		}
+
+	case fmt.Sprintf("/gym-series/%s/videos/%s", id, videoID):
+		filter = bson.M{
+			"_id": objID,
+		}
+
+		videoObjID, err := primitive.ObjectIDFromHex(videoID)
+		if err != nil {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid video ID %q: %v", videoID, err))
+		}
+		update := bson.M{
+			"$pull": bson.M{
+				"videos": bson.M{
+					"_id": videoObjID,
+				},
+			},
+		}
+		log.Debug().Msgf("Deleting video from series: update: %v\n filter: %v", update, filter)
+
+		if err := mongoext.Update(ctx, s.Collection, update, filter, result, nil); err != nil {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete video %q from series %q %v", videoID, id, err))
+		}
+		log.Info().Msgf("Update result: %+v", result)
+
+	default:
+		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid request path %q: %v", req.Path, err))
+	}
+
+	// Marshal result to JSON and return it in the response
+	resp, err := json.Marshal(result)
 	if err != nil {
-		return lambda_v2.ServerError(err)
+		return lambda_v2.ServerError(fmt.Errorf("failed to marshal response: %v", err))
 	}
 
-	if result.DeletedCount == 0 {
-		return lambda_v2.NewResponse(http.StatusNotFound, ``, nil), nil
-	}
-
-	return lambda_v2.NewResponse(http.StatusOK, ``, nil), nil
+	return lambda_v2.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
 func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSeries, id string) (*GymSeries, error) {
@@ -233,4 +387,41 @@ func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSerie
 	}
 
 	return result.(*GymSeries), nil
+}
+
+// generatePresignedURL generates a presigned URL given a urlType of either "upload" or "download".
+// if urlType is 'upload': the presigned URL will be for an upload PUT request to the bucket.
+// if urlType is 'download': the presigned URL will be for a download (GET) request to the bucket.
+func (s *Service) generatePresignedURL(ctx context.Context, urlType string, key string) (*v4.PresignedHTTPRequest, error) {
+	opts := func(opts *s3.PresignOptions) {
+		opts.Expires = time.Minute * 30
+	}
+
+	switch urlType {
+	case "upload":
+		params := &s3.PutObjectInput{
+			Bucket: aws.String(s.videosBucketName),
+			Key:    aws.String(key),
+		}
+		r, err := s.PresignPutObject(ctx, params, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get presigned upload url for object %q in bucket %q: %v", key, s.videosBucketName, err)
+		}
+
+		return r, nil
+	case "download":
+		params := &s3.GetObjectInput{
+			Bucket: aws.String(s.videosBucketName),
+			Key:    aws.String(key),
+		}
+
+		r, err := s.PresignGetObject(ctx, params, opts)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get presigned upload url for object %q in bucket %q: %v", key, s.videosBucketName, err)
+		}
+
+		return r, nil
+	default:
+		return nil, fmt.Errorf("urlType must be either 'upload' or 'download!'")
+	}
 }

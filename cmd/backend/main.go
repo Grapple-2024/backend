@@ -7,6 +7,7 @@ import (
 
 	"github.com/Grapple-2024/backend/internal/service/announcements"
 	"github.com/Grapple-2024/backend/internal/service/gym_requests"
+	"github.com/Grapple-2024/backend/internal/service/gym_series"
 	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/internal/service/techniques"
@@ -24,16 +25,58 @@ func init() {
 
 const (
 	region = "us-west-1"
+
+	// env variable keys
+	EnvCognitoClientID       = "COGNITO_CLIENT_ID"
+	EnvCognitoClientSecretID = "COGNITO_CLIENT_SECRET"
+	EnvDynamoEndpoint        = "DYNAMODB_ENDPOINT"
+	EnvMongoEndpoint         = "MONGO_ENDPOINT"
+	EnvSendGridAPIKey        = "SENDGRID_API_KEY"
+	EnvVideosBucketName      = "GYM_VIDEOS_BUCKET_NAME"
+	EnvAWSRegion             = "AWS_REGION"
 )
 
 func main() {
+	// read all environment variables
+	mongoEndpoint, ok := os.LookupEnv(EnvMongoEndpoint)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", EnvMongoEndpoint)
+	}
+	dynamoEndpoint, ok := os.LookupEnv(EnvDynamoEndpoint)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", EnvDynamoEndpoint)
+	}
+	// sendGridAPIKey, ok := os.LookupEnv(EnvSendGridAPIKey)
+	// if !ok {
+	// 	log.Fatal().Msgf("missing required env var: %s", EnvSendGridAPIKey)
+	// }
+	cognitoClientID, ok := os.LookupEnv(EnvCognitoClientID)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", EnvCognitoClientID)
+	}
+	cognitoClientSecret, ok := os.LookupEnv(EnvCognitoClientSecretID)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", EnvCognitoClientSecretID)
+	}
+	gymVideosBucketName, ok := os.LookupEnv(EnvVideosBucketName)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", EnvCognitoClientSecretID)
+	}
+
+	awsRegion, ok := os.LookupEnv(EnvAWSRegion)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", EnvAWSRegion)
+	}
+
+	log.Debug().Msgf("connected to dynamodb server: %s", dynamoEndpoint)
+	log.Debug().Msgf("connected to mongo server: %s", EnvMongoEndpoint)
+
 	// Create mongo client
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	mongoURL := os.Getenv("MONGO_ENDPOINT")
-	mongoClient, err := mongo.New(ctx, mongoURL)
+	mongoClient, err := mongo.New(ctx, mongoEndpoint)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to connect to mongo endpoint: %q", mongoURL)
+		log.Fatal().Err(err).Msgf("failed to connect to mongo endpoint: %q", mongoEndpoint)
 	}
 
 	defer func() {
@@ -42,29 +85,9 @@ func main() {
 		}
 	}()
 
-	log.Printf("connected to mongo server: %s", mongoURL)
-
 	// Create V1 Handlers
 	handlerCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
-	// sendGridAPIKey := os.Getenv("SENDGRID_API_KEY")
-	cognitoClientID := os.Getenv("COGNITO_CLIENT_ID")
-	cognitoClientSecret := os.Getenv("COGNITO_CLIENT_SECRET")
-	dynamoEndpoint := os.Getenv("DYNAMODB_ENDPOINT")
-	log.Info().Msgf("Dynamo endpoint: %s", dynamoEndpoint)
-
-	// Create handlers
-
-	gvh, err := handlers.NewGymVideoHandler(handlerCtx, dynamoEndpoint)
-	if err != err {
-		panic(err)
-	}
-
-	gvsh, err := handlers.NewGymVideoSeriesHandler(handlerCtx, dynamoEndpoint)
-	if err != err {
-		panic(err)
-	}
 
 	s3h, err := handlers.NewS3Handler(handlerCtx, dynamoEndpoint, region)
 	if err != err {
@@ -109,15 +132,18 @@ func main() {
 		log.Fatal().Err(err).Msgf("failed to initialize Gym Requests Service")
 	}
 
-	log.Info().Msgf("Base API URL: %v", os.Getenv("API_URL"))
+	series, err := gym_series.NewService(ctx, mongoClient, gymVideosBucketName, awsRegion)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Gym Series Service")
+	}
+
+	log.Info().Msgf("Grapple API URL: %v", os.Getenv("API_URL"))
 
 	lambdas := map[string]lambdaext.Lambda{
-		"gym-videos":       gvh,
-		"gym-video-series": gvsh,
-		"s3-presign-url":   s3h,
-		"cognito":          ch,
-		"emails":           eh,
-		"user-assets":      uah,
+		"s3-presign-url": s3h,
+		"cognito":        ch,
+		"emails":         eh,
+		"user-assets":    uah,
 
 		// v2 endpoints are using mongodb
 		"profiles":      profiles,
@@ -125,6 +151,7 @@ func main() {
 		"announcements": announcements,
 		"techniques":    techniques,
 		"gym-requests":  requests,
+		"gym-series":    series,
 	}
 
 	router := lambdaext.NewRouter(lambdas)
