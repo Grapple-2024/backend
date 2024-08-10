@@ -15,8 +15,8 @@ type Announcement struct {
 	Title       string             `json:"title" bson:"title,omitempty" validate:"required"`
 	Content     string             `json:"content" bson:"description,omitempty" validate:"required"`
 
-	CreatedAtWeek int       `json:"created_at_week" bson:"created_at_week"`
-	CreatedAtYear int       `json:"created_at_year" bson:"created_at_year"`
-	CreatedAt     time.Time `json:"created_at" bson:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at" bson:"updated_at"`
+	CreatedAtWeek int       `json:"created_at_week" bson:"created_at_week,omitempty"`
+	CreatedAtYear int       `json:"created_at_year" bson:"created_at_year,omitempty"`
+	CreatedAt     time.Time `json:"created_at" bson:"created_at,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at" bson:"updated_at,omitempty"`
 }

@@ -28,8 +28,8 @@ type GymRequest struct {
 	// The status of the gym request either "Approved", "Pending", or "Rejected"
 	Status string `json:"status" bson:"status,omitempty"`
 
-	CreatedAt time.Time `json:"created_at" bson:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" bson:"updated_at"`
+	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at" bson:"updated_at,omitempty"`
 }
 
 // isValidStatus returns true if a status string is one of the three possible enums. It will return false if not.

@@ -24,8 +24,8 @@ type Profile struct {
 	Gyms []GymAssociation `json:"gyms,omit" bson:"gyms,omitempty"`
 
 	// metadata
-	CreatedAt time.Time `json:"created_at" bson:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" bson:"updated_at"`
+	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at" bson:"updated_at,omitempty"`
 }
 
 // GymAssociation represents a user's association to a gym.

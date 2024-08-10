@@ -19,6 +19,6 @@ type Technique struct {
 	// metadata
 	CreatedAtWeek int       `json:"created_at_week" bson:"created_at_week"`
 	CreatedAtYear int       `json:"created_at_year" bson:"created_at_year"`
-	CreatedAt     time.Time `json:"created_at" bson:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at" bson:"updated_at"`
+	CreatedAt     time.Time `json:"created_at" bson:"created_at,omitempty"`
+	UpdatedAt     time.Time `json:"updated_at" bson:"updated_at,omitempty"`
 }

@@ -43,8 +43,8 @@ type Gym struct {
 	Disciplines []string           `json:"disciplines" bson:"disciplines,omitempty" validate:"required"`
 	Schedule    map[string][]Event `json:"schedule" bson:"schedule,omitempty" validate:"required"`
 
-	CreatedAt time.Time `json:"created_at" bson:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" bson:"updated_at"`
+	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at" bson:"updated_at,omitempty"`
 }
 
 type Event struct {
