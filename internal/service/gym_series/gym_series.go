@@ -12,6 +12,7 @@ import (
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -298,6 +299,9 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	case fmt.Sprintf("/gym-series/%s/presign", id):
 		// uploading a video to the series, generate presigned upload URL
 		file := req.QueryStringParameters["file"]
+		if file == "" {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=video1.mp4"))
+		}
 		key := fmt.Sprintf("%s/%s", id, file)
 
 		log.Debug().Msgf("Generating presigned upload url for a new series video %q in series %q", file, id)
@@ -305,11 +309,17 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		if err != nil {
 			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
 		}
+		resp := struct {
+			*v4.PresignedHTTPRequest
+			S3ObjectKey string `json:"s3_object_key"`
+		}{
+			PresignedHTTPRequest: p,
+			S3ObjectKey:          key,
+		}
 
-		result = p
+		result = resp
 	case fmt.Sprintf("/gym-series/%s/videos", id):
 		// Create or Update a Video in a series
-
 		// TOOD: separate this logic out into func getUpdateVideoFilter()
 		var video Video
 		if err := json.Unmarshal([]byte(req.Body), &video); err != nil {
@@ -323,6 +333,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 		var filter bson.M
 		var update bson.M
+		log.Info().Msgf("Video ID: %v", video.ID)
 		if video.ID == primitive.NilObjectID {
 			// Create a new video in the series
 			video.ID = primitive.NewObjectIDFromTimestamp(time.Now())
@@ -366,7 +377,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		log.Info().Msgf("Update: %v", update)
 
 		if err := mongoext.Update(ctx, s.Collection, update, filter, &result, nil); err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update existing video document: %v", err))
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update series with video: %v", err))
 		}
 	default:
 		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("invalid request url: %v", req.Path))
@@ -422,7 +433,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 		}
 		log.Debug().Msgf("Deleting video from series: update: %v\n filter: %v", update, filter)
 
-		if err := mongoext.Update(ctx, s.Collection, update, filter, result, nil); err != nil {
+		if err := mongoext.Update(ctx, s.Collection, update, filter, &result, nil); err != nil {
 			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete video %q from series %q %v", videoID, id, err))
 		}
 		log.Info().Msgf("Update result: %+v", result)

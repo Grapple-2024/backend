@@ -49,10 +49,9 @@ func Insert(ctx context.Context, collection *mongo.Collection, payload, result a
 }
 
 func Find(ctx context.Context, collection *mongo.Collection, filter bson.M, result any) error {
-	if err := collection.FindOne(ctx, filter).Decode(result); err != nil {
-		return err
-	}
-	return nil
+	res := collection.FindOne(ctx, filter)
+
+	return res.Decode(result)
 }
 
 func FindByID(ctx context.Context, collection *mongo.Collection, id string, result any) error {
@@ -80,9 +79,9 @@ func Update(ctx context.Context, c *mongo.Collection, update bson.M, filter bson
 		return err
 	}
 
-	log.Debug().Msgf("Finding record with filter: %v", filter)
+	log.Debug().Msgf("Finding record with filter: %v in collection %s", filter, c.Name())
 	if err := Find(ctx, c, filter, result); err != nil {
-		return err
+		return fmt.Errorf("failed to find mongo object with filter %v, err: %v", filter, err)
 	}
 	log.Debug().Msgf("result : %+v", result)
 

@@ -3,7 +3,7 @@ ENV?=test
 build:
 	sam build --config-env=${ENV}
 
-deploy:
+deploy: build
 	@echo "This will build AND deploy the current source code to Grapple's ${ENV} environment. Do you want to proceed? (Y/n)"
 	@read choice; if [ $$choice != "Y" ]; then echo aborting; exit 1; fi
 	@echo "Proceeding with deployment..."; \

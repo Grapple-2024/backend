@@ -14,6 +14,7 @@ import (
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -37,6 +38,7 @@ type Service struct {
 	publicAssetsBucketName string
 
 	CognitoClient *cognito.Client
+	awsRegion     string
 }
 
 // NewService creates a new instance of a Profile Service given a mongo client
@@ -65,6 +67,7 @@ func NewService(ctx context.Context, mc *mongoext.Client, publicAssetsBucketName
 		CognitoClient:          cc,
 		PresignClient:          s3.NewPresignClient(s3.NewFromConfig(cfg)),
 		publicAssetsBucketName: publicAssetsBucketName,
+		awsRegion:              region,
 	}
 
 	// Create Mongo Session (needed for transactions)
@@ -186,13 +189,28 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	var result any
 	switch req.Path {
 	case "/profiles/avatar":
+		token, err := service.GetToken(req.Headers)
+		if err != nil {
+			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		}
+
+		file := req.QueryStringParameters["file"]
 		// generate presigned avatar upload url
-		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.publicAssetsBucketName, "upload", "avatar.png")
+		key := fmt.Sprintf("%s/%s", token.Sub, file)
+		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.publicAssetsBucketName, "upload", key)
 		if err != nil {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to generate presigned upload url: %v", err))
 		}
 
-		result = p
+		resp := struct {
+			*v4.PresignedHTTPRequest
+			S3ObjectURL string `json:"s3_object_url"`
+		}{
+			PresignedHTTPRequest: p,
+			S3ObjectURL:          fmt.Sprintf("https://%s.s3.%s.amazonaws.com", s.publicAssetsBucketName, s.awsRegion),
+		}
+
+		result = resp
 	case "/profiles":
 		// Update user profile based on token (cognito ID)
 		token, err := service.GetToken(req.Headers)
