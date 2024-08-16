@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -10,32 +9,11 @@ import (
 
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/pkg/mongo"
+	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/mitchellh/mapstructure"
 )
 
 var mongoClient *mongo.Client
-
-// Handler function that will be invoked by AWS Lambda
-
-type Event struct {
-	Request Request `json:"request"`
-
-	// TriggerSource should always be Post User Signup Confirmation Cognito Event
-	TriggerSource string `json:"triggerSource"`
-}
-
-type Request struct {
-	UserAttributes UserAttributes `json:"userAttributes"`
-}
-
-type UserAttributes struct {
-	Email       string `json:"email"`
-	FamilyName  string `json:"family_name" mapstructure:"family_name"`
-	GivenName   string `json:"given_name" mapstructure:"given_name"`
-	PhoneNumber string `json:"phone_number" mapstructure:"phone_number"`
-	Sub         string `json:"sub"`
-}
 
 func main() {
 	mongoURL, ok := os.LookupEnv("MONGO_ENDPOINT")
@@ -59,29 +37,21 @@ func main() {
 	}()
 
 	mongoClient = mc
-	// pc := mongoClient.Database("grapple").Collection("profiles")
-	// pc.UpdateOne(ctx)
 
 	lambda.Start(Handler)
 }
 
-func Handler(ctx context.Context, req map[string]any) (string, error) {
-	event := Event{}
-	if err := mapstructure.Decode(req, &event); err != nil {
-		return "", fmt.Errorf("failed to decode event into struct: %v", err)
-	}
-
-	log.Printf("Event: %+v", event)
-	c := mongoClient.Database("grapple").
-		Collection("profiles")
-	attrs := event.Request.UserAttributes
+func Handler(ctx context.Context, e events.CognitoEventUserPoolsPostConfirmation) (events.CognitoEventUserPoolsPostConfirmation, error) {
+	log.Printf("Event: %+v", e)
+	c := mongoClient.Database("grapple").Collection("profiles")
+	attrs := e.Request.UserAttributes
 
 	profile := profiles.Profile{
-		CognitoID:   attrs.Sub,
-		Email:       attrs.Email,
-		FirstName:   attrs.GivenName,
-		LastName:    attrs.FamilyName,
-		PhoneNumber: attrs.PhoneNumber,
+		CognitoID:   attrs["sub"],
+		Email:       attrs["email"],
+		FirstName:   attrs["given_name"],
+		LastName:    attrs["family_name"],
+		PhoneNumber: attrs["phone_number"],
 		Gyms:        []profiles.GymAssociation{},
 		CreatedAt:   time.Now().Local().UTC(),
 		UpdatedAt:   time.Now().Local().UTC(),
@@ -89,13 +59,8 @@ func Handler(ctx context.Context, req map[string]any) (string, error) {
 
 	var result profiles.Profile
 	if err := mongo.Insert(ctx, c, profile, &result); err != nil {
-		return "", err
+		return e, fmt.Errorf("failed to insert profile: %v", err)
 	}
 
-	log.Printf("Created new user profile: %+v", result)
-	json, err := json.Marshal(req)
-	if err != nil {
-		return "", err
-	}
-	return string(json), nil
+	return e, nil
 }

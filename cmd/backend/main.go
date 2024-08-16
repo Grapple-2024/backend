@@ -41,6 +41,7 @@ func main() {
 	// read all environment variables
 	mongoEndpoint, ok := os.LookupEnv(EnvMongoEndpoint)
 	if !ok {
+
 		log.Fatal().Msgf("missing required env var: %s", EnvMongoEndpoint)
 	}
 	dynamoEndpoint, ok := os.LookupEnv(EnvDynamoEndpoint)
@@ -72,9 +73,9 @@ func main() {
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", EnvAWSRegion)
 	}
-
+	log.Debug().Msgf("AWS Region: %v", awsRegion)
 	log.Debug().Msgf("connected to dynamodb server: %s", dynamoEndpoint)
-	log.Debug().Msgf("connected to mongo server: %s", EnvMongoEndpoint)
+	log.Debug().Msgf("connected to mongo server: %s", mongoEndpoint)
 
 	// Create mongo client
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

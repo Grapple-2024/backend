@@ -115,10 +115,17 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 
 // ProcessPost handles HTTP requests for POST /gyms
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
 	var gym Gym
 	if err := json.Unmarshal([]byte(req.Body), &gym); err != nil {
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 	}
+	gym.CoachFirstName = token.GivenName
+	gym.CoachLastName = token.FamilyName
 
 	// Validate request body for required fields
 	validate := validator.New()
@@ -139,7 +146,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	gymNameSlug := strings.ToLower(strings.ReplaceAll(gym.Name, " ", "-"))
 
 	// Set computed fields for slug, created_at, and updated_at
-	gym.Slug = fmt.Sprintf("%s/%s/%s", stateSlug, citySlug, gymNameSlug)
+	gym.Slug = fmt.Sprintf("state/%s/city/%s/gym/%s", stateSlug, citySlug, gymNameSlug)
 	gym.CreatedAt = time.Now().Local().UTC()
 	gym.UpdatedAt = gym.CreatedAt
 

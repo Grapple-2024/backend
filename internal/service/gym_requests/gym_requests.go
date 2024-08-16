@@ -224,14 +224,13 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, i
 			return lambda_v2.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 		}
 
+		// return early if the request was not approved
 		if payload.Status != RequestApproved {
 			return request, nil
 		}
 
-		log.Debug().Msgf("a gym request was approved by coach for student %q (%s)", request.RequestorEmail, request.RequestorID)
-
 		// The request was approved by the coach: update the student profile's gym_associations field.
-		coll := s.Client.Database("grapple").Collection("profiles")
+		log.Debug().Msgf("a gym request was approved by coach for student %q (%s)", request.RequestorEmail, request.RequestorID)
 
 		// create new profile
 		gymAssociation := profiles.GymAssociation{
@@ -253,9 +252,11 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, i
 			},
 		}
 
+		// Update student profile with the new gym association
 		var upsertResult profiles.Profile
+		coll := s.Client.Database("grapple").Collection("profiles")
 		if err := mongoext.Update(ctx, coll, update, filter, &upsertResult, nil); err != nil {
-			return nil, fmt.Errorf("failed to upsert student profile after creating a gym request: %v", err)
+			return nil, fmt.Errorf("failed to upsert student's profile with filter %v after creating a gym request: %v", filter, err)
 		}
 
 		log.Info().Msgf("Successfully added gym association to user profile: %s", request.RequestorID)

@@ -18,10 +18,10 @@ type Profile struct {
 	LastName    string `json:"last_name" bson:"last_name,omitempty" validate:"required"`
 	PhoneNumber string `json:"phone_number" bson:"phone_number,omitempty" validate:"required"`
 
-	AvatarURL         string `json:"avatar_url" bson:"avatar_url,omitempty"`
-	AvatarS3ObjectKey string `json:"s3_object_key" bson:"s3_object_key,omitempty"`
+	AvatarURL string `json:"avatar_url" bson:"avatar_url,omitempty"`
+	// AvatarS3ObjectKey string `json:"avatar_s3_object_key" bson:"avatar_s3_object_key,omitempty"`
 
-	Gyms []GymAssociation `json:"gyms,omit" bson:"gyms,omitempty"`
+	Gyms []GymAssociation `json:"gyms,omit" bson:"gyms"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`

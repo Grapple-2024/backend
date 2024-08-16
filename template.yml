@@ -307,7 +307,6 @@ Resources:
           SENDGRID_API_KEY: !Ref SendGridAPIKey
           COGNITO_CLIENT_ID: !Ref CognitoClientID
           COGNITO_CLIENT_SECRET: !Ref CognitoClientID
-          AWS_REGION: !Sub ${AWS::Region}
       Tracing: Active
       Role: !GetAtt FunctionRole.Arn
       Events:
@@ -553,91 +552,7 @@ Resources:
 
         #### V1 Events
         # Emails - Marketing
-        GetEmail:
-          Type: Api
-          Properties:
-            Path: /emails/{id}
-            Method: GET
-            RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
 
-        GetEmails:
-          Type: Api
-          Properties:
-            Path: /emails
-            Method: GET
-            RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
-
-        CreateEmail:
-          Type: Api
-          Properties:
-            Path: /emails
-            Method: POST
-            RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
-
-        UpdateEmail:
-          Type: Api
-          Properties:
-            Path: /emails/{id}
-            Method: PUT
-            RestApiId: !Ref Gateway
-
-        DeleteEmail:
-          Type: Api
-          Properties:
-            Path: /emails/{id}
-            Method: DELETE
-            RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
-
-        # Get Pre-signed S3 Upload/Download URLs
-        GetS3SignedURL:
-          Type: Api
-          Properties:
-            Path: /s3-presign-url
-            Method: GET
-            RestApiId: !Ref Gateway
-
-        # Get user assets (avatars)
-        AddUserAsset:
-          Type: Api
-          Properties:
-            Path: /user-assets
-            Method: POST
-            RestApiId: !Ref Gateway
-
-        GetUserAssetsByUserID:
-          Type: Api
-          Properties:
-            Path: /user-assets/{id}
-            Method: GET
-            RestApiId: !Ref Gateway
-
-        # Endpoint to add user to coach group in Cognito
-        AddCoach:
-          Type: Api
-          Properties:
-            Path: /cognito/add-coach
-            Method: PUT
-            RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
-
-        # Endpoint to get a user's group
-        GetGroups:
-          Type: Api
-          Properties:
-            Path: /cognito/get-groups
-            Method: GET
-            RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
 
   FunctionRole:
     Type: AWS::IAM::Role
@@ -651,8 +566,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: 'sts:AssumeRole'
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AmazonS3FullAccess
-        - arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
         - PolicyName: S3AccessPolicy
           PolicyDocument:
@@ -666,24 +580,6 @@ Resources:
                   - !Sub arn:aws:s3:::grapple-${Environment}-gym-videos/*
                   - !Sub arn:aws:s3:::grapple-${Environment}-public-user-assets
                   - !Sub arn:aws:s3:::grapple-${Environment}-public-user-assets/*
-        - PolicyName: DynamoDBAccessPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - dynamodb:*
-                Resource:
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${EmailsTable}
-                  - !Sub arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${UserAssetsTable}
-        - PolicyName: SESAccessPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ses:SendEmail
-                Resource: '*'
         - PolicyName: CognitoIdpAccessPolicy
           PolicyDocument:
             Version: '2012-10-17'

@@ -71,6 +71,8 @@ func FindByID(ctx context.Context, collection *mongo.Collection, id string, resu
 	return nil
 }
 
+// Update updates a record in mongo.
+// result must be a pointer!
 func Update(ctx context.Context, c *mongo.Collection, update bson.M, filter bson.M, result any, opts *options.UpdateOptions) error {
 	// update the record in mongo
 	_, err := c.UpdateOne(ctx, filter, update, opts)
@@ -79,7 +81,7 @@ func Update(ctx context.Context, c *mongo.Collection, update bson.M, filter bson
 	}
 
 	log.Debug().Msgf("Finding record with filter: %v", filter)
-	if err := Find(ctx, c, filter, &result); err != nil {
+	if err := Find(ctx, c, filter, result); err != nil {
 		return err
 	}
 	log.Debug().Msgf("result : %+v", result)
@@ -142,7 +144,7 @@ func Paginate(ctx context.Context, c *mongo.Collection, filter bson.M, page int,
 	opts.SetLimit(int64(pageSize))
 
 	if sortByCreated {
-		opts.SetSort(bson.M{"created_at": 1})
+		opts.SetSort(bson.M{"created_at": -1}) // -1 = DESCENDING (newest at the top)
 	}
 
 	// Execute the query

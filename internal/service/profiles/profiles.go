@@ -116,6 +116,8 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	// Fetch records with pagination
+	log.Info().Msgf("Filter: %v", filter)
+
 	var records []Profile
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, &records); err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
@@ -123,6 +125,11 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
 	if records == nil {
 		records = []Profile{}
+		resp, err := json.Marshal(records)
+		if err != nil {
+			return lambda_v2.ServerError(fmt.Errorf("failed to marshal current user profiles to json: %v", err))
+		}
+		return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 	}
 
 	// Get the total count of documents
@@ -131,19 +138,21 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda_v2.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
+	log.Info().Msgf("Got records: %v", records)
+
 	var result []byte
 	if req.QueryStringParameters["current_user"] == "true" {
 		// marshal response as single profile object for easier frontend consumption
 		resp, err := json.Marshal(records[0])
 		if err != nil {
-			return lambda_v2.ServerError(fmt.Errorf("failed to marshal current user profile to json: %v", err))
+			return lambda_v2.ServerError(fmt.Errorf("failed to marshal current user profile to json! %v", err))
 		}
 		result = resp
 	} else {
 		// marshal response as array
 		result, err = service.NewGetAllResponse("profiles", records, totalCount, len(records), pageInt, pageSizeInt)
 		if err != nil {
-			return lambda_v2.ServerError(err)
+			return lambda_v2.ServerError(fmt.Errorf("failed to create response: %v", err))
 		}
 	}
 	return lambda.NewResponse(http.StatusOK, string(result), nil), nil
@@ -185,30 +194,38 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 		result = p
 	case "/profiles":
-		var profile Profile
-		if err := json.Unmarshal([]byte(req.Body), &profile); err != nil {
+		// Update user profile based on token (cognito ID)
+		token, err := service.GetToken(req.Headers)
+		if err != nil {
+			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authorize user: %v", err))
+		}
+
+		var payload Profile
+		if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
-		log.Debug().Msgf("Updating user profile with payload: %v", profile)
 
-		// If request body contains an ID: we are doing and update
-		// Else: we are doing a create operation (generate a new object ID)
-		var id string
-		if profile.ID != primitive.NilObjectID {
-			id = profile.ID.Hex()
-			profile.ID = primitive.NilObjectID
-		} else {
-			id = primitive.NewObjectID().Hex()
-			profile.CreatedAt = time.Now().Local().UTC()
+		if payload.Gyms != nil {
+			// do not allow the frontend to update gym associations.
+			// this is handled by updateGymRequestTX() in the gym-requests controller.
+			payload.Gyms = nil
 		}
+		payload.UpdatedAt = time.Now().Local().UTC()
 
 		// update the record in mongo, store the result in "result" variable.
+		filter := bson.M{
+			"cognito_id": token.Sub,
+		}
+		update := bson.M{
+			"$set": payload,
+		}
+
 		var p Profile
-		opts := options.Update().SetUpsert(true) // allow for upserts
-		if err := mongoext.UpdateByID(ctx, s.Collection, id, profile, &p, opts); err != nil {
+		if err := mongoext.Update(ctx, s.Collection, update, filter, &p, nil); err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 		}
 
+		log.Info().Msgf("Profile: %v", p)
 		result = p
 	default:
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid request path: %v", req.Path))
