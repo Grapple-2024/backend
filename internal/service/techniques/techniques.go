@@ -9,21 +9,27 @@ import (
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/service"
+	"github.com/Grapple-2024/backend/internal/service/gym_series"
 	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/go-playground/validator/v10"
+	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 	"gopkg.in/mgo.v2/bson"
 )
 
 // Service is the object that handles the business logic of all technique related operations.
 // Service talks to the underlying Mongo Client (Data access layer) to CRUD technique objects.
 type Service struct {
+	mongo.Session
+
 	*mongoext.Client
 	*mongo.Collection
 }
@@ -37,6 +43,13 @@ func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
 	if err := svc.ensureIndices(ctx); err != nil {
 		return nil, err
 	}
+
+	// Create Mongo Session (needed for transactions)
+	session, err := svc.StartSession()
+	if err != nil {
+		return nil, err
+	}
+	svc.Session = session
 
 	return svc, nil
 }
@@ -73,7 +86,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		if err != nil {
 			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
 		}
-		filter["gym_id"] = gymObjID
+		filter["series.gym_id"] = gymObjID
 	}
 
 	if showByWeek != "" {
@@ -82,8 +95,8 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err))
 		}
 		year, week := time.ISOWeek()
-		filter["created_at_year"] = year
-		filter["created_at_week"] = week
+		filter["year_number"] = year
+		filter["week_number"] = week
 	}
 
 	// Fetch records with pagination
@@ -142,14 +155,16 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 		return lambda.ClientError(http.StatusUnprocessableEntity, errMsgs...)
 	}
 
-	technique.CreatedAt = time.Now().Local().UTC()
-	technique.UpdatedAt = technique.CreatedAt
-	technique.CreatedAtYear, technique.CreatedAtWeek = technique.CreatedAt.ISOWeek()
+	now := time.Now().Local().UTC()
+	technique.CreatedAt, technique.UpdatedAt = now, now
+	technique.DisplayYearNum, technique.DisplayWeekNum = technique.DisplayOnWeek.ISOWeek()
+
+	technique.DisplayOnWeek = nil // we don't need to save the date once we've determined the week and year number
 
 	// insert the technique, store the resulting record in 'result' variable
-	var result Technique
-	if err := mongoext.Insert(ctx, s.Collection, &technique, &result); err != nil {
-		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to insert record: %v", err))
+	result, err := s.createTechnique(ctx, &technique)
+	if err != nil {
+		return lambda.ClientError(http.StatusBadRequest, err.Error())
 	}
 
 	resp, err := json.Marshal(result)
@@ -205,6 +220,38 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	return lambda.NewResponse(http.StatusOK, ``, nil), nil
+}
+
+func (s *Service) createTechnique(ctx context.Context, t *Technique) (*Technique, error) {
+	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
+
+	result, err := s.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
+		// Fetch the series that is being marked as a technique of the week
+		var series gym_series.GymSeries
+		seriesCollection := s.Client.Database("grapple").Collection("series")
+		if err := mongoext.FindByID(sessCtx, seriesCollection, t.Series.ID.Hex(), &series); err != nil {
+			return nil, err
+		}
+
+		// Insert the technique with the series nested within it
+		var result Technique
+		t.Series = &series
+		if err := mongoext.Insert(sessCtx, s.Collection, t, &result); err != nil {
+			return nil, err
+		}
+		return &result, nil
+	}, transactionOptions)
+
+	if err != nil {
+		log.Warn().Err(err).Msgf("Failed to run mongo transaction for technique creation")
+		return nil, err
+	}
+
+	t, ok := result.(*Technique)
+	if !ok {
+		return nil, fmt.Errorf("result is not of *technique type: %+v", result)
+	}
+	return result.(*Technique), nil
 }
 
 // ensureIndices ensures the proper indices are created for the 'techniques' collection.

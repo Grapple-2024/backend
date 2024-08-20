@@ -58,7 +58,7 @@ func FindByID(ctx context.Context, collection *mongo.Collection, id string, resu
 	// Convert the id to a primitive.ObjectID
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to convert string %q to ObjectID: %v", id, err)
 	}
 
 	// Find the document by ID

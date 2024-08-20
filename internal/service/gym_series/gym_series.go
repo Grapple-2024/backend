@@ -196,14 +196,8 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	// generate presigned url for each video in the series
-	for i, series := range records {
-		for j, video := range series.Videos {
-			p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "download", video.S3ObjectKey)
-			if err != nil {
-				return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
-			}
-			records[i].Videos[j].PresignedURL = p.URL
-		}
+	if err := s.generatePresignedURLs(ctx, records); err != nil {
+		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
 	}
 
 	// Get the total count of documents
@@ -225,6 +219,11 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 	var gymSeries GymSeries
 	if err := mongoext.FindByID(ctx, s.Collection, id, &gymSeries); err != nil {
 		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gymSeries by ID: %v", err))
+	}
+
+	// generate presigned urls for each video in the series
+	if err := s.generatePresignedURLs(ctx, []GymSeries{gymSeries}); err != nil {
+		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
 	}
 
 	// Return record as JSON
@@ -472,4 +471,19 @@ func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSerie
 	}
 
 	return result.(*GymSeries), nil
+}
+
+// generatePresignedURLs generates presigned URL for each video in the records slice.
+// It modifies the records slice by reference and returns an error
+func (s *Service) generatePresignedURLs(ctx context.Context, records []GymSeries) error {
+	for i, series := range records {
+		for j, video := range series.Videos {
+			p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "download", video.S3ObjectKey)
+			if err != nil {
+				return fmt.Errorf("failed to generate presigned url: %v", err)
+			}
+			records[i].Videos[j].PresignedURL = p.URL
+		}
+	}
+	return nil
 }
