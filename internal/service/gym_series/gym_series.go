@@ -200,13 +200,26 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
 	}
 
+	// add disciplines and difficulties to the response
+	newSeries, err := s.addDisciplinesToTopLevel(records)
+
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
+	}
+
+	newSeries, err = s.addDifficultiesToTopLevel(newSeries)
+
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
+	}
+
 	// Get the total count of documents
 	totalCount, err := s.Collection.CountDocuments(ctx, filter, nil)
 	if err != nil {
 		return lambda_v2.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
-	resp, err := service.NewGetAllResponse("gym-series", records, totalCount, len(records), pageInt, pageSizeInt)
+	resp, err := service.NewGetAllResponse("gym-series", newSeries, totalCount, len(records), pageInt, pageSizeInt)
 	if err != nil {
 		return lambda_v2.ServerError(err)
 	}
@@ -486,4 +499,52 @@ func (s *Service) generatePresignedURLs(ctx context.Context, records []GymSeries
 		}
 	}
 	return nil
+}
+
+func (s *Service) addDisciplinesToTopLevel(records []GymSeries) ([]GymSeries, error) {
+	resp := []GymSeries{}
+
+	for _, series := range records {
+		disciplineSet := make(map[string]struct{}) // A set to avoid duplicates
+
+		// Loop through each video in the series
+		for _, video := range series.Videos {
+			// Loop through each discipline in the video
+			for _, discipline := range video.Disciplines {
+				disciplineSet[discipline] = struct{}{} // Add discipline to the set
+			}
+		}
+
+		// Convert the set to a slice
+		for discipline := range disciplineSet {
+			series.Disciplines = append(series.Disciplines, discipline)
+		}
+
+		resp = append(resp, series)
+	}
+
+	return resp, nil
+}
+
+func (s *Service) addDifficultiesToTopLevel(records []GymSeries) ([]GymSeries, error) {
+	resp := []GymSeries{}
+
+	for _, series := range records {
+		difficultySet := make(map[string]struct{}) // A set to avoid duplicates
+
+		// Loop through each video in the series
+		for _, video := range series.Videos {
+			// Add the difficulty of the video to the set
+			difficultySet[video.Difficulty] = struct{}{}
+		}
+
+		// Convert the set to a slice
+		for difficulty := range difficultySet {
+			series.Difficulties = append(series.Difficulties, difficulty)
+		}
+
+		resp = append(resp, series)
+	}
+
+	return resp, nil
 }

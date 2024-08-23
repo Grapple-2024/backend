@@ -124,7 +124,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Announcements Service")
 	}
-	techniques, err := techniques.NewService(ctx, mongoClient)
+	techniques, err := techniques.NewService(ctx, mongoClient, gymVideosBucketName, awsRegion)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
 	}
