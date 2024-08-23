@@ -33,7 +33,7 @@ const (
 	EnvMongoEndpoint          = "MONGO_ENDPOINT"
 	EnvSendGridAPIKey         = "SENDGRID_API_KEY"
 	EnvVideosBucketName       = "GYM_VIDEOS_BUCKET_NAME"
-	EnvPublicAssetsBucketName = "PUBLIC_ASSETS_BUCKET_NAME"
+	EnvPublicAssetsBucketName = "PUBLIC_USER_ASSETS_BUCKET_NAME"
 	EnvAWSRegion              = "AWS_REGION"
 )
 

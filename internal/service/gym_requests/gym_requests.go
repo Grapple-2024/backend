@@ -55,6 +55,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	showByWeek := req.QueryStringParameters["show_by_week"]
 	gymID := req.QueryStringParameters["gym_id"]
 	gymStatus := req.QueryStringParameters["status"]
+	requestorID := req.QueryStringParameters["requestor"]
 
 	// parse pagination query params
 	page := req.QueryStringParameters["page"]
@@ -96,6 +97,10 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		year, week := time.ISOWeek()
 		filter["created_at_year"] = year
 		filter["created_at_week"] = week
+	}
+
+	if requestorID != "" {
+		filter["requestor_id"] = requestorID
 	}
 
 	// Fetch records with pagination
