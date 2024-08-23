@@ -239,8 +239,21 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
 	}
 
+	// add disciplines and difficulties to the response
+	newSeries, err := s.addDisciplinesToTopLevel([]GymSeries{gymSeries})
+
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to add disciplines to top level: %v", err))
+	}
+
+	newSeries, err = s.addDifficultiesToTopLevel(newSeries)
+
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to add difficulties to top level: %v", err))
+	}
+
 	// Return record as JSON
-	json, err := json.Marshal(gymSeries)
+	json, err := json.Marshal(newSeries[0])
 	if err != nil {
 		return lambda_v2.ServerError(err)
 	}
