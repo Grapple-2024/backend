@@ -14,7 +14,9 @@ import (
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -32,14 +34,24 @@ type Service struct {
 
 	*mongoext.Client
 	*mongo.Collection
+	*s3.PresignClient
+
+	videosBucketName string
 }
 
 // NewService creates a new instance of a Technique Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, region string) (*Service, error) {
 	c := mc.Database("grapple").Collection("techniques")
 
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	svc := &Service{
+		Client:           mc,
+		Collection:       c,
+		videosBucketName: videosBucketName,
+		PresignClient:    s3.NewPresignClient(s3.NewFromConfig(cfg)),
+	}
+
 	// Create unique index for technique names
-	svc := &Service{Client: mc, Collection: c}
 	if err := svc.ensureIndices(ctx); err != nil {
 		return nil, err
 	}
@@ -101,6 +113,8 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	// Fetch records with pagination
 	var records []Technique
+
+	log.Print("****************************************************************************************")
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, &records); err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
@@ -109,6 +123,9 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		records = []Technique{}
 	}
 
+	if err := s.generatePresignedURLs(ctx, records); err != nil {
+		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
+	}
 	// Get the total count of documents
 	totalCount, err := s.Collection.CountDocuments(ctx, filter, nil)
 	if err != nil {
@@ -266,5 +283,22 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 		return err
 	}
 
+	return nil
+}
+
+// generatePresignedURLs generates presigned URL for each video in the records slice.
+// It modifies the records slice by reference and returns an error
+func (s *Service) generatePresignedURLs(ctx context.Context, records []Technique) error {
+	for i, record := range records {
+		series := record.Series
+
+		for j, video := range series.Videos {
+			p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "download", video.S3ObjectKey)
+			if err != nil {
+				return fmt.Errorf("failed to generate presigned url: %v", err)
+			}
+			records[i].Series.Videos[j].PresignedURL = p.URL
+		}
+	}
 	return nil
 }
