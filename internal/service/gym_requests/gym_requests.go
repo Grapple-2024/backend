@@ -54,6 +54,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	// Parse filter query params
 	showByWeek := req.QueryStringParameters["show_by_week"]
 	gymID := req.QueryStringParameters["gym_id"]
+	gymStatus := req.QueryStringParameters["status"]
 
 	// parse pagination query params
 	page := req.QueryStringParameters["page"]
@@ -81,6 +82,10 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
 		}
 		filter["gym_id"] = gymObjID
+	}
+
+	if gymStatus != "" {
+		filter["status"] = gymStatus
 	}
 
 	if showByWeek != "" {
