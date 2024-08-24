@@ -116,7 +116,7 @@ func (s *Service) buildGetAllFilter(ctx context.Context, req *events.APIGatewayP
 
 	if len(disciplines) > 0 {
 		and = append(and, bson.M{
-			"disciplines": bson.M{
+			"videos.disciplines": bson.M{
 				"$in": disciplines,
 			},
 		})
@@ -124,7 +124,7 @@ func (s *Service) buildGetAllFilter(ctx context.Context, req *events.APIGatewayP
 
 	if len(difficulties) > 0 {
 		and = append(and, bson.M{
-			"difficulties": bson.M{
+			"videos.difficulties": bson.M{
 				"$in": difficulties,
 			},
 		})
