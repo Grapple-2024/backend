@@ -224,11 +224,6 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
 
-		if payload.Gyms != nil {
-			// do not allow the frontend to update gym associations.
-			// this is handled by updateGymRequestTX() in the gym-requests controller.
-			payload.Gyms = nil
-		}
 		payload.UpdatedAt = time.Now().Local().UTC()
 
 		// update the record in mongo, store the result in "result" variable.

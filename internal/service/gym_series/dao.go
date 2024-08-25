@@ -16,6 +16,8 @@ type GymSeries struct {
 	Title       string  `json:"title,omitempty" bson:"title,omitempty" validate:"required"`
 	Description string  `json:"description,omitempty" bson:"description,omitempty" validate:"required"`
 	Videos      []Video `json:"videos" bson:"videos,omitempty" validate:"required"`
+	CoachName   string  `json:"coach_name,omitempty" bson:"coach_name,omitempty" validate:"required"`
+	CoachAvatar string  `json:"coach_avatar,omitempty" bson:"coach_avatar,omitempty" validate:"required"`
 
 	// computed fields
 	Disciplines  []string `json:"disciplines,omitempty" bson:"disciplines,stringsets,omitempty"`
