@@ -9,8 +9,7 @@ import (
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/service"
-	"github.com/Grapple-2024/backend/pkg/lambda"
-	"github.com/Grapple-2024/backend/pkg/lambda_v2"
+	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
@@ -59,11 +58,11 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 	pageSizeInt, err := strconv.Atoi(pageSize)
 	if err != nil && pageSize != "" {
-		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &pageSize query parameter: "+pageSize)
+		return lambda.ClientError(http.StatusBadRequest, "invalid &pageSize query parameter: "+pageSize)
 	}
 	pageInt, err := strconv.Atoi(page)
 	if err != nil && page != "" {
-		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
+		return lambda.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
 	}
 
 	// create the filter based on query parameters in the request
@@ -71,7 +70,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	if gymID != "" {
 		gymObjID, err := primitive.ObjectIDFromHex(gymID)
 		if err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
 		}
 		filter["gym_id"] = gymObjID
 	}
@@ -79,7 +78,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	if showByWeek != "" {
 		time, err := time.Parse(time.RFC3339, showByWeek)
 		if err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err))
 		}
 		year, week := time.ISOWeek()
 		filter["created_at_year"] = year
@@ -89,7 +88,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	// Fetch records with pagination
 	var records []Announcement
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, true, &records); err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
 	if records == nil {
@@ -99,12 +98,12 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	// Get the total count of documents
 	totalCount, err := s.Collection.CountDocuments(ctx, filter, nil)
 	if err != nil {
-		return lambda_v2.ServerError(fmt.Errorf("error counting documents: %v", err))
+		return lambda.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
 	resp, err := service.NewGetAllResponse("announcements", records, totalCount, len(records), pageInt, pageSizeInt)
 	if err != nil {
-		return lambda_v2.ServerError(err)
+		return lambda.ServerError(err)
 	}
 	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 }
@@ -114,7 +113,7 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 	// Get the announcement by ID
 	var announcement Announcement
 	if err := mongoext.FindByID(ctx, s.Collection, id, &announcement); err != nil {
-		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find announcement by ID: %v", err))
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find announcement by ID: %v", err))
 	}
 
 	// Return record as JSON

@@ -3,3 +3,6 @@ cmd/auth
 cmd/wipe-db
 
 samconfig.yml
+
+.aws-sam/*
+.aws-sam

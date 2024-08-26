@@ -21,7 +21,7 @@ type Profile struct {
 	AvatarURL string `json:"avatar_url" bson:"avatar_url,omitempty"`
 	// AvatarS3ObjectKey string `json:"avatar_s3_object_key" bson:"avatar_s3_object_key,omitempty"`
 
-	Gyms []GymAssociation `json:"gyms,omit" bson:"gyms"`
+	Gyms []GymAssociation `json:"gyms,omit" bson:"gyms,omitempty"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`

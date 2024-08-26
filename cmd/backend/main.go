@@ -11,8 +11,7 @@ import (
 	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/internal/service/techniques"
-	"github.com/Grapple-2024/backend/pkg/handlers"
-	lambdaext "github.com/Grapple-2024/backend/pkg/lambda"
+	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	"github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/rs/zerolog"
@@ -91,31 +90,7 @@ func main() {
 		}
 	}()
 
-	// Create V1 Handlers
-	handlerCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	s3h, err := handlers.NewS3Handler(handlerCtx, dynamoEndpoint, region)
-	if err != err {
-		panic(err)
-	}
-
-	ch, err := handlers.NewCognitoHandler(handlerCtx, dynamoEndpoint, cognitoClientID, cognitoClientSecret)
-	if err != err {
-		panic(err)
-	}
-
-	eh, err := handlers.NewEmailHandler(handlerCtx, dynamoEndpoint)
-	if err != err {
-		panic(err)
-	}
-
-	uah, err := handlers.NewUserAssetHandler(handlerCtx, dynamoEndpoint, region)
-	if err != err {
-		panic(err)
-	}
-
-	// Create V2 Handlers (Mongo DB)
+	// Create services for each api entity
 	gyms, err := gyms.NewService(ctx, mongoClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
@@ -145,12 +120,7 @@ func main() {
 
 	log.Info().Msgf("Grapple API URL: %v", os.Getenv("API_URL"))
 
-	lambdas := map[string]lambdaext.Lambda{
-		"s3-presign-url": s3h,
-		"cognito":        ch,
-		"emails":         eh,
-		"user-assets":    uah,
-
+	lambdas := map[string]lambda_v2.Lambda{
 		// v2 endpoints are using mongodb
 		"profiles":      profiles,
 		"gyms":          gyms,
@@ -160,6 +130,6 @@ func main() {
 		"gym-series":    series,
 	}
 
-	router := lambdaext.NewRouter(lambdas)
+	router := lambda_v2.NewRouter(lambdas)
 	lambda.Start(router)
 }

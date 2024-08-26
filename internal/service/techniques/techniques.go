@@ -10,8 +10,7 @@ import (
 
 	"github.com/Grapple-2024/backend/internal/service"
 	"github.com/Grapple-2024/backend/internal/service/gym_series"
-	"github.com/Grapple-2024/backend/pkg/lambda"
-	"github.com/Grapple-2024/backend/pkg/lambda_v2"
+	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -84,11 +83,11 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 	pageSizeInt, err := strconv.Atoi(pageSize)
 	if err != nil && pageSize != "" {
-		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &pageSize query parameter: "+pageSize)
+		return lambda.ClientError(http.StatusBadRequest, "invalid &pageSize query parameter: "+pageSize)
 	}
 	pageInt, err := strconv.Atoi(page)
 	if err != nil && page != "" {
-		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
+		return lambda.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
 	}
 
 	// create the filter based on query parameters in the request
@@ -96,7 +95,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	if gymID != "" {
 		gymObjID, err := primitive.ObjectIDFromHex(gymID)
 		if err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
 		}
 		filter["series.gym_id"] = gymObjID
 	}
@@ -104,7 +103,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	if showByWeek != "" {
 		time, err := time.Parse(time.RFC3339, showByWeek)
 		if err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err))
 		}
 		year, week := time.ISOWeek()
 		filter["year_number"] = year
@@ -116,7 +115,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	log.Print("****************************************************************************************")
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, &records); err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
 	if records == nil {
@@ -124,31 +123,31 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	if err := s.generatePresignedURLs(ctx, records); err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
+		return lambda.ClientError(http.StatusBadRequest, err.Error())
 	}
 
 	// Add disciplines and difficulties to top level
 	records, err = s.addDisciplinesToTopLevel(records)
 
 	if err != nil {
-		return lambda_v2.ServerError(fmt.Errorf("failed to add disciplines to top level: %v", err))
+		return lambda.ServerError(fmt.Errorf("failed to add disciplines to top level: %v", err))
 	}
 
 	records, err = s.addDifficultiesToTopLevel(records)
 
 	if err != nil {
-		return lambda_v2.ServerError(fmt.Errorf("failed to add difficulties to top level: %v", err))
+		return lambda.ServerError(fmt.Errorf("failed to add difficulties to top level: %v", err))
 	}
 
 	// Get the total count of documents
 	totalCount, err := s.Collection.CountDocuments(ctx, filter, nil)
 	if err != nil {
-		return lambda_v2.ServerError(fmt.Errorf("error counting documents: %v", err))
+		return lambda.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
 	resp, err := service.NewGetAllResponse("techniques", records, totalCount, len(records), pageInt, pageSizeInt)
 	if err != nil {
-		return lambda_v2.ServerError(err)
+		return lambda.ServerError(err)
 	}
 	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 }
@@ -158,7 +157,7 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 	// Get the technique by ID
 	var technique Technique
 	if err := mongoext.FindByID(ctx, s.Collection, id, &technique); err != nil {
-		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find technique by ID: %v", err))
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find technique by ID: %v", err))
 	}
 
 	// Return record as JSON
@@ -302,9 +301,10 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 // It modifies the records slice by reference and returns an error
 func (s *Service) generatePresignedURLs(ctx context.Context, records []Technique) error {
 	for i, record := range records {
-		series := record.Series
-
-		for j, video := range series.Videos {
+		if record.Series == nil {
+			continue
+		}
+		for j, video := range record.Series.Videos {
 			p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "download", video.S3ObjectKey)
 			if err != nil {
 				return fmt.Errorf("failed to generate presigned url: %v", err)
@@ -315,14 +315,17 @@ func (s *Service) generatePresignedURLs(ctx context.Context, records []Technique
 	return nil
 }
 
-func (s *Service) addDisciplinesToTopLevel(records []Technique) ([]Technique, error) {
+func (s *Service) addDisciplinesToTopLevel(techniques []Technique) ([]Technique, error) {
 	resp := []Technique{}
 
-	for _, record := range records {
+	for _, t := range techniques {
+		if t.Series == nil {
+			continue
+		}
+
 		disciplineSet := make(map[string]struct{}) // A set to avoid duplicates
-		seriesItem := record.Series
 		// Loop through each video in the series
-		for _, video := range seriesItem.Videos {
+		for _, video := range t.Series.Videos {
 			// Loop through each discipline in the video
 			for _, discipline := range video.Disciplines {
 				disciplineSet[discipline] = struct{}{} // Add discipline to the set
@@ -331,10 +334,10 @@ func (s *Service) addDisciplinesToTopLevel(records []Technique) ([]Technique, er
 
 		// Convert the set to a slice
 		for discipline := range disciplineSet {
-			seriesItem.Disciplines = append(seriesItem.Disciplines, discipline)
+			t.Series.Disciplines = append(t.Series.Disciplines, discipline)
 		}
 
-		resp = append(resp, record)
+		resp = append(resp, t)
 	}
 
 	return resp, nil

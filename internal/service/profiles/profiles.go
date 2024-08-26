@@ -10,8 +10,7 @@ import (
 
 	"github.com/Grapple-2024/backend/internal/service"
 	"github.com/Grapple-2024/backend/pkg/cognito"
-	"github.com/Grapple-2024/backend/pkg/lambda"
-	"github.com/Grapple-2024/backend/pkg/lambda_v2"
+	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -111,11 +110,11 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 	pageSizeInt, err := strconv.Atoi(pageSize)
 	if err != nil && pageSize != "" {
-		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &pageSize query parameter: "+pageSize)
+		return lambda.ClientError(http.StatusBadRequest, "invalid &pageSize query parameter: "+pageSize)
 	}
 	pageInt, err := strconv.Atoi(page)
 	if err != nil && page != "" {
-		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
+		return lambda.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
 	}
 
 	// Fetch records with pagination
@@ -123,14 +122,14 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	var records []Profile
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, &records); err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
 	if records == nil {
 		records = []Profile{}
 		resp, err := json.Marshal(records)
 		if err != nil {
-			return lambda_v2.ServerError(fmt.Errorf("failed to marshal current user profiles to json: %v", err))
+			return lambda.ServerError(fmt.Errorf("failed to marshal current user profiles to json: %v", err))
 		}
 		return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 	}
@@ -138,7 +137,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	// Get the total count of documents
 	totalCount, err := s.Collection.CountDocuments(ctx, filter, nil)
 	if err != nil {
-		return lambda_v2.ServerError(fmt.Errorf("error counting documents: %v", err))
+		return lambda.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
 	log.Info().Msgf("Got records: %v", records)
@@ -148,14 +147,14 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		// marshal response as single profile object for easier frontend consumption
 		resp, err := json.Marshal(records[0])
 		if err != nil {
-			return lambda_v2.ServerError(fmt.Errorf("failed to marshal current user profile to json! %v", err))
+			return lambda.ServerError(fmt.Errorf("failed to marshal current user profile to json! %v", err))
 		}
 		result = resp
 	} else {
 		// marshal response as array
 		result, err = service.NewGetAllResponse("profiles", records, totalCount, len(records), pageInt, pageSizeInt)
 		if err != nil {
-			return lambda_v2.ServerError(fmt.Errorf("failed to create response: %v", err))
+			return lambda.ServerError(fmt.Errorf("failed to create response: %v", err))
 		}
 	}
 	return lambda.NewResponse(http.StatusOK, string(result), nil), nil
@@ -166,7 +165,7 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 	// Get the profile by ID
 	// var profile Profile
 	// if err := mongoext.FindByID(ctx, s.Collection, id, &profile); err != nil {
-	// 	return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find profile by ID: %v", err))
+	// 	return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find profile by ID: %v", err))
 	// }
 
 	// // Return record as JSON
