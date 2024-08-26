@@ -190,8 +190,6 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	technique.CreatedAt, technique.UpdatedAt = now, now
 	technique.DisplayYearNum, technique.DisplayWeekNum = technique.DisplayOnWeek.ISOWeek()
 
-	technique.DisplayOnWeek = nil // we don't need to save the date once we've determined the week and year number
-
 	// insert the technique, store the resulting record in 'result' variable
 	result, err := s.createTechnique(ctx, &technique)
 	if err != nil {
