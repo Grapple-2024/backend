@@ -67,6 +67,23 @@ func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, regi
 	return svc, nil
 }
 
+// ensureIndices ensures the proper indices are created for the 'gymseries' collection.
+func (s *Service) ensureIndices(ctx context.Context) error {
+	// Full-text index on title, description, coach_name, and disciplines
+	_, err := s.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.M{
+			"title":        "text",
+			"videos.title": "text",
+		},
+		Options: options.Index().SetName("TextIndex"), // Optional: Set a custom name for the index
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // ProcessGetAll handles HTTP requests for GET /gym-requests/
 // TODO: remove dynamodb map after switching off fully
 func (s *Service) buildGetAllFilter(ctx context.Context, req *events.APIGatewayProxyRequest) (bson.M, error) {
@@ -76,8 +93,10 @@ func (s *Service) buildGetAllFilter(ctx context.Context, req *events.APIGatewayP
 	showByWeek := req.QueryStringParameters["show_by_week"]
 	gymID := req.QueryStringParameters["gym_id"]
 
-	filter := bson.M{}
 	var and []bson.M
+	var or []bson.M
+
+	// Gym ID filter
 	if gymID != "" {
 		gymObjID, err := primitive.ObjectIDFromHex(gymID)
 		if err != nil {
@@ -88,6 +107,7 @@ func (s *Service) buildGetAllFilter(ctx context.Context, req *events.APIGatewayP
 		})
 	}
 
+	// Show by week filter
 	if showByWeek != "" {
 		time, err := time.Parse(time.RFC3339, showByWeek)
 		if err != nil {
@@ -103,17 +123,24 @@ func (s *Service) buildGetAllFilter(ctx context.Context, req *events.APIGatewayP
 				"created_at_year": year,
 			},
 		)
-
 	}
 
+	// Title search with full-text and regex
 	if title != "" {
-		and = append(and, bson.M{
+		or = append(or, bson.M{
 			"title": bson.M{
-				"$regex": fmt.Sprintf("^%s", title),
+				"$regex":   title,
+				"$options": "i",
+			},
+		}, bson.M{
+			"videos.title": bson.M{
+				"$regex":   title,
+				"$options": "i",
 			},
 		})
 	}
 
+	// Disciplines filter
 	if len(disciplines) > 0 {
 		and = append(and, bson.M{
 			"videos.disciplines": bson.M{
@@ -122,6 +149,7 @@ func (s *Service) buildGetAllFilter(ctx context.Context, req *events.APIGatewayP
 		})
 	}
 
+	// Difficulties filter
 	if len(difficulties) > 0 {
 		and = append(and, bson.M{
 			"videos.difficulties": bson.M{
@@ -130,10 +158,13 @@ func (s *Service) buildGetAllFilter(ctx context.Context, req *events.APIGatewayP
 		})
 	}
 
+	// Combine filters
+	filter := bson.M{}
 	if len(and) > 0 {
-		filter = bson.M{
-			"$and": and,
-		}
+		filter["$and"] = and
+	}
+	if len(or) > 0 {
+		filter["$or"] = or
 	}
 
 	log.Debug().Msgf("Filter: %v", filter)
