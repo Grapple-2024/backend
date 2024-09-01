@@ -6,6 +6,12 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+// Role enum
+var (
+	CoachRole   = "Coach"
+	StudentRole = "Student"
+)
+
 // Profile represents the Profile mongodb entity
 type Profile struct {
 	ID primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`

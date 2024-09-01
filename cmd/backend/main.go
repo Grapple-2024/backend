@@ -16,6 +16,7 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/sendgrid/sendgrid-go"
 )
 
 func init() {
@@ -47,10 +48,10 @@ func main() {
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", EnvDynamoEndpoint)
 	}
-	// sendGridAPIKey, ok := os.LookupEnv(EnvSendGridAPIKey)
-	// if !ok {
-	// 	log.Fatal().Msgf("missing required env var: %s", EnvSendGridAPIKey)
-	// }
+	sendGridAPIKey, ok := os.LookupEnv(EnvSendGridAPIKey)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", EnvSendGridAPIKey)
+	}
 	cognitoClientID, ok := os.LookupEnv(EnvCognitoClientID)
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", EnvCognitoClientID)
@@ -76,6 +77,9 @@ func main() {
 	log.Debug().Msgf("connected to dynamodb server: %s", dynamoEndpoint)
 	log.Debug().Msgf("connected to mongo server: %s", mongoEndpoint)
 
+	// Create sendgrid client
+	sendGridClient := sendgrid.NewSendClient(sendGridAPIKey)
+
 	// Create mongo client
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -95,7 +99,11 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
 	}
-	announcements, err := announcements.NewService(ctx, mongoClient)
+	profiles, err := profiles.NewService(ctx, mongoClient, publicAssetsBucketName, awsRegion, cognitoClientID, cognitoClientSecret)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Profiles Service")
+	}
+	announcements, err := announcements.NewService(ctx, mongoClient, sendGridClient, profiles)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Announcements Service")
 	}
@@ -103,12 +111,8 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
 	}
-	profiles, err := profiles.NewService(ctx, mongoClient, publicAssetsBucketName, awsRegion, cognitoClientID, cognitoClientSecret)
-	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to initialize Profiles Service")
-	}
 
-	requests, err := gym_requests.NewService(ctx, mongoClient)
+	requests, err := gym_requests.NewService(ctx, mongoClient, sendGridClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gym Requests Service")
 	}

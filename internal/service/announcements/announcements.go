@@ -1,38 +1,57 @@
 package announcements
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"text/template"
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/service"
+	"github.com/Grapple-2024/backend/internal/service/gyms"
+	"github.com/Grapple-2024/backend/internal/service/profiles"
 	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/go-playground/validator/v10"
+	"github.com/rs/zerolog/log"
+	"github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"gopkg.in/mgo.v2/bson"
 )
 
+//go:embed templates/new_announcement.html
+var newAnnouncementEmailTmpl string
+
 // Service is the object that handles the business logic of all announcement related operations.
 // Service talks to the underlying Mongo Client (Data access layer) to CRUD announcement objects.
 type Service struct {
 	*mongoext.Client
 	*mongo.Collection
+
+	sendGridClient  *sendgrid.Client
+	profilesService *profiles.Service
 }
 
 // NewService creates a new instance of a Announcement Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgrid.Client, profilesService *profiles.Service) (*Service, error) {
 	c := mc.Database("grapple").Collection("announcements")
 
 	// Create unique index for announcement names
-	svc := &Service{Client: mc, Collection: c}
+	svc := &Service{
+		Client:          mc,
+		Collection:      c,
+		sendGridClient:  sendGridClient,
+		profilesService: profilesService,
+	}
 	if err := svc.ensureIndices(ctx); err != nil {
 		return nil, err
 	}
@@ -151,6 +170,11 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to insert record: %v", err))
 	}
 
+	// notify all students in this gym that a new announcement was posted!
+	if err := s.notifyStudents(ctx, &result); err != nil {
+		log.Warn().Msgf("failed to notify students of new announcements - FAILING SILENTLY: %v", err)
+	}
+
 	resp, err := json.Marshal(result)
 	if err != nil {
 		return lambda.ServerError(err)
@@ -206,6 +230,53 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	return lambda.NewResponse(http.StatusOK, ``, nil), nil
+}
+
+func (s *Service) notifyStudents(ctx context.Context, a *Announcement) error {
+	profiles, err := s.profilesService.GetProfilesOf(ctx, a.GymID.Hex(), profiles.StudentRole)
+	if err != nil {
+		return err
+	}
+
+	gymsColl := s.Database().Collection("gyms")
+	var gym *gyms.Gym
+	if err := mongoext.FindByID(ctx, gymsColl, a.GymID.Hex(), &gym); err != nil {
+		return err
+	}
+
+	// render email template
+	tmpl, err := template.New("").Parse(newAnnouncementEmailTmpl)
+	if err != nil {
+		return fmt.Errorf("failed to parse template: %v", err)
+	}
+	var tmplOut bytes.Buffer
+	tmplData := struct {
+		GymName             string
+		AnnouncementTitle   string
+		AnnouncementContent string
+	}{
+		GymName:             gym.Name,
+		AnnouncementTitle:   a.Title,
+		AnnouncementContent: a.Content,
+	}
+	if err := tmpl.Execute(&tmplOut, tmplData); err != nil {
+		return fmt.Errorf("error executing template with data %v:\n %v", tmplData, err)
+	}
+
+	subject := fmt.Sprintf("%s | %s: %s", gym.Name, a.Title, a.Content)
+	log.Info().Msgf("found profiles to send notification to: %v", profiles)
+	for _, p := range profiles {
+		from := mail.NewEmail("Grapple Notifications", "support@grapplemma.com")
+		to := mail.NewEmail("Grapple Coach", p.Email)
+		message := mail.NewSingleEmail(from, subject, to, "", tmplOut.String())
+
+		_, err = s.sendGridClient.Send(message)
+		if err != nil {
+			return fmt.Errorf("failed to send email to coach: %v", err)
+		}
+	}
+
+	return nil
 }
 
 // ensureIndices ensures the proper indices are created for the 'announcements' collection.

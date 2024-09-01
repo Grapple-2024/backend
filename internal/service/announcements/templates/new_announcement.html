@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grapple MMA: a new announcement has been posted by {{ .GymName }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #F24B4B;
+            color: #000;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+			background-color: #3E3E3E; /* Darker background color for contrast */
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .header {
+            text-align: center;
+        }
+        .content {
+            text-align: center;
+        }
+        .content p {
+            font-size: 18px;
+            color: #F24B4B;
+            margin: 10px 0;
+        }
+        .footer {
+            margin-top: 20px;
+            font-size: 14px;
+            text-align: center;
+            color: #888;
+        }
+        .unsubscribe {
+            margin-top: 10px;
+        }
+        .unsubscribe a {
+            color: #888;
+            text-decoration: none;
+        }
+		.separator {
+            border-top: 1px solid #888; /* Separator line color */
+            margin: 20px 0; /* Adjust margin as needed */
+        }
+        .button {
+            display: inline-block;
+            padding: 10px 20px;
+            font-size: 16px;
+            color: #fff;
+            background-color: #F24B4B;
+            border: none;
+            border-radius: 5px;
+            text-decoration: none;
+            text-align: center;
+        }
+        .button:hover {
+            color: white;
+            background-color: #d23e3e; /* Darker shade on hover */
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="https://grapplemma.com/logo.png" alt="Grapple MMA Logo">
+        </div>
+		<hr class="separator">
+        <div class="content">
+            <p style="color: white">A new announcement has been posted in {{ .GymName }}:</p>
+            <p style="font-style: italic;">{{.AnnouncementTitle }}</p>
+            <p style="font-style: italic;">{{.AnnouncementContent }}</p>
+            <br\>
+            <a href="https://grapplemma.com/student/auth" style="display: inline-block; padding: 10px 20px; font-size: 16px; color: #fff; background-color: #F24B4B; border: none; border-radius: 5px; text-decoration: none; text-align: center;" class="button">Sign In</a>
+        </div>
+
+        <div class="footer">
+			<p>Grapple MMA</p>
+            <p>2702 Cepa Uno, San Clemente, California 92673</p>
+            <div class="unsubscribe">
+                <p>To unsubscribe from future emails, click <a href="https://grapplemma.com/student/settings">here</a></p>
+            </div>
+            <p>This email was sent in compliance with United States and California anti-spam laws.</p>
+        </div>
+    </div>
+</body>
+</html>

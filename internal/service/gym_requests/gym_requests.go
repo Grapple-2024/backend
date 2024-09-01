@@ -1,14 +1,18 @@
 package gym_requests
 
 import (
+	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"text/template"
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/service"
+	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
@@ -16,6 +20,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
+	"github.com/sendgrid/sendgrid-go"
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -24,6 +30,12 @@ import (
 	"gopkg.in/mgo.v2/bson"
 )
 
+//go:embed templates/new_request.html
+var newRequestEmailTmpl string
+
+//go:embed templates/request_accepted.html
+var requestAcceptedEmailTmpl string
+
 // Service is the object that handles the business logic of all gymRequest related operations.
 // Service talks to the underlying Mongo Client (Data access layer) to CRUD gymRequest objects.
 type Service struct {
@@ -31,14 +43,21 @@ type Service struct {
 
 	*mongoext.Client
 	*mongo.Collection
+
+	sendGridClient *sendgrid.Client
 }
 
 // NewService creates a new instance of a GymRequest Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgrid.Client) (*Service, error) {
 	c := mc.Database("grapple").Collection("gymRequests")
 
 	// Create Mongo Session (needed for transactions)
-	svc := &Service{Client: mc, Collection: c}
+	svc := &Service{
+		Client:         mc,
+		Collection:     c,
+		sendGridClient: sendGridClient,
+	}
+
 	session, err := svc.StartSession()
 	if err != nil {
 		return nil, err
@@ -144,14 +163,15 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 
 // ProcessPost handles HTTP requests for POST /gymRequests
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var gymRequest GymRequest
-	if err := json.Unmarshal([]byte(req.Body), &gymRequest); err != nil {
+	var payload GymRequest
+	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 	}
+	payload.Status = RequestPending
 
 	// Validate request body for required fields
 	validate := validator.New()
-	if err := validate.Struct(gymRequest); err != nil {
+	if err := validate.Struct(payload); err != nil {
 		var errMsgs []string
 		for _, err := range err.(validator.ValidationErrors) {
 			errMsgs = append(errMsgs, fmt.Sprintf("Field '%s' failed validation with tag '%s'", err.Field(), err.Tag()))
@@ -159,13 +179,24 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 		return lambda_v2.ClientError(http.StatusUnprocessableEntity, errMsgs...)
 	}
 
-	gymRequest.CreatedAt = time.Now().Local().UTC()
-	gymRequest.UpdatedAt = gymRequest.CreatedAt
+	gymsColl := s.Database().Collection("gyms")
+	var gym *gyms.Gym
+	if err := mongoext.FindByID(ctx, gymsColl, payload.GymID.Hex(), &gym); err != nil {
+		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not find gym with id %q: %v", payload.GymID, err))
+	}
 
 	// insert the GymRequest, store the resulting record in 'result' variable
+	payload.CreatedAt = time.Now().Local().UTC()
+	payload.UpdatedAt = payload.CreatedAt
+
 	var result GymRequest
-	if err := mongoext.Insert(ctx, s.Collection, &gymRequest, &result); err != nil {
+	if err := mongoext.Insert(ctx, s.Collection, &payload, &result); err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to insert gym request ooc: %v", err))
+	}
+
+	// notify the coach by email that a new request was submitted for their gym
+	if err := s.notifyCoachesOnNewRequest(ctx, &result); err != nil {
+		log.Warn().Msgf("Failed to notify coach of new gym request - FAILING SILENTLY! %v", err)
 	}
 
 	resp, err := json.Marshal(result)
@@ -181,6 +212,10 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	var gymRequest GymRequest
 	if err := json.Unmarshal([]byte(req.Body), &gymRequest); err != nil {
 		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+	}
+
+	if !isValidStatus(gymRequest.Status) {
+		return lambda_v2.ClientError(http.StatusBadRequest, "invalid value for status field, must be one of [Pending, Accepted, Denied]")
 	}
 
 	// update the record in mongo
@@ -223,6 +258,97 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	return lambda_v2.NewResponse(http.StatusOK, ``, nil), nil
 }
 
+func (s *Service) notifyStudent(ctx context.Context, request *GymRequest) error {
+	tmpl, err := template.New("").Parse(requestAcceptedEmailTmpl)
+	if err != nil {
+		return fmt.Errorf("failed to parse template: %v", err)
+	}
+
+	gymsColl := s.Database().Collection("gyms")
+	var gym *gyms.Gym
+	if err := mongoext.FindByID(ctx, gymsColl, request.GymID.Hex(), &gym); err != nil {
+		return fmt.Errorf("could not find gym with ID %v: %v", request.GymID, err)
+	}
+
+	var tmplOut bytes.Buffer
+	tmplData := struct {
+		GymName string
+	}{
+		GymName: gym.Name,
+	}
+	if err := tmpl.Execute(&tmplOut, tmplData); err != nil {
+		return fmt.Errorf("error executing template with data %v:\n %v", tmplData, err)
+	}
+
+	subject := fmt.Sprintf("Grapple MMA: your request to join %s was accepted!", gym.Name)
+	from := mail.NewEmail("Grapple Notifications", "support@grapplemma.com")
+	to := mail.NewEmail("Grapple Student", request.RequestorEmail)
+	message := mail.NewSingleEmail(from, subject, to, "", tmplOut.String())
+
+	_, err = s.sendGridClient.Send(message)
+	if err != nil {
+		return fmt.Errorf("failed to send email to student: %v", err)
+	}
+
+	return nil
+}
+
+func (s *Service) notifyCoachesOnNewRequest(ctx context.Context, request *GymRequest) error {
+	tmpl, err := template.New("").Parse(newRequestEmailTmpl)
+	if err != nil {
+		return fmt.Errorf("failed to parse template: %v", err)
+	}
+
+	gymsColl := s.Database().Collection("gyms")
+	var gym *gyms.Gym
+	if err := mongoext.FindByID(ctx, gymsColl, request.GymID.Hex(), &gym); err != nil {
+		return fmt.Errorf("could not find gym with ID %v: %v", request.GymID, err)
+	}
+
+	var tmplOut bytes.Buffer
+	tmplData := struct {
+		GymName      string
+		StudentEmail string
+	}{
+		GymName:      gym.Name,
+		StudentEmail: request.RequestorEmail,
+	}
+	if err := tmpl.Execute(&tmplOut, tmplData); err != nil {
+		return fmt.Errorf("error executing template with data %v:\n %v", tmplData, err)
+	}
+
+	// get all coaches for this gym
+	profilesColl := s.Client.Database("grapple").Collection("profiles")
+	filter := bson.M{
+		"gyms": bson.M{
+			"$elemMatch": bson.M{
+				"gym_id": request.GymID,
+				"role":   "Coach",
+			},
+		},
+	}
+	var profiles []profiles.Profile
+	if err := mongoext.Paginate(ctx, profilesColl, filter, 1, 1000, true, &profiles); err != nil {
+		return fmt.Errorf("could not find any profiles that have a coach association to gym id %q %v", request.GymID, err)
+	}
+
+	log.Info().Msgf("Found profiles with coach association to gym: %v", profiles)
+
+	subject := fmt.Sprintf("Grapple MMA: a student has requested to join %s", gym.Name)
+	for _, p := range profiles {
+		from := mail.NewEmail("Grapple Notifications", "support@grapplemma.com")
+		to := mail.NewEmail("Grapple Coach", p.Email)
+		message := mail.NewSingleEmail(from, subject, to, "", tmplOut.String())
+
+		_, err = s.sendGridClient.Send(message)
+		if err != nil {
+			return fmt.Errorf("failed to send email to coach: %v", err)
+		}
+	}
+
+	return nil
+}
+
 func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, id string) (*GymRequest, error) {
 	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
 
@@ -235,8 +361,14 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, i
 		}
 
 		// return early if the request was not approved
-		if payload.Status != RequestApproved {
+		if payload.Status != RequestAccepted {
 			return request, nil
+		}
+
+		// send notification to the student that their request was approved
+		// TODO: implement this
+		if err := s.notifyStudent(ctx, &request); err != nil {
+			return nil, err
 		}
 
 		// The request was approved by the coach: update the student profile's gym_associations field.
