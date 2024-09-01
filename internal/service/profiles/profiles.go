@@ -277,6 +277,30 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	return lambda.NewResponse(http.StatusOK, ``, nil), nil
 }
 
+// GetProfilesOf returns all profiles associated with the specified Gym ID and role (Student or Coach).
+func (s *Service) GetProfilesOf(ctx context.Context, gymID string, role string) ([]Profile, error) {
+	objID, err := primitive.ObjectIDFromHex(gymID)
+	if err != nil {
+		return nil, err
+	}
+
+	// get all coaches for this gym
+	filter := bson.M{
+		"gyms": bson.M{
+			"$elemMatch": bson.M{
+				"gym_id": objID,
+				"role":   role,
+			},
+		},
+	}
+	var profiles []Profile
+	if err := mongoext.Paginate(ctx, s.Collection, filter, 1, 1000, true, &profiles); err != nil {
+		return nil, fmt.Errorf("could not find any profiles that have a %s role with gym id %q %v", role, gymID, err)
+	}
+
+	return profiles, nil
+}
+
 func (s *Service) createProfile(ctx context.Context, p *Profile) (*Profile, error) {
 	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
 

@@ -11,7 +11,7 @@ type Status int
 
 const (
 	RequestPending  string = "Pending"
-	RequestApproved string = "Approved"
+	RequestAccepted string = "Accepted"
 	RequestDenied   string = "Denied"
 )
 
@@ -25,7 +25,7 @@ type GymRequest struct {
 	FirstName      string `json:"first_name" bson:"first_name,omitempty" validate:"required"`
 	LastName       string `json:"last_name" bson:"last_name,omitempty" validate:"required"`
 
-	// The status of the gym request either "Approved", "Pending", or "Rejected"
+	// The status of the gym request either "Accepted", "Pending", or "Rejected"
 	Status string `json:"status" bson:"status,omitempty"`
 
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
@@ -34,7 +34,7 @@ type GymRequest struct {
 
 // isValidStatus returns true if a status string is one of the three possible enums. It will return false if not.
 func isValidStatus(s string) bool {
-	if s == RequestApproved || s == RequestDenied || s == RequestPending {
+	if s == RequestAccepted || s == RequestDenied || s == RequestPending {
 		return true
 	}
 	return false
