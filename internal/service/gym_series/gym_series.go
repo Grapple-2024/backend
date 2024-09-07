@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/service"
+	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
@@ -85,8 +87,9 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 }
 
 // ProcessGetAll handles HTTP requests for GET /gym-requests/
+// It takes in a context and a list of the requesting entitie's gym associations (IDs). It will query mongodb for series that match those IDs.
 // TODO: remove dynamodb map after switching off fully
-func (s *Service) buildGetAllFilter(req *events.APIGatewayProxyRequest) (bson.M, error) {
+func (s *Service) buildGetAllFilter(req *events.APIGatewayProxyRequest, gymAssociations []primitive.ObjectID) (bson.M, error) {
 	title := req.QueryStringParameters["title"]
 	disciplines := req.MultiValueQueryStringParameters["discipline"]
 	difficulties := req.MultiValueQueryStringParameters["difficulty"]
@@ -102,8 +105,19 @@ func (s *Service) buildGetAllFilter(req *events.APIGatewayProxyRequest) (bson.M,
 		if err != nil {
 			return nil, fmt.Errorf("invalid object ID specified for gym_id query param: %s", gymID)
 		}
+
+		if !slices.Contains(gymAssociations, gymObjID) {
+			return nil, fmt.Errorf("user does not have permission for gym %v", gymID)
+		}
+
 		and = append(and, bson.M{
 			"gym_id": gymObjID,
+		})
+	} else {
+		and = append(and, bson.M{
+			"gym_id": bson.M{
+				"$in": gymAssociations, // if user doesn't specify gym_id, we only want to return series that they have permission to
+			},
 		})
 	}
 
@@ -172,8 +186,19 @@ func (s *Service) buildGetAllFilter(req *events.APIGatewayProxyRequest) (bson.M,
 }
 
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, _ map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authenticate:: %v", err))
+	}
+
+	profilesCollection := s.Database().Collection("profiles")
+	gyms, err := profiles.GetGymsOf(ctx, profilesCollection, token.Sub)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("failed to find gyms for cognito ID %v: %v", token.Sub, err))
+	}
+
 	// Parse filter query params
-	filter, err := s.buildGetAllFilter(&req)
+	filter, err := s.buildGetAllFilter(&req, gyms)
 	if err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid filter param: %v", err))
 	}
@@ -281,7 +306,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 
 // ProcessPut handles HTTP requests for three endpoints:
 // 1. PUT /gym-series/{id} -- Series Update)
-// 2. /gym-videos/{id}/video/{id} -- Video update
+// 2. /gym-videos/{id}/video/{id} -- Video insert/update
 // 3. /gym-series/{id}/presign -- generate presigned upload url for a new video
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id := req.PathParameters["id"]
@@ -297,7 +322,8 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
 		if gymSeries.Videos != nil {
-			return lambda_v2.ClientError(http.StatusUnprocessableEntity, "must use /gym-series/{id}/videos/{id} to update a video in a series %v")
+			log.Warn().Msgf("must use /gym-series/{id}/videos/{id} to update a video in a series")
+			gymSeries.Videos = nil
 		}
 
 		// update the record in mongo
@@ -389,7 +415,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			// Update an existing video in the series
 			video.UpdatedAt = time.Now().Local().UTC()
 			filter = bson.M{
-				"_id":        id,
+				"_id":        seriesObjID,
 				"videos._id": video.ID,
 			}
 			update = bson.M{

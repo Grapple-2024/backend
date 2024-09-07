@@ -398,11 +398,12 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, i
 	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
 
 	result, err := s.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
+
+		// update the gym request
 		var request GymRequest
 		request.UpdatedAt = time.Now().Local().UTC()
-
 		if err := mongoext.UpdateByID(ctx, s.Collection, id, payload, &request, nil); err != nil {
-			return lambda_v2.ServerError(fmt.Errorf("failed to update gym record: %v", err))
+			return nil, fmt.Errorf("failed to update gym record: %v", err)
 		}
 
 		// return early if the request was not approved
@@ -419,9 +420,16 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, i
 		// The request was approved by the coach: update the student profile's gym_associations field.
 		log.Debug().Msgf("a gym request was approved by coach for student %q (%s)", request.RequestorEmail, request.RequestorID)
 
-		// create new profile
+		// fetch the gym associated with this gym request, make sure it exists.
+		var gym gyms.Gym
+		gymsColl := s.Database().Collection("gyms")
+		if err := mongoext.FindByID(ctx, gymsColl, request.GymID.Hex(), &gym); err != nil {
+			return nil, fmt.Errorf("failed to find gym with id %v: %v", payload.GymID.Hex(), err)
+		}
+
+		// create new gym association for this student profile
 		gymAssociation := profiles.GymAssociation{
-			CoachName: "TODO",
+			CoachName: fmt.Sprintf("%s %s", gym.CoachFirstName, gym.CoachLastName),
 			Email:     request.RequestorEmail,
 			GymID:     request.GymID,
 			Role:      profiles.StudentRole,
@@ -430,6 +438,8 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, i
 				NotifyOnRequests:      true, // only used if this is a coach profile
 			},
 		}
+
+		log.Info().Msgf("Adding gym association to profile: %v", gymAssociation)
 
 		// create filter & update statements, send to mongodb to update the student's profile.
 		filter := bson.M{

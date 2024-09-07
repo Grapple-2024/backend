@@ -312,6 +312,78 @@ func (s *Service) GetGymAssociationsBy(ctx context.Context, gymID string, role s
 	return gymAssociations, nil
 }
 
+// GetAllStudents returns a slice of gym IDs associated with the cognito token. The associations can either be Student or Coach.
+func GetGymsOf(ctx context.Context, collection *mongo.Collection, cognitoID string) ([]primitive.ObjectID, error) {
+	filter := bson.M{
+		"cognito_id": cognitoID,
+	}
+
+	var profile Profile
+	if err := mongoext.Find(ctx, collection, filter, &profile); err != nil {
+		return nil, fmt.Errorf("could not find any profiles that have a student role with gym id: %v", err)
+	}
+	log.Info().Msgf("Found profile, fetching gyms: %v", profile)
+
+	var gymIDs []primitive.ObjectID
+	for _, g := range profile.Gyms {
+		gymIDs = append(gymIDs, g.GymID)
+	}
+	return gymIDs, nil
+}
+
+// GetAllStudents returns true if the Cognito ID is a student of the specified Gym ID.
+func (s *Service) IsStudentOf(ctx context.Context, cognitoID, gymID string) (bool, error) {
+	gymObjID, err := primitive.ObjectIDFromHex(gymID)
+	if err != nil {
+		return false, err
+	}
+
+	// find the profile if it exists
+	filter := bson.M{
+		"cognito_id": cognitoID,
+		"gyms": bson.M{
+			"$elemMatch": bson.M{
+				"gym_id": gymObjID,
+				"role":   StudentRole,
+			},
+		},
+	}
+	var profile *Profile
+	if err := mongoext.Find(ctx, s.Collection, filter, profile); err != nil {
+		return false, fmt.Errorf("could not find any profiles that have a student role with gym id %q %v", gymID, err)
+	}
+	log.Info().Msgf("Found one profile: %v", profile)
+
+	if profile.CognitoID == cognitoID {
+		return true, nil
+	}
+	return false, nil
+}
+
+// GetAllStudents returns all student profiles associated with a specific gym.
+func (s *Service) GetStudentsOf(ctx context.Context, gymID string) ([]Profile, error) {
+	gymObjID, err := primitive.ObjectIDFromHex(gymID)
+	if err != nil {
+		return nil, err
+	}
+
+	// get all coaches for this gym
+	filter := bson.M{
+		"gyms": bson.M{
+			"$elemMatch": bson.M{
+				"gym_id": gymObjID,
+				"role":   StudentRole,
+			},
+		},
+	}
+	var profiles []Profile
+	if err := mongoext.Paginate(ctx, s.Collection, filter, 1, 1000, true, &profiles); err != nil {
+		return nil, fmt.Errorf("could not find any profiles that have a student role with gym id %q %v", gymID, err)
+	}
+
+	return profiles, nil
+}
+
 func (s *Service) createProfile(ctx context.Context, p *Profile) (*Profile, error) {
 	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
 
