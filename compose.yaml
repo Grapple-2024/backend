@@ -1,15 +1,5 @@
 version: '3.9'
 services:
-  dynamodb:
-    image: amazon/dynamodb-local
-    hostname: dynamodb
-    restart: always
-    volumes:
-      -  ./data-dynamodb:/home/dynamodblocal/data
-    ports:
-      - 8000:8000
-    command: "-jar DynamoDBLocal.jar -sharedDb -dbPath /home/dynamodblocal/data/"
-
   mongodb:
     image: mongo:7.0
     command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
@@ -27,14 +17,6 @@ services:
     volumes:
       - "mongodb_data:/data/db"
       - "mongodb_config:/data/configdb"
-
-  # mongodb:
-  #   image: mongo:latest
-  #   container_name: mongodb
-  #   ports:
-  #     - "27017:27017"   # Expose MongoDB on port 27017
-  #   volumes:
-  #     - mongodb_data:/data/db  # Persist MongoDB data
 
 volumes:
   mongodb_data:

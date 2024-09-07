@@ -125,19 +125,6 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda.ClientError(http.StatusBadRequest, err.Error())
 	}
 
-	// Add disciplines and difficulties to top level
-	records, err = s.addDisciplinesToTopLevel(records)
-
-	if err != nil {
-		return lambda.ServerError(fmt.Errorf("failed to add disciplines to top level: %v", err))
-	}
-
-	records, err = s.addDifficultiesToTopLevel(records)
-
-	if err != nil {
-		return lambda.ServerError(fmt.Errorf("failed to add difficulties to top level: %v", err))
-	}
-
 	// Get the total count of documents
 	totalCount, err := s.Collection.CountDocuments(ctx, filter, nil)
 	if err != nil {
@@ -312,55 +299,4 @@ func (s *Service) generatePresignedURLs(ctx context.Context, records []Technique
 		}
 	}
 	return nil
-}
-
-func (s *Service) addDisciplinesToTopLevel(techniques []Technique) ([]Technique, error) {
-	resp := []Technique{}
-
-	for _, t := range techniques {
-		if t.Series == nil {
-			continue
-		}
-
-		disciplineSet := make(map[string]struct{}) // A set to avoid duplicates
-		// Loop through each video in the series
-		for _, video := range t.Series.Videos {
-			// Loop through each discipline in the video
-			for _, discipline := range video.Disciplines {
-				disciplineSet[discipline] = struct{}{} // Add discipline to the set
-			}
-		}
-
-		// Convert the set to a slice
-		for discipline := range disciplineSet {
-			t.Series.Disciplines = append(t.Series.Disciplines, discipline)
-		}
-
-		resp = append(resp, t)
-	}
-
-	return resp, nil
-}
-
-func (s *Service) addDifficultiesToTopLevel(records []Technique) ([]Technique, error) {
-	resp := []Technique{}
-
-	for _, record := range records {
-		difficultySet := make(map[string]struct{}) // A set to avoid duplicates
-		seriesItem := record.Series
-		// Loop through each video in the series
-		for _, video := range seriesItem.Videos {
-			// Add the difficulty of the video to the set
-			difficultySet[video.Difficulty] = struct{}{}
-		}
-
-		// Convert the set to a slice
-		for difficulty := range difficultySet {
-			seriesItem.Difficulties = append(seriesItem.Difficulties, difficulty)
-		}
-
-		resp = append(resp, record)
-	}
-
-	return resp, nil
 }

@@ -20,8 +20,8 @@ type GymSeries struct {
 	CoachAvatar string  `json:"coach_avatar,omitempty" bson:"coach_avatar,omitempty" validate:"required"`
 
 	// computed fields
-	Disciplines  []string `json:"disciplines,omitempty" bson:"disciplines,stringsets,omitempty"`
-	Difficulties []string `json:"difficulties,omitempty" bson:"difficulties,stringsets,omitempty"`
+	Disciplines  *[]string `json:"disciplines,omitempty" bson:"disciplines,stringsets,omitempty"`
+	Difficulties *[]string `json:"difficulties,omitempty" bson:"difficulties,stringsets,omitempty"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`

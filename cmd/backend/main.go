@@ -29,7 +29,6 @@ const (
 	// env variable keys
 	EnvCognitoClientID        = "COGNITO_CLIENT_ID"
 	EnvCognitoClientSecretID  = "COGNITO_CLIENT_SECRET"
-	EnvDynamoEndpoint         = "DYNAMODB_ENDPOINT"
 	EnvMongoEndpoint          = "MONGO_ENDPOINT"
 	EnvSendGridAPIKey         = "SENDGRID_API_KEY"
 	EnvVideosBucketName       = "GYM_VIDEOS_BUCKET_NAME"
@@ -43,10 +42,6 @@ func main() {
 	if !ok {
 
 		log.Fatal().Msgf("missing required env var: %s", EnvMongoEndpoint)
-	}
-	dynamoEndpoint, ok := os.LookupEnv(EnvDynamoEndpoint)
-	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", EnvDynamoEndpoint)
 	}
 	sendGridAPIKey, ok := os.LookupEnv(EnvSendGridAPIKey)
 	if !ok {
@@ -74,7 +69,6 @@ func main() {
 		log.Fatal().Msgf("missing required env var: %s", EnvAWSRegion)
 	}
 	log.Debug().Msgf("AWS Region: %v", awsRegion)
-	log.Debug().Msgf("connected to dynamodb server: %s", dynamoEndpoint)
 	log.Debug().Msgf("connected to mongo server: %s", mongoEndpoint)
 
 	// Create sendgrid client

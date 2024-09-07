@@ -86,11 +86,11 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 
 // ProcessGetAll handles HTTP requests for GET /gym-requests/
 // TODO: remove dynamodb map after switching off fully
-func (s *Service) buildGetAllFilter(ctx context.Context, req *events.APIGatewayProxyRequest) (bson.M, error) {
+func (s *Service) buildGetAllFilter(req *events.APIGatewayProxyRequest) (bson.M, error) {
 	title := req.QueryStringParameters["title"]
 	disciplines := req.MultiValueQueryStringParameters["discipline"]
 	difficulties := req.MultiValueQueryStringParameters["difficulty"]
-	showByWeek := req.QueryStringParameters["show_by_week"]
+	// showByWeek := req.QueryStringParameters["show_by_week"]
 	gymID := req.QueryStringParameters["gym_id"]
 
 	var and []bson.M
@@ -108,22 +108,22 @@ func (s *Service) buildGetAllFilter(ctx context.Context, req *events.APIGatewayP
 	}
 
 	// Show by week filter
-	if showByWeek != "" {
-		time, err := time.Parse(time.RFC3339, showByWeek)
-		if err != nil {
-			return nil, fmt.Errorf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err)
-		}
-		year, week := time.ISOWeek()
+	// if showByWeek != "" {
+	// 	time, err := time.Parse(time.RFC3339, showByWeek)
+	// 	if err != nil {
+	// 		return nil, fmt.Errorf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err)
+	// 	}
+	// 	year, week := time.ISOWeek()
 
-		and = append(and,
-			bson.M{
-				"created_at_week": week,
-			},
-			bson.M{
-				"created_at_year": year,
-			},
-		)
-	}
+	// 	and = append(and,
+	// 		bson.M{
+	// 			"created_at_week": week,
+	// 		},
+	// 		bson.M{
+	// 			"created_at_year": year,
+	// 		},
+	// 	)
+	// }
 
 	// Title search with full-text and regex
 	if title != "" {
@@ -152,7 +152,7 @@ func (s *Service) buildGetAllFilter(ctx context.Context, req *events.APIGatewayP
 	// Difficulties filter
 	if len(difficulties) > 0 {
 		and = append(and, bson.M{
-			"videos.difficulties": bson.M{
+			"videos.difficulty": bson.M{
 				"$in": difficulties,
 			},
 		})
@@ -173,7 +173,7 @@ func (s *Service) buildGetAllFilter(ctx context.Context, req *events.APIGatewayP
 
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, _ map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
 	// Parse filter query params
-	filter, err := s.buildGetAllFilter(ctx, &req)
+	filter, err := s.buildGetAllFilter(&req)
 	if err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid filter param: %v", err))
 	}
@@ -196,26 +196,6 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
 	}
 
-	// create the filter based on the query parameters in the request
-	// filter := bson.M{}
-	// if gymID != "" {
-	// 	gymObjID, err := primitive.ObjectIDFromHex(gymID)
-	// 	if err != nil {
-	// 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
-	// 	}
-	// 	filter["gym_id"] = gymObjID
-	// }
-
-	// if showByWeek != "" {
-	// 	time, err := time.Parse(time.RFC3339, showByWeek)
-	// 	if err != nil {
-	// 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err))
-	// 	}
-	// 	year, week := time.ISOWeek()
-	// 	filter["created_at_year"] = year
-	// 	filter["created_at_week"] = week
-	// }
-
 	// Fetch records with pagination
 	var records []GymSeries
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, true, &records); err != nil {
@@ -231,26 +211,13 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
 	}
 
-	// add disciplines and difficulties to the response
-	newSeries, err := s.addDisciplinesToTopLevel(records)
-
-	if err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
-	}
-
-	newSeries, err = s.addDifficultiesToTopLevel(newSeries)
-
-	if err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
-	}
-
 	// Get the total count of documents
 	totalCount, err := s.Collection.CountDocuments(ctx, filter, nil)
 	if err != nil {
 		return lambda_v2.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
-	resp, err := service.NewGetAllResponse("gym-series", newSeries, totalCount, len(records), pageInt, pageSizeInt)
+	resp, err := service.NewGetAllResponse("gym-series", records, totalCount, len(records), pageInt, pageSizeInt)
 	if err != nil {
 		return lambda_v2.ServerError(err)
 	}
@@ -269,22 +236,8 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 	if err := s.generatePresignedURLs(ctx, []GymSeries{gymSeries}); err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
 	}
-
-	// add disciplines and difficulties to the response
-	newSeries, err := s.addDisciplinesToTopLevel([]GymSeries{gymSeries})
-
-	if err != nil {
-		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to add disciplines to top level: %v", err))
-	}
-
-	newSeries, err = s.addDifficultiesToTopLevel(newSeries)
-
-	if err != nil {
-		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to add difficulties to top level: %v", err))
-	}
-
 	// Return record as JSON
-	json, err := json.Marshal(newSeries[0])
+	json, err := json.Marshal(gymSeries)
 	if err != nil {
 		return lambda_v2.ServerError(err)
 	}
@@ -310,10 +263,11 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 
 	gymSeries.CreatedAt = time.Now().Local().UTC()
 	gymSeries.UpdatedAt = gymSeries.CreatedAt
+	gymSeries.Videos = []Video{}
 
 	// insert the GymSeries, store the resulting record in 'result' variable
 	var result GymSeries
-	if err := mongoext.Insert(ctx, s.Collection, &gymSeries, &result); err != nil {
+	if err := mongoext.Insert(ctx, s.Collection, gymSeries, &result); err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to insert gym request ooc: %v", err))
 	}
 
@@ -382,14 +336,26 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
 
-		id, err := primitive.ObjectIDFromHex(id)
+		seriesObjID, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
 			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid series ID: %v", err))
 		}
 
+		// re-calculate the top level disciplines/difficulties on the series
+		var series GymSeries
+		if err := mongoext.FindByID(ctx, s.Collection, id, &series); err != nil {
+			return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("could not find series with id %q: %v", id, err))
+		}
+		series.Videos = append(series.Videos, video)
+		if err := s.addDisciplinesToTopLevel(&series); err != nil {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
+		}
+		if err := s.addDifficultiesToTopLevel(&series); err != nil {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
+		}
+
 		var filter bson.M
 		var update bson.M
-		log.Info().Msgf("Video ID: %v", video.ID)
 		if video.ID == primitive.NilObjectID {
 			// Create a new video in the series
 			video.ID = primitive.NewObjectIDFromTimestamp(time.Now())
@@ -408,11 +374,15 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 			// create a new video
 			filter = bson.M{
-				"_id": id,
+				"_id": seriesObjID,
 			}
 			update = bson.M{
 				"$push": bson.M{
 					"videos": video,
+				},
+				"$set": bson.M{
+					"disciplines":  series.Disciplines,
+					"difficulties": series.Difficulties,
 				},
 			}
 		} else {
@@ -424,7 +394,9 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			}
 			update = bson.M{
 				"$set": bson.M{
-					"videos.$": video,
+					"videos.$":     video,
+					"disciplines":  series.Disciplines,
+					"difficulties": series.Difficulties,
 				},
 			}
 		}
@@ -432,6 +404,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		log.Info().Msgf("Filter: %v", filter)
 		log.Info().Msgf("Update: %v", update)
 
+		// update the series
 		if err := mongoext.Update(ctx, s.Collection, update, filter, &result, nil); err != nil {
 			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update series with video: %v", err))
 		}
@@ -480,11 +453,39 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 		if err != nil {
 			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid video ID %q: %v", videoID, err))
 		}
+
+		// re-calculate the top level disciplines/difficulties on the series with the video removed
+		var series GymSeries
+		if err := mongoext.FindByID(ctx, s.Collection, id, &series); err != nil {
+			return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("could not find series with id %q: %v", id, err))
+		}
+
+		log.Info().Msgf("len of videos before delete: %v", len(series.Videos))
+		for i := 0; i < len(series.Videos); i++ {
+			if series.Videos[i].ID == videoObjID {
+				// Remove the element at index i
+				series.Videos = append(series.Videos[:i], series.Videos[i+1:]...)
+				// Since the slice is modified, break the loop to avoid index issues
+				break
+			}
+		}
+		if err := s.addDisciplinesToTopLevel(&series); err != nil {
+			return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
+		}
+		if err := s.addDifficultiesToTopLevel(&series); err != nil {
+			return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
+		}
+		log.Info().Msgf("len of videos after delete: %v", len(series.Videos))
+
 		update := bson.M{
 			"$pull": bson.M{
 				"videos": bson.M{
 					"_id": videoObjID,
 				},
+			},
+			"$set": bson.M{
+				"disciplines":  series.Disciplines,
+				"difficulties": series.Difficulties,
 			},
 		}
 		log.Debug().Msgf("Deleting video from series: update: %v\n filter: %v", update, filter)
@@ -545,50 +546,36 @@ func (s *Service) generatePresignedURLs(ctx context.Context, records []GymSeries
 	return nil
 }
 
-func (s *Service) addDisciplinesToTopLevel(records []GymSeries) ([]GymSeries, error) {
-	resp := []GymSeries{}
+func (s *Service) addDisciplinesToTopLevel(series *GymSeries) error {
+	series.Disciplines = &[]string{}
 
-	for _, series := range records {
-		disciplineSet := make(map[string]struct{}) // A set to avoid duplicates
-
-		// Loop through each video in the series
-		for _, video := range series.Videos {
-			// Loop through each discipline in the video
-			for _, discipline := range video.Disciplines {
-				disciplineSet[discipline] = struct{}{} // Add discipline to the set
-			}
+	disciplineSet := make(map[string]bool)
+	for _, v := range series.Videos {
+		for _, d := range v.Disciplines {
+			disciplineSet[d] = true
 		}
-
-		// Convert the set to a slice
-		for discipline := range disciplineSet {
-			series.Disciplines = append(series.Disciplines, discipline)
-		}
-
-		resp = append(resp, series)
 	}
 
-	return resp, nil
+	// Convert the set to a slice
+	for discipline := range disciplineSet {
+		*series.Disciplines = append(*series.Disciplines, discipline)
+	}
+
+	return nil
 }
 
-func (s *Service) addDifficultiesToTopLevel(records []GymSeries) ([]GymSeries, error) {
-	resp := []GymSeries{}
+func (s *Service) addDifficultiesToTopLevel(series *GymSeries) error {
+	series.Difficulties = &[]string{}
 
-	for _, series := range records {
-		difficultySet := make(map[string]struct{}) // A set to avoid duplicates
-
-		// Loop through each video in the series
-		for _, video := range series.Videos {
-			// Add the difficulty of the video to the set
-			difficultySet[video.Difficulty] = struct{}{}
-		}
-
-		// Convert the set to a slice
-		for difficulty := range difficultySet {
-			series.Difficulties = append(series.Difficulties, difficulty)
-		}
-
-		resp = append(resp, series)
+	difficultySet := make(map[string]bool)
+	for _, v := range series.Videos {
+		difficultySet[v.Difficulty] = true
 	}
 
-	return resp, nil
+	// Convert the set to a slice
+	for d := range difficultySet {
+		*series.Difficulties = append(*series.Difficulties, d)
+	}
+
+	return nil
 }

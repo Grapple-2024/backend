@@ -24,10 +24,6 @@ Parameters:
       Description: "The endpoint for mongodb"
       Type: 'String'
       Default: "mongodb://mongodb:27017"
-    DynamoDBEndpoint:
-      Description: "The endpoint for dynamodb"
-      Type: 'String'
-      Default: "https://dynamodb.us-west-1.amazonaws.com"
     SendGridAPIKey:
       Description: "The send grid API Key"
       Type: 'String'
@@ -76,189 +72,6 @@ Resources:
             Identity: # OPTIONAL
               Header: Authorization # OPTIONAL; Default: 'Authorization'
 
-  UserProfilesTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub grapple-${Environment}-user-profiles
-      AttributeDefinitions:
-        - AttributeName: user_id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: user_id
-          KeyType: HASH
-      BillingMode: PROVISIONED
-      ProvisionedThroughput:
-        ReadCapacityUnits: 1
-        WriteCapacityUnits: 1
-
-  EmailsTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub grapple-${Environment}-emails
-      AttributeDefinitions:
-        - AttributeName: pk
-          AttributeType: S
-        - AttributeName: created_at
-          AttributeType: S
-        - AttributeName: dummy
-          AttributeType: S
-      KeySchema:
-        - AttributeName: pk
-          KeyType: HASH
-      BillingMode: PROVISIONED
-      ProvisionedThroughput:
-        ReadCapacityUnits: 1
-        WriteCapacityUnits: 1
-      GlobalSecondaryIndexes:
-        - IndexName: "CreatedAtIndex"
-          KeySchema:
-          - AttributeName: dummy
-            KeyType: HASH
-          - AttributeName: created_at
-            KeyType: RANGE
-          Projection: 
-            ProjectionType: "ALL"
-          ProvisionedThroughput:
-            ReadCapacityUnits: 1
-            WriteCapacityUnits: 1
-
-  GymsTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub grapple-${Environment}-gyms
-      AttributeDefinitions:
-        - AttributeName: pk
-          AttributeType: S
-        - AttributeName: creator
-          AttributeType: S
-      KeySchema:
-        - AttributeName: pk
-          KeyType: HASH
-      BillingMode: PAY_PER_REQUEST
-      OnDemandThroughput:
-        MaxReadRequestUnits: 10
-        MaxWriteRequestUnits: 1
-      GlobalSecondaryIndexes:
-        - IndexName: "CreatorIndex"
-          KeySchema: 
-          - AttributeName: creator
-            KeyType: HASH
-          Projection: 
-            ProjectionType: "ALL"
-          OnDemandThroughput:
-            MaxReadRequestUnits: 10
-            MaxWriteRequestUnits: 1
-
-  GymRequestsTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub grapple-${Environment}-gym-requests
-      AttributeDefinitions:
-        - AttributeName: pk
-          AttributeType: S
-        - AttributeName: gym_id
-          AttributeType: S
-        - AttributeName: created_at
-          AttributeType: S
-        - AttributeName: dummy
-          AttributeType: S
-        - AttributeName: requestor_id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: pk
-          KeyType: HASH
-      BillingMode: PROVISIONED
-      ProvisionedThroughput:
-        ReadCapacityUnits: 1
-        WriteCapacityUnits: 1
-      GlobalSecondaryIndexes:
-        - IndexName: "GymIndex"
-          KeySchema: 
-          - AttributeName: gym_id
-            KeyType: HASH
-          Projection: 
-            ProjectionType: "ALL"
-          ProvisionedThroughput:
-            ReadCapacityUnits: 1
-            WriteCapacityUnits: 1
-        - IndexName: "CreatedAtIndex"
-          KeySchema:
-          - AttributeName: dummy
-            KeyType: HASH
-          - AttributeName: created_at
-            KeyType: RANGE
-          Projection: 
-            ProjectionType: "ALL"
-          ProvisionedThroughput:
-            ReadCapacityUnits: 1
-            WriteCapacityUnits: 1
-        - IndexName: "RequestorIndex"
-          KeySchema:
-          - AttributeName: requestor_id
-            KeyType: HASH
-          Projection: 
-            ProjectionType: "ALL"
-          ProvisionedThroughput:
-            ReadCapacityUnits: 1
-            WriteCapacityUnits: 1
-
-  GymAnnouncementsTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub grapple-${Environment}-gym-announcements
-      AttributeDefinitions:
-        - AttributeName: pk
-          AttributeType: S
-        - AttributeName: dummy
-          AttributeType: S
-        - AttributeName: updated_at
-          AttributeType: S
-      KeySchema:
-        - AttributeName: pk
-          KeyType: HASH
-      BillingMode: PROVISIONED
-      ProvisionedThroughput:
-        ReadCapacityUnits: 1
-        WriteCapacityUnits: 1
-      GlobalSecondaryIndexes:
-        - IndexName: "LastUpdatedIndex"
-          KeySchema: 
-          - AttributeName: dummy
-            KeyType: HASH
-          - AttributeName: updated_at
-            KeyType: RANGE
-          Projection: 
-            ProjectionType: "ALL"
-          ProvisionedThroughput:
-            ReadCapacityUnits: 1
-            WriteCapacityUnits: 1
-
-  UserAssetsTable:
-    Type: AWS::DynamoDB::Table
-    Properties:
-      TableName: !Sub grapple-${Environment}-user-assets
-      AttributeDefinitions:
-        - AttributeName: url
-          AttributeType: S
-        - AttributeName: user_id
-          AttributeType: S
-      KeySchema:
-        - AttributeName: url
-          KeyType: HASH
-      BillingMode: PROVISIONED
-      ProvisionedThroughput:
-        ReadCapacityUnits: 1
-        WriteCapacityUnits: 1
-      GlobalSecondaryIndexes:
-        - IndexName: "UserIndex"
-          KeySchema:
-          - AttributeName: user_id
-            KeyType: HASH
-          Projection: 
-            ProjectionType: "ALL"
-          ProvisionedThroughput:
-            ReadCapacityUnits: 1
-            WriteCapacityUnits: 1
  
   CreateProfileOnSignupLambda:
     Type: AWS::Serverless::Function
@@ -295,18 +108,8 @@ Resources:
         Variables:
           API_URL: !Ref ApiUrl
           MONGO_ENDPOINT: !Ref MongoEndpoint
-          DYNAMODB_ENDPOINT: !Ref DynamoDBEndpoint
-          GYMS_TABLE_NAME: !Sub grapple-${Environment}-gyms
-          GYM_REQUESTS_TABLE_NAME: !Sub grapple-${Environment}-gym-requests
-          GYM_ANNOUNCEMENTS_TABLE_NAME: !Sub grapple-${Environment}-gym-announcements
-          GYM_VIDEOS_TABLE_NAME: !Sub grapple-${Environment}-gym-videos
-          GYM_VIDEO_SERIES_TABLE_NAME: !Sub grapple-${Environment}-gym-video-series
-          EMAILS_TABLE_NAME: !Sub grapple-${Environment}-emails
-          USER_PROFILES_TABLE_NAME: !Sub grapple-${Environment}-user-profiles
-          PUBLIC_USER_ASSETS_TABLE_NAME: !Sub grapple-${Environment}-user-assets
           PUBLIC_USER_ASSETS_BUCKET_NAME: !Sub grapple-${Environment}-public-user-assets
           GYM_VIDEOS_BUCKET_NAME: !Sub grapple-${Environment}-gym-videos
-          PUBLIC_ASSETS_BUCKET_NAME: !Sub grapple-${Environment}-public-assets
           SENDGRID_API_KEY: !Ref SendGridAPIKey
           COGNITO_CLIENT_ID: !Ref CognitoClientID
           COGNITO_CLIENT_SECRET: !Ref CognitoClientID
