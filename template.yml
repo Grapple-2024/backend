@@ -40,6 +40,10 @@ Parameters:
       Description: "The cognito client secret"
       Type: 'String'
       Default: ""
+    VpcCIDR:
+      Description: Please enter the IP range (CIDR notation) for the VPC in which the lambda functions will execute.
+      Type: String
+      Default: 10.192.0.0/16
 
 Resources:
   Gateway:
@@ -303,7 +307,6 @@ Resources:
           PUBLIC_USER_ASSETS_BUCKET_NAME: !Sub grapple-${Environment}-public-user-assets
           GYM_VIDEOS_BUCKET_NAME: !Sub grapple-${Environment}-gym-videos
           PUBLIC_ASSETS_BUCKET_NAME: !Sub grapple-${Environment}-public-assets
-
           SENDGRID_API_KEY: !Ref SendGridAPIKey
           COGNITO_CLIENT_ID: !Ref CognitoClientID
           COGNITO_CLIENT_SECRET: !Ref CognitoClientID

@@ -26,8 +26,8 @@ type Profile struct {
 
 	AvatarURL string `json:"avatar_url" bson:"avatar_url,omitempty"`
 	// AvatarS3ObjectKey string `json:"avatar_s3_object_key" bson:"avatar_s3_object_key,omitempty"`
-
-	Gyms []GymAssociation `json:"gyms,omit" bson:"gyms,omitempty"`
+	NotifyOnRequestAccepted bool             `json:"notify_on_request_accepted" bson:"notify_on_request_accepted,omitempty"`
+	Gyms                    []GymAssociation `json:"gyms,omit" bson:"gyms,omitempty"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
@@ -37,16 +37,15 @@ type Profile struct {
 // GymAssociation represents a user's association to a gym.
 // A GymAssociation can either be for a student or a coach.
 type GymAssociation struct {
-	GymID primitive.ObjectID `json:"gym_id,omitempty" bson:"gym_id,omitempty"`
-
-	// The status of the gym association
-	CoachName        string            `json:"coach_name,omitempty" bson:"coach_name,omitempty"`
-	Role             string            `json:"role,omitempty" bson:"role,omitempty"`
-	EmailPreferences *EmailPreferences `json:"email_preferences,omitempty" bson:"email_preferences,omitempty"`
+	GymID            primitive.ObjectID `json:"gym_id" bson:"gym_id,omitempty"`
+	Email            string             `json:"email" bson:"email,omitempty"`
+	CoachName        string             `json:"coach_name,omitempty" bson:"coach_name,omitempty"`
+	Role             string             `json:"role" bson:"role,omitempty"`
+	EmailPreferences *EmailPreferences  `json:"email_preferences" bson:"email_preferences,omitempty"`
 }
 
 // EmailPreferences represent the email preferences for a specific Gym Association.
 type EmailPreferences struct {
-	NotifyOnAnnouncements bool `json:"notify_on_announcements,omitempty" bson:"notify_on_announcements,omitempty"`
-	NotifyOnGymRequests   bool `json:"notify_on_requests,omitempty" bson:"notify_on_requests,omitempty"`
+	NotifyOnAnnouncements bool `json:"notify_on_announcements" bson:"notify_on_announcements,omitempty"`
+	NotifyOnRequests      bool `json:"notify_on_requests" bson:"notify_on_requests,omitempty"`
 }

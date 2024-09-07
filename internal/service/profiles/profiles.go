@@ -277,9 +277,9 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	return lambda.NewResponse(http.StatusOK, ``, nil), nil
 }
 
-// GetProfilesOf returns all profiles associated with the specified Gym ID and role (Student or Coach).
-func (s *Service) GetProfilesOf(ctx context.Context, gymID string, role string) ([]Profile, error) {
-	objID, err := primitive.ObjectIDFromHex(gymID)
+// GetGymAssociationsBy returns all gym associations with the specified Gym ID and role (Student or Coach).
+func (s *Service) GetGymAssociationsBy(ctx context.Context, gymID string, role string) ([]GymAssociation, error) {
+	gymObjID, err := primitive.ObjectIDFromHex(gymID)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +288,7 @@ func (s *Service) GetProfilesOf(ctx context.Context, gymID string, role string) 
 	filter := bson.M{
 		"gyms": bson.M{
 			"$elemMatch": bson.M{
-				"gym_id": objID,
+				"gym_id": gymObjID,
 				"role":   role,
 			},
 		},
@@ -298,7 +298,18 @@ func (s *Service) GetProfilesOf(ctx context.Context, gymID string, role string) 
 		return nil, fmt.Errorf("could not find any profiles that have a %s role with gym id %q %v", role, gymID, err)
 	}
 
-	return profiles, nil
+	var gymAssociations []GymAssociation
+	for _, p := range profiles {
+		for _, g := range p.Gyms {
+			if g.GymID != gymObjID || g.Role != role {
+				continue
+			}
+
+			gymAssociations = append(gymAssociations, g)
+		}
+	}
+
+	return gymAssociations, nil
 }
 
 func (s *Service) createProfile(ctx context.Context, p *Profile) (*Profile, error) {

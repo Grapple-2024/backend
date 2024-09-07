@@ -259,6 +259,24 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 }
 
 func (s *Service) notifyStudent(ctx context.Context, request *GymRequest) error {
+
+	// get the profile for this student
+	profilesColl := s.Client.Database("grapple").Collection("profiles")
+	filter := bson.M{
+		"cognito_id": request.RequestorID,
+	}
+	var profile profiles.Profile
+	if err := mongoext.Find(ctx, profilesColl, filter, &profile); err != nil {
+		return fmt.Errorf("could not find any profile with cognito id %q: %v", request.RequestorID, err)
+	}
+
+	log.Info().Msgf("Got profile for student: %v", profile)
+	if !profile.NotifyOnRequestAccepted {
+		log.Warn().Msgf("Student has disabled notifications for new requests, nothing will be sent")
+		return nil
+	}
+
+	// execute the template for the email
 	tmpl, err := template.New("").Parse(requestAcceptedEmailTmpl)
 	if err != nil {
 		return fmt.Errorf("failed to parse template: %v", err)
@@ -334,16 +352,43 @@ func (s *Service) notifyCoachesOnNewRequest(ctx context.Context, request *GymReq
 
 	log.Info().Msgf("Found profiles with coach association to gym: %v", profiles)
 
-	subject := fmt.Sprintf("Grapple MMA: a student has requested to join %s", gym.Name)
+	var tos []*mail.Email
 	for _, p := range profiles {
-		from := mail.NewEmail("Grapple Notifications", "support@grapplemma.com")
-		to := mail.NewEmail("Grapple Coach", p.Email)
-		message := mail.NewSingleEmail(from, subject, to, "", tmplOut.String())
-
-		_, err = s.sendGridClient.Send(message)
-		if err != nil {
-			return fmt.Errorf("failed to send email to coach: %v", err)
+		for _, g := range p.Gyms {
+			if g.GymID != request.GymID || !g.EmailPreferences.NotifyOnRequests {
+				continue
+			}
+			tos = append(tos, mail.NewEmail("Grapple Coach", p.Email))
 		}
+	}
+	if len(tos) == 0 {
+		return nil
+	}
+	log.Info().Msgf("Notifying coaches of new gym request: %v", tos)
+
+	email := mail.NewPersonalization()
+	email.AddTos(tos...)
+
+	// Just for debugging, all mail will be BCC'd to Jordan
+	email.AddBCCs([]*mail.Email{
+		mail.NewEmail("Jordan", "jordan@dionysustechnologygroup.com"),
+	}...)
+
+	payload := mail.NewV3Mail().
+		AddPersonalizations(email).
+		AddContent(mail.NewContent("text/html", tmplOut.String()))
+
+	log.Info().Msgf("Email tos: %v %v", tos[0].Address, tos[1].Address)
+	payload.SetFrom(mail.NewEmail("Grapple Notifications", "support@grapplemma.com"))
+	payload.Subject = fmt.Sprintf("Grapple MMA: a student has requested to join %s", gym.Name)
+
+	resp, err := s.sendGridClient.Send(payload)
+	if err != nil {
+		log.Warn().Msgf("Failed to send email: %v", err)
+		return fmt.Errorf("failed to send email to coach: %v", err)
+	}
+	if resp.StatusCode != http.StatusAccepted {
+		log.Warn().Msgf("Mail failed to send: %+v", resp)
 	}
 
 	return nil
@@ -352,7 +397,7 @@ func (s *Service) notifyCoachesOnNewRequest(ctx context.Context, request *GymReq
 func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, id string) (*GymRequest, error) {
 	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
 
-	result, err := s.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (interface{}, error) {
+	result, err := s.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
 		var request GymRequest
 		request.UpdatedAt = time.Now().Local().UTC()
 
@@ -377,10 +422,12 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, i
 		// create new profile
 		gymAssociation := profiles.GymAssociation{
 			CoachName: "TODO",
+			Email:     request.RequestorEmail,
 			GymID:     request.GymID,
-			Role:      "Student",
+			Role:      profiles.StudentRole,
 			EmailPreferences: &profiles.EmailPreferences{
 				NotifyOnAnnouncements: true,
+				NotifyOnRequests:      true, // only used if this is a coach profile
 			},
 		}
 

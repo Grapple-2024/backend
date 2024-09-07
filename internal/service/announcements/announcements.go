@@ -171,7 +171,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	}
 
 	// notify all students in this gym that a new announcement was posted!
-	if err := s.notifyStudents(ctx, &result); err != nil {
+	if err := s.notifyStudentsOnAnnouncement(ctx, &result); err != nil {
 		log.Warn().Msgf("failed to notify students of new announcements - FAILING SILENTLY: %v", err)
 	}
 
@@ -232,12 +232,18 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	return lambda.NewResponse(http.StatusOK, ``, nil), nil
 }
 
-func (s *Service) notifyStudents(ctx context.Context, a *Announcement) error {
-	profiles, err := s.profilesService.GetProfilesOf(ctx, a.GymID.Hex(), profiles.StudentRole)
+func (s *Service) notifyStudentsOnAnnouncement(ctx context.Context, a *Announcement) error {
+	// get all students for this gym
+	memberships, err := s.profilesService.GetGymAssociationsBy(ctx, a.GymID.Hex(), profiles.StudentRole)
 	if err != nil {
 		return err
 	}
+	if len(memberships) == 0 {
+		log.Warn().Msgf("No students found for gym %q, no notifications will be sent", a.GymID)
+		return nil
+	}
 
+	// fetch the gym from mongo
 	gymsColl := s.Database().Collection("gyms")
 	var gym *gyms.Gym
 	if err := mongoext.FindByID(ctx, gymsColl, a.GymID.Hex(), &gym); err != nil {
@@ -249,6 +255,7 @@ func (s *Service) notifyStudents(ctx context.Context, a *Announcement) error {
 	if err != nil {
 		return fmt.Errorf("failed to parse template: %v", err)
 	}
+
 	var tmplOut bytes.Buffer
 	tmplData := struct {
 		GymName             string
@@ -263,17 +270,36 @@ func (s *Service) notifyStudents(ctx context.Context, a *Announcement) error {
 		return fmt.Errorf("error executing template with data %v:\n %v", tmplData, err)
 	}
 
-	subject := fmt.Sprintf("%s | %s: %s", gym.Name, a.Title, a.Content)
-	log.Info().Msgf("found profiles to send notification to: %v", profiles)
-	for _, p := range profiles {
-		from := mail.NewEmail("Grapple Notifications", "support@grapplemma.com")
-		to := mail.NewEmail("Grapple Coach", p.Email)
-		message := mail.NewSingleEmail(from, subject, to, "", tmplOut.String())
-
-		_, err = s.sendGridClient.Send(message)
-		if err != nil {
-			return fmt.Errorf("failed to send email to coach: %v", err)
+	// craft email object to send to sendgrid API
+	var tos []*mail.Email
+	for _, m := range memberships {
+		if m.Email == "" {
+			log.Warn().Msgf("Student membership found but no email: %v", m)
+			continue
 		}
+		tos = append(tos, mail.NewEmail(profiles.StudentRole, m.Email))
+	}
+	email := mail.NewPersonalization()
+	email.AddTos(tos...)
+
+	// Just for debugging, all mail will be BCC'd to Jordan
+	email.AddBCCs([]*mail.Email{
+		mail.NewEmail("Jordan", "jordan@dionysustechnologygroup.com"),
+	}...)
+
+	payload := mail.NewV3Mail().
+		AddPersonalizations(email).
+		AddContent(mail.NewContent("text/html", tmplOut.String())).
+		SetFrom(mail.NewEmail("Grapple Notifications", "support@grapplemma.com"))
+	payload.Subject = fmt.Sprintf("%s | %s: %s", gym.Name, a.Title, a.Content)
+
+	resp, err := s.sendGridClient.Send(payload)
+	if err != nil {
+		log.Warn().Msgf("Failed to send email: %v", err)
+		return fmt.Errorf("failed to send email to coach: %v", err)
+	}
+	if resp.StatusCode != http.StatusAccepted {
+		log.Warn().Msgf("Failed to send email: %+v", resp)
 	}
 
 	return nil

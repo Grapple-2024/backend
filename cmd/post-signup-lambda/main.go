@@ -47,14 +47,15 @@ func Handler(ctx context.Context, e events.CognitoEventUserPoolsPostConfirmation
 	attrs := e.Request.UserAttributes
 
 	profile := profiles.Profile{
-		CognitoID:   attrs["sub"],
-		Email:       attrs["email"],
-		FirstName:   attrs["given_name"],
-		LastName:    attrs["family_name"],
-		PhoneNumber: attrs["phone_number"],
-		Gyms:        []profiles.GymAssociation{},
-		CreatedAt:   time.Now().Local().UTC(),
-		UpdatedAt:   time.Now().Local().UTC(),
+		CognitoID:               attrs["sub"],
+		Email:                   attrs["email"],
+		FirstName:               attrs["given_name"],
+		LastName:                attrs["family_name"],
+		PhoneNumber:             attrs["phone_number"],
+		NotifyOnRequestAccepted: true,
+		Gyms:                    []profiles.GymAssociation{},
+		CreatedAt:               time.Now().Local().UTC(),
+		UpdatedAt:               time.Now().Local().UTC(),
 	}
 
 	var result profiles.Profile
