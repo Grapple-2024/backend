@@ -100,19 +100,23 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		filter["series.gym_id"] = gymObjID
 	}
 
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		return lambda.ServerError(fmt.Errorf("failed to load location: %v", err))
+	}
+
 	if showByWeek != "" {
 		time, err := time.Parse(time.RFC3339, showByWeek)
 		if err != nil {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err))
 		}
-		year, week := time.ISOWeek()
+		year, week := time.In(loc).ISOWeek()
 		filter["year_number"] = year
 		filter["week_number"] = week
 	}
 
 	// Fetch records with pagination
 	var records []Technique
-
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, &records); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}

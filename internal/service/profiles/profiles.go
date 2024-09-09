@@ -320,7 +320,7 @@ func GetGymsOf(ctx context.Context, collection *mongo.Collection, cognitoID stri
 
 	var profile Profile
 	if err := mongoext.Find(ctx, collection, filter, &profile); err != nil {
-		return nil, fmt.Errorf("could not find any profiles that have a student role with gym id: %v", err)
+		return nil, fmt.Errorf("could not find any profiles with cognito ID %q: %v", cognitoID, err)
 	}
 	log.Info().Msgf("Found profile, fetching gyms: %v", profile)
 
@@ -348,11 +348,10 @@ func (s *Service) IsStudentOf(ctx context.Context, cognitoID, gymID string) (boo
 			},
 		},
 	}
-	var profile *Profile
-	if err := mongoext.Find(ctx, s.Collection, filter, profile); err != nil {
+	var profile Profile
+	if err := mongoext.Find(ctx, s.Collection, filter, &profile); err != nil {
 		return false, fmt.Errorf("could not find any profiles that have a student role with gym id %q %v", gymID, err)
 	}
-	log.Info().Msgf("Found one profile: %v", profile)
 
 	if profile.CognitoID == cognitoID {
 		return true, nil
@@ -378,7 +377,7 @@ func (s *Service) GetStudentsOf(ctx context.Context, gymID string) ([]Profile, e
 	}
 	var profiles []Profile
 	if err := mongoext.Paginate(ctx, s.Collection, filter, 1, 1000, true, &profiles); err != nil {
-		return nil, fmt.Errorf("could not find any profiles that have a student role with gym id %q %v", gymID, err)
+		return nil, fmt.Errorf("could not find any profiles that have a student role in gym id %q %v", gymID, err)
 	}
 
 	return profiles, nil

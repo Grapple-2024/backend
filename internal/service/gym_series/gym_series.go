@@ -325,6 +325,11 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			log.Warn().Msgf("must use /gym-series/{id}/videos/{id} to update a video in a series")
 			gymSeries.Videos = nil
 		}
+		if gymSeries.Disciplines != nil || gymSeries.Difficulties != nil {
+			log.Warn().Msgf("difficulties and disciplines are calculated fields, must not specify in update request body.")
+			gymSeries.Disciplines = nil
+			gymSeries.Difficulties = nil
+		}
 
 		// update the record in mongo
 		if err := mongoext.UpdateByID(ctx, s.Collection, id, gymSeries, &result, nil); err != nil {
@@ -372,13 +377,6 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		if err := mongoext.FindByID(ctx, s.Collection, id, &series); err != nil {
 			return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("could not find series with id %q: %v", id, err))
 		}
-		series.Videos = append(series.Videos, video)
-		if err := s.addDisciplinesToTopLevel(&series); err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
-		}
-		if err := s.addDifficultiesToTopLevel(&series); err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
-		}
 
 		var filter bson.M
 		var update bson.M
@@ -398,6 +396,14 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 				return lambda_v2.ClientError(http.StatusUnprocessableEntity, errMsgs...)
 			}
 
+			series.Videos = append(series.Videos, video)
+			if err := s.calculateDisciplines(&series); err != nil {
+				return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add disciplines to series: %v", err))
+			}
+			if err := s.calculateDifficulties(&series); err != nil {
+				return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
+			}
+
 			// create a new video
 			filter = bson.M{
 				"_id": seriesObjID,
@@ -412,6 +418,22 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 				},
 			}
 		} else {
+			// re-calculate the disciplines/difficulties on the series
+			for i := 0; i < len(series.Videos); i++ {
+				if series.Videos[i].ID != video.ID {
+					continue
+				}
+				// update the series in-place
+				series.Videos[i].Disciplines = video.Disciplines
+				series.Videos[i].Difficulty = video.Difficulty
+			}
+			if err := s.calculateDisciplines(&series); err != nil {
+				return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add disciplines to series: %v", err))
+			}
+			if err := s.calculateDifficulties(&series); err != nil {
+				return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
+			}
+
 			// Update an existing video in the series
 			video.UpdatedAt = time.Now().Local().UTC()
 			filter = bson.M{
@@ -420,9 +442,12 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			}
 			update = bson.M{
 				"$set": bson.M{
-					"videos.$":     video,
-					"disciplines":  series.Disciplines,
-					"difficulties": series.Difficulties,
+					"videos.$.title":       video.Title,
+					"videos.$.description": video.Description,
+					"videos.$.difficulty":  video.Difficulty,
+					"videos.$.disciplines": video.Disciplines,
+					"disciplines":          series.Disciplines,
+					"difficulties":         series.Difficulties,
 				},
 			}
 		}
@@ -495,13 +520,12 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 				break
 			}
 		}
-		if err := s.addDisciplinesToTopLevel(&series); err != nil {
+		if err := s.calculateDisciplines(&series); err != nil {
 			return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
 		}
-		if err := s.addDifficultiesToTopLevel(&series); err != nil {
+		if err := s.calculateDifficulties(&series); err != nil {
 			return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
 		}
-		log.Info().Msgf("len of videos after delete: %v", len(series.Videos))
 
 		update := bson.M{
 			"$pull": bson.M{
@@ -572,7 +596,7 @@ func (s *Service) generatePresignedURLs(ctx context.Context, records []GymSeries
 	return nil
 }
 
-func (s *Service) addDisciplinesToTopLevel(series *GymSeries) error {
+func (s *Service) calculateDisciplines(series *GymSeries) error {
 	series.Disciplines = &[]string{}
 
 	disciplineSet := make(map[string]bool)
@@ -590,7 +614,7 @@ func (s *Service) addDisciplinesToTopLevel(series *GymSeries) error {
 	return nil
 }
 
-func (s *Service) addDifficultiesToTopLevel(series *GymSeries) error {
+func (s *Service) calculateDifficulties(series *GymSeries) error {
 	series.Difficulties = &[]string{}
 
 	difficultySet := make(map[string]bool)
