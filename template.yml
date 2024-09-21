@@ -348,12 +348,12 @@ Resources:
             Method: PUT
             RestApiId: !Ref Gateway
 
-        # DeleteUserProfile:
-        #   Type: Api
-        #   Properties:
-        #     Path: /profiles/{id}
-        #     Method: DELETE
-        #     RestApiId: !Ref Gateway
+        DeleteProfile:
+          Type: Api
+          Properties:
+            Path: /profiles/{id}
+            Method: DELETE
+            RestApiId: !Ref Gateway
 
 
         #### V1 Events
@@ -393,9 +393,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - cognito-idp:AdminListGroupsForUser
-                Resource: '*'
-              - Effect: Allow
-                Action:
+                  - cognito-idp:AdminDeleteUser
                   - cognito-idp:AdminAddUserToGroup
                 Resource: '*'
 Outputs:
