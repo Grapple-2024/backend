@@ -7,6 +7,8 @@ import (
 
 	"github.com/Grapple-2024/backend/internal/service/announcements"
 	"github.com/Grapple-2024/backend/internal/service/gym_requests"
+	"github.com/Grapple-2024/backend/internal/service/search"
+
 	"github.com/Grapple-2024/backend/internal/service/gym_series"
 	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
@@ -93,6 +95,10 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
 	}
+	search, err := search.NewService(ctx, mongoClient)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
+	}
 	profiles, err := profiles.NewService(ctx, mongoClient, publicAssetsBucketName, awsRegion, cognitoClientID, cognitoClientSecret)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Profiles Service")
@@ -126,6 +132,7 @@ func main() {
 		"techniques":    techniques,
 		"gym-requests":  requests,
 		"gym-series":    series,
+		"search":        search,
 	}
 
 	router := lambda_v2.NewRouter(lambdas)

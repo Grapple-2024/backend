@@ -21,8 +21,8 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// apiURL stores the base api url for generating next and previous page URLs.
-var apiURL string
+// API_URL stores the base api url for generating next and previous page URLs.
+var API_URL string
 
 // Contains helpers for all the services
 type GetAllResponse struct {
@@ -44,7 +44,7 @@ type GetAllResponse struct {
 }
 
 func init() {
-	apiURL = os.Getenv("API_URL")
+	API_URL = os.Getenv("API_URL")
 }
 
 // NewGetAllResponse creates a new "GET All" response and returns it as JSON bytes.
@@ -59,13 +59,13 @@ func NewGetAllResponse(subpath string, data any, totalCount int64, count, currPa
 
 	// if we're not on the last page, add the next page's URL to the response.
 	if totalPages > int64(currPage) {
-		nextPageURL := fmt.Sprintf("%s/%s/?pageSize=%d&page=%d", apiURL, subpath, pageSize, currPage+1)
+		nextPageURL := fmt.Sprintf("%s/%s/?pageSize=%d&page=%d", API_URL, subpath, pageSize, currPage+1)
 		resp.NextPage = &nextPageURL
 	}
 
 	// if we're not on the first page, add the previous page's URL to the response.
 	if currPage > 1 && totalPages >= int64(currPage) {
-		prevPageURL := fmt.Sprintf("%s/%s/?pageSize=%d&page=%d", apiURL, subpath, pageSize, currPage-1)
+		prevPageURL := fmt.Sprintf("%s/%s/?pageSize=%d&page=%d", API_URL, subpath, pageSize, currPage-1)
 		resp.PreviousPage = &prevPageURL
 	}
 

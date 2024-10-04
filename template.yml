@@ -355,10 +355,12 @@ Resources:
             Method: DELETE
             RestApiId: !Ref Gateway
 
-
-        #### V1 Events
-        # Emails - Marketing
-
+        Search:
+          Type: Api
+          Properties:
+            Path: /search
+            Method: GET
+            RestApiId: !Ref Gateway
 
   FunctionRole:
     Type: AWS::IAM::Role
