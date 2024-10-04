@@ -16,7 +16,6 @@ import (
 	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"gopkg.in/mgo.v2/bson"
@@ -171,7 +170,6 @@ func buildSeriesFilter(params *queryParams) bson.M {
 		filter["$or"] = or
 	}
 
-	log.Debug().Msgf("Filter: %v", filter)
 	return filter
 }
 
@@ -202,16 +200,12 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	if err := mongoext.Paginate(ctx, s.Gyms, gymsFilter, params.Page, params.PageSize, true, &gyms); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
-	log.Info().Msgf("gyms: %v", gyms)
-	log.Info().Msgf("gyms filter: %v", gymsFilter)
 
 	// Fetch Series
 	var series []gym_series.GymSeries
 	if err := mongoext.Paginate(ctx, s.Series, seriesFilter, params.Page, params.PageSize, true, &series); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
-	log.Info().Msgf("series: %v", series)
-	log.Info().Msgf("series filter: %v", seriesFilter)
 
 	// Get the total count of gyms
 	totalGyms, err := s.Gyms.CountDocuments(ctx, gymsFilter, nil)
