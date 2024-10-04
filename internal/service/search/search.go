@@ -23,7 +23,7 @@ import (
 )
 
 type (
-	// Service is the object that handles the business logic of all announcement related operations.
+	// Service is the object that handles the business logic of all /search operations.
 	// Service talks to the underlying Mongo Client (Data access layer) to CRUD announcement objects.
 	Service struct {
 		*mongoext.Client
