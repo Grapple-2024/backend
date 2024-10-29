@@ -36,11 +36,12 @@ type Service struct {
 	*mongo.Collection
 	*s3.PresignClient
 
-	videosBucketName string // S3 Bucket name to store gym videos in
+	videosBucketName       string // S3 Bucket name to store gym videos in
+	publicAssetsBucketName string
 }
 
 // NewService creates a new instance of a GymSeries Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, region string) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, publicAssetsBucketName, region string) (*Service, error) {
 	c := mc.Database("grapple").Collection("series")
 
 	// Using the SDK's default configuration, loading additional config
@@ -52,10 +53,11 @@ func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, regi
 	}
 
 	svc := &Service{
-		Client:           mc,
-		Collection:       c,
-		videosBucketName: videosBucketName,
-		PresignClient:    s3.NewPresignClient(s3.NewFromConfig(cfg)),
+		Client:                 mc,
+		Collection:             c,
+		videosBucketName:       videosBucketName,
+		publicAssetsBucketName: publicAssetsBucketName,
+		PresignClient:          s3.NewPresignClient(s3.NewFromConfig(cfg)),
 	}
 
 	// Create Mongo Session (needed for transactions)
@@ -305,8 +307,11 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 
 // ProcessPut handles HTTP requests for three endpoints:
 // 1. PUT /gym-series/{id} -- Series Update)
-// 2. /gym-videos/{id}/video/{id} -- Video insert/update
-// 3. /gym-series/{id}/presign -- generate presigned upload url for a new video
+// 2. PUT /gym-videos/{id}/video/{id} -- Video insert/update
+// 3. PUT /gym-series/{id}/presign -- generate presigned upload url for a new video
+
+// 4. PUT /gym-series/{id}/video/presign-thumbnail - generate presigned upload url for video-level thumbnail
+// 5. PUT /gym-series/{id}/presign-thumbnail - generate presigned upload url for series-level thumbnail
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id := req.PathParameters["id"]
 	if id == "" {
@@ -315,7 +320,37 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 	var result any
 	switch req.Path {
+
+	// generate presigned upload url for series-level thumbnail
+	case "/gym-series/presign-thumbnail":
+		file := req.QueryStringParameters["file"]
+		if file == "" {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=thumbnail.png"))
+		}
+		gymID := req.QueryStringParameters["gym_id"]
+		if gymID == "" {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the gym id via ?gym_id parameter, ie ?gym_id=abc123"))
+		}
+		now := time.Now().Unix()
+		key := fmt.Sprintf("%s/thumbnails/%d_%s", gymID, now, file)
+		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.publicAssetsBucketName, "upload", key)
+		if err != nil {
+			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
+		}
+
+		s3ObjectURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.publicAssetsBucketName, "us-west-1", key)
+		resp := struct {
+			*v4.PresignedHTTPRequest
+			S3ObjectURL string `json:"s3_object_url"`
+		}{
+			PresignedHTTPRequest: p,
+			S3ObjectURL:          s3ObjectURL,
+		}
+
+		result = resp
+
 	case fmt.Sprintf("/gym-series/%s", id):
+
 		var gymSeries GymSeries
 		if err := json.Unmarshal([]byte(req.Body), &gymSeries); err != nil {
 			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
@@ -443,6 +478,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 				"$set": bson.M{
 					"videos.$.title":       video.Title,
 					"videos.$.description": video.Description,
+					"videos.$.sort_order":  video.SortOrder,
 					"videos.$.difficulty":  video.Difficulty,
 					"videos.$.disciplines": video.Disciplines,
 					"disciplines":          series.Disciplines,

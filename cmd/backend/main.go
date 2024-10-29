@@ -117,7 +117,7 @@ func main() {
 		log.Fatal().Err(err).Msgf("failed to initialize Gym Requests Service")
 	}
 
-	series, err := gym_series.NewService(ctx, mongoClient, gymVideosBucketName, awsRegion)
+	series, err := gym_series.NewService(ctx, mongoClient, gymVideosBucketName, publicAssetsBucketName, awsRegion)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gym Series Service")
 	}

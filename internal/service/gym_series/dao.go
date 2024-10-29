@@ -22,6 +22,8 @@ type GymSeries struct {
 	// computed fields
 	Disciplines  *[]string `json:"disciplines,omitempty" bson:"disciplines,stringsets,omitempty"`
 	Difficulties *[]string `json:"difficulties,omitempty" bson:"difficulties,stringsets,omitempty"`
+	VideoCount   int64     `json:"video_count,omitempty" bson:"video_count,omitempty"`
+	ThumbnailURL string    `json:"thumbnail_url,omitempty" bson:"thumbnail_url,omitempty"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
@@ -40,6 +42,8 @@ type Video struct {
 
 	// Computed fields
 	PresignedURL string `json:"presigned_url,omitempty" bson:"presigned_url,omitempty"` // computed by requesting a presigned URL given the S3ObjectURI
+
+	ThumbnailURL string `json:"thumbnail_url,omitempty" bson:"thumbnail_url,omitempty"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`

@@ -197,12 +197,12 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		file := req.QueryStringParameters["file"]
 		// generate presigned avatar upload url
 		key := fmt.Sprintf("%s/%s", token.Sub, file)
-		s3ObjectURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.publicAssetsBucketName, "us-west-1", key)
 		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.publicAssetsBucketName, "upload", key)
 		if err != nil {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to generate presigned upload url: %v", err))
 		}
 
+		s3ObjectURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.publicAssetsBucketName, "us-west-1", key)
 		resp := struct {
 			*v4.PresignedHTTPRequest
 			S3ObjectURL string `json:"s3_object_url"`
