@@ -309,7 +309,6 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 // 1. PUT /gym-series/{id} -- Series Update)
 // 2. PUT /gym-videos/{id}/video/{id} -- Video insert/update
 // 3. PUT /gym-series/{id}/presign -- generate presigned upload url for a new video
-
 // 4. PUT /gym-series/{id}/video/presign-thumbnail - generate presigned upload url for video-level thumbnail
 // 5. PUT /gym-series/{id}/presign-thumbnail - generate presigned upload url for series-level thumbnail
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
@@ -350,26 +349,31 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		result = resp
 
 	case fmt.Sprintf("/gym-series/%s", id):
-
 		var gymSeries GymSeries
 		if err := json.Unmarshal([]byte(req.Body), &gymSeries); err != nil {
 			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
-		if gymSeries.Videos != nil {
-			log.Warn().Msgf("must use /gym-series/{id}/videos/{id} to update a video in a series")
-			gymSeries.Videos = nil
-		}
+		// if gymSeries.Videos != nil {
+		// 	log.Warn().Msgf("must use /gym-series/{id}/videos/{id} to update a video in a series")
+		// 	gymSeries.Videos = nil
+		// }
+
 		if gymSeries.Disciplines != nil || gymSeries.Difficulties != nil {
 			log.Warn().Msgf("difficulties and disciplines are calculated fields, must not specify in update request body.")
 			gymSeries.Disciplines = nil
 			gymSeries.Difficulties = nil
+		}
+		if err := s.calculateDisciplines(&gymSeries); err != nil {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add disciplines to series: %v", err))
+		}
+		if err := s.calculateDifficulties(&gymSeries); err != nil {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
 		}
 
 		// update the record in mongo
 		if err := mongoext.UpdateByID(ctx, s.Collection, id, gymSeries, &result, nil); err != nil {
 			return lambda_v2.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 		}
-		log.Debug().Msgf("Updated mongo document by ID: %v", result)
 
 	case fmt.Sprintf("/gym-series/%s/presign", id):
 		// uploading a video to the series, generate presigned upload URL
@@ -377,7 +381,9 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		if file == "" {
 			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=video1.mp4"))
 		}
-		key := fmt.Sprintf("%s/%s", id, file)
+
+		randomUID := time.Now().UnixNano()
+		key := fmt.Sprintf("%s/%d/%s", id, randomUID, file)
 
 		log.Debug().Msgf("Generating presigned upload url for a new series video %q in series %q", file, id)
 		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "upload", key)

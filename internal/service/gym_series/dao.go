@@ -37,7 +37,7 @@ type Video struct {
 	Description string   `json:"description,omitempty" bson:"description,omitempty" validate:"required"`
 	Difficulty  string   `json:"difficulty,omitempty" bson:"difficulty,omitempty" validate:"required"`
 	Disciplines []string `json:"disciplines,omitempty" bson:"disciplines,stringsets,omitempty" validate:"required"`
-	SortOrder   int32    `json:"sort_order,omitempty" bson:"sort_order,omitempty" validate:"required"`
+	SortOrder   int32    `json:"sort_order" bson:"sort_order,omitempty" validate:"required"`
 	S3ObjectKey string   `json:"s3_object_key,omitempty" bson:"s3_object_key,omitempty" validate:"required"`
 
 	// Computed fields
