@@ -16,7 +16,6 @@ import (
 	"github.com/aws/aws-lambda-go/events"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
@@ -37,11 +36,12 @@ type Service struct {
 	*mongo.Collection
 	*s3.PresignClient
 
-	videosBucketName string // S3 Bucket name to store gym videos in
+	videosBucketName       string // S3 Bucket name to store gym videos in
+	publicAssetsBucketName string
 }
 
 // NewService creates a new instance of a GymSeries Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, region string) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, publicAssetsBucketName, region string) (*Service, error) {
 	c := mc.Database("grapple").Collection("series")
 
 	// Using the SDK's default configuration, loading additional config
@@ -53,10 +53,11 @@ func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, regi
 	}
 
 	svc := &Service{
-		Client:           mc,
-		Collection:       c,
-		videosBucketName: videosBucketName,
-		PresignClient:    s3.NewPresignClient(s3.NewFromConfig(cfg)),
+		Client:                 mc,
+		Collection:             c,
+		videosBucketName:       videosBucketName,
+		publicAssetsBucketName: publicAssetsBucketName,
+		PresignClient:          s3.NewPresignClient(s3.NewFromConfig(cfg)),
 	}
 
 	// Create Mongo Session (needed for transactions)
@@ -185,7 +186,7 @@ func (s *Service) buildGetAllFilter(req *events.APIGatewayProxyRequest, gymAssoc
 	return filter, nil
 }
 
-func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, _ map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
+func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
 		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authenticate:: %v", err))
@@ -214,7 +215,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 	pageSizeInt, err := strconv.Atoi(pageSize)
 	if err != nil && pageSize != "" {
-		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &pageSize query parameter: "+pageSize)
+		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &page_size query parameter: "+pageSize)
 	}
 	pageInt, err := strconv.Atoi(page)
 	if err != nil && page != "" {
@@ -306,8 +307,10 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 
 // ProcessPut handles HTTP requests for three endpoints:
 // 1. PUT /gym-series/{id} -- Series Update)
-// 2. /gym-videos/{id}/video/{id} -- Video insert/update
-// 3. /gym-series/{id}/presign -- generate presigned upload url for a new video
+// 2. PUT /gym-videos/{id}/video/{id} -- Video insert/update
+// 3. PUT /gym-series/{id}/presign -- generate presigned upload url for a new video
+// 4. PUT /gym-series/{id}/video/presign-thumbnail - generate presigned upload url for video-level thumbnail
+// 5. PUT /gym-series/{id}/presign-thumbnail - generate presigned upload url for series-level thumbnail
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id := req.PathParameters["id"]
 	if id == "" {
@@ -316,26 +319,61 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 	var result any
 	switch req.Path {
+
+	// generate presigned upload url for series-level thumbnail
+	case "/gym-series/presign-thumbnail":
+		file := req.QueryStringParameters["file"]
+		if file == "" {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=thumbnail.png"))
+		}
+		gymID := req.QueryStringParameters["gym_id"]
+		if gymID == "" {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the gym id via ?gym_id parameter, ie ?gym_id=abc123"))
+		}
+		now := time.Now().Unix()
+		key := fmt.Sprintf("%s/thumbnails/%d_%s", gymID, now, file)
+		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.publicAssetsBucketName, "upload", key)
+		if err != nil {
+			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
+		}
+
+		s3ObjectURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.publicAssetsBucketName, "us-west-1", key)
+		resp := struct {
+			*v4.PresignedHTTPRequest
+			S3ObjectURL string `json:"s3_object_url"`
+		}{
+			PresignedHTTPRequest: p,
+			S3ObjectURL:          s3ObjectURL,
+		}
+
+		result = resp
+
 	case fmt.Sprintf("/gym-series/%s", id):
 		var gymSeries GymSeries
 		if err := json.Unmarshal([]byte(req.Body), &gymSeries); err != nil {
 			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
-		if gymSeries.Videos != nil {
-			log.Warn().Msgf("must use /gym-series/{id}/videos/{id} to update a video in a series")
-			gymSeries.Videos = nil
-		}
+		// if gymSeries.Videos != nil {
+		// 	log.Warn().Msgf("must use /gym-series/{id}/videos/{id} to update a video in a series")
+		// 	gymSeries.Videos = nil
+		// }
+
 		if gymSeries.Disciplines != nil || gymSeries.Difficulties != nil {
 			log.Warn().Msgf("difficulties and disciplines are calculated fields, must not specify in update request body.")
 			gymSeries.Disciplines = nil
 			gymSeries.Difficulties = nil
+		}
+		if err := s.calculateDisciplines(&gymSeries); err != nil {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add disciplines to series: %v", err))
+		}
+		if err := s.calculateDifficulties(&gymSeries); err != nil {
+			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
 		}
 
 		// update the record in mongo
 		if err := mongoext.UpdateByID(ctx, s.Collection, id, gymSeries, &result, nil); err != nil {
 			return lambda_v2.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 		}
-		log.Debug().Msgf("Updated mongo document by ID: %v", result)
 
 	case fmt.Sprintf("/gym-series/%s/presign", id):
 		// uploading a video to the series, generate presigned upload URL
@@ -343,7 +381,9 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		if file == "" {
 			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=video1.mp4"))
 		}
-		key := fmt.Sprintf("%s/%s", id, file)
+
+		randomUID := time.Now().UnixNano()
+		key := fmt.Sprintf("%s/%s-%d", id, file, randomUID)
 
 		log.Debug().Msgf("Generating presigned upload url for a new series video %q in series %q", file, id)
 		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "upload", key)
@@ -444,6 +484,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 				"$set": bson.M{
 					"videos.$.title":       video.Title,
 					"videos.$.description": video.Description,
+					"videos.$.sort_order":  video.SortOrder,
 					"videos.$.difficulty":  video.Difficulty,
 					"videos.$.disciplines": video.Disciplines,
 					"disciplines":          series.Disciplines,

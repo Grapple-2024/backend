@@ -22,6 +22,8 @@ type GymSeries struct {
 	// computed fields
 	Disciplines  *[]string `json:"disciplines,omitempty" bson:"disciplines,stringsets,omitempty"`
 	Difficulties *[]string `json:"difficulties,omitempty" bson:"difficulties,stringsets,omitempty"`
+	VideoCount   int64     `json:"video_count,omitempty" bson:"video_count,omitempty"`
+	ThumbnailURL string    `json:"thumbnail_url,omitempty" bson:"thumbnail_url,omitempty"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
@@ -35,11 +37,13 @@ type Video struct {
 	Description string   `json:"description,omitempty" bson:"description,omitempty" validate:"required"`
 	Difficulty  string   `json:"difficulty,omitempty" bson:"difficulty,omitempty" validate:"required"`
 	Disciplines []string `json:"disciplines,omitempty" bson:"disciplines,stringsets,omitempty" validate:"required"`
-	SortOrder   int32    `json:"sort_order,omitempty" bson:"sort_order,omitempty" validate:"required"`
+	SortOrder   int32    `json:"sort_order" bson:"sort_order,omitempty" validate:"required"`
 	S3ObjectKey string   `json:"s3_object_key,omitempty" bson:"s3_object_key,omitempty" validate:"required"`
 
 	// Computed fields
 	PresignedURL string `json:"presigned_url,omitempty" bson:"presigned_url,omitempty"` // computed by requesting a presigned URL given the S3ObjectURI
+
+	ThumbnailURL string `json:"thumbnail_url,omitempty" bson:"thumbnail_url,omitempty"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`

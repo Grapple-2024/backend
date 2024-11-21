@@ -10,13 +10,14 @@ import (
 
 	"github.com/Grapple-2024/backend/internal/service"
 	"github.com/Grapple-2024/backend/pkg/cognito"
+	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go/service/cognitoidentityprovider"
 	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -85,7 +86,7 @@ func NewService(ctx context.Context, mc *mongoext.Client, publicAssetsBucketName
 
 // ProcessGetAll handles HTTP requests for GET /profiles/
 // TODO: remove dynamodb map after switching off fully
-func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, _ map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
+func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
 	// build query filter if current_user=true
 	var filter bson.M
 	currentUser := req.QueryStringParameters["current_user"]
@@ -110,7 +111,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 	pageSizeInt, err := strconv.Atoi(pageSize)
 	if err != nil && pageSize != "" {
-		return lambda.ClientError(http.StatusBadRequest, "invalid &pageSize query parameter: "+pageSize)
+		return lambda.ClientError(http.StatusBadRequest, "invalid &page_size query parameter: "+pageSize)
 	}
 	pageInt, err := strconv.Atoi(page)
 	if err != nil && page != "" {
@@ -196,12 +197,12 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		file := req.QueryStringParameters["file"]
 		// generate presigned avatar upload url
 		key := fmt.Sprintf("%s/%s", token.Sub, file)
-		s3ObjectURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.publicAssetsBucketName, "us-west-1", key)
 		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.publicAssetsBucketName, "upload", key)
 		if err != nil {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to generate presigned upload url: %v", err))
 		}
 
+		s3ObjectURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.publicAssetsBucketName, "us-west-1", key)
 		resp := struct {
 			*v4.PresignedHTTPRequest
 			S3ObjectURL string `json:"s3_object_url"`
@@ -253,28 +254,45 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
-// ProcessDelete handles HTTP requests for DELETE /profiles/{id}
+// ProcessDelete handles HTTP requests for DELETE /profiles/{id}.
+// This endpoint will delete data in multiple collections to ensure full cleanup of a user's data. Use with caution.
 func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id := req.PathParameters["id"]
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object id specified in url %q: %v", id, err))
+
+	if err := s.deleteUser(ctx, id); err != nil {
+		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete profile with ID %q: %v", id, err))
 	}
-
-	// create filter and options
-	filter := bson.M{"_id": objID}
-	opts := options.Delete().SetHint(bson.M{"_id": 1}) // use _id index to find object
-
-	result, err := s.Collection.DeleteOne(context.TODO(), filter, opts)
-	if err != nil {
-		return lambda.ServerError(err)
-	}
-
-	if result.DeletedCount == 0 {
-		return lambda.NewResponse(http.StatusNotFound, ``, nil), nil
-	}
-
 	return lambda.NewResponse(http.StatusOK, ``, nil), nil
+}
+
+func (s *Service) deleteUser(ctx context.Context, profileID string) error {
+
+	// get the profile
+	var profile Profile
+	if err := mongoext.FindByID(ctx, s.Collection, profileID, &profile); err != nil {
+		return fmt.Errorf("failed to find profile with id %s: %v", profileID, err)
+	}
+
+	// find all gym requests for this profile and delete them
+	filter := bson.M{
+		"requestor_id": profile.CognitoID,
+	}
+	gymRequestsColl := s.Database().Collection("gymRequests")
+	res, err := gymRequestsColl.DeleteMany(ctx, filter, nil)
+	if err != nil {
+		return fmt.Errorf("failed to delete gym requests for cognito user %q: %v", profile.CognitoID, err)
+	}
+	log.Info().Msgf("Delete gym requests count: %v", res.DeletedCount)
+
+	out, err := s.CognitoClient.AdminDeleteUser(&cognitoidentityprovider.AdminDeleteUserInput{
+		Username: &profile.Email,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete user %q in cognito: %v", profile.Email, err)
+	}
+	log.Info().Msgf("Delete Cognito User Result: %v", out.String())
+
+	return nil
 }
 
 // GetGymAssociationsBy returns all gym associations with the specified Gym ID and role (Student or Coach).

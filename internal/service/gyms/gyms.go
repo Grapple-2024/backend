@@ -13,7 +13,6 @@ import (
 	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/go-playground/validator/v10"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -42,10 +41,11 @@ func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
 
 // ProcessGetAll handles HTTP requests for GET /gyms/
 // TODO: remove dynamodb map after switching off fully
-func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, _ map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
+func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
 	// Parse query parameters
 	gymSlug := req.QueryStringParameters["slug"]
 	creatorID := req.QueryStringParameters["creator_id"]
+	name := req.QueryStringParameters["name"]
 
 	page := req.QueryStringParameters["page"]
 	if page == "" {
@@ -57,7 +57,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 	pageSizeInt, err := strconv.Atoi(pageSize)
 	if err != nil && pageSize != "" {
-		return lambda.ClientError(http.StatusBadRequest, "invalid &pageSize query parameter: "+pageSize)
+		return lambda.ClientError(http.StatusBadRequest, "invalid &page_size query parameter: "+pageSize)
 	}
 	pageInt, err := strconv.Atoi(page)
 	if err != nil && page != "" {
@@ -68,6 +68,12 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	filter := bson.M{}
 	if gymSlug != "" {
 		filter["slug"] = gymSlug
+	}
+	if name != "" {
+		filter["name"] = bson.M{
+			"$regex":   name,
+			"$options": "i",
+		}
 	}
 	if creatorID != "" {
 		filter["creator"] = creatorID

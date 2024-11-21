@@ -14,7 +14,6 @@ import (
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
@@ -67,7 +66,7 @@ func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, regi
 
 // ProcessGetAll handles HTTP requests for GET /techniques/
 // TODO: remove dynamodb map after switching off fully
-func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, _ map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
+func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
 	// parse filter query parameters
 	gymID := req.QueryStringParameters["gym_id"]
 	showByWeek := req.QueryStringParameters["show_by_week"]
@@ -83,7 +82,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 	pageSizeInt, err := strconv.Atoi(pageSize)
 	if err != nil && pageSize != "" {
-		return lambda.ClientError(http.StatusBadRequest, "invalid &pageSize query parameter: "+pageSize)
+		return lambda.ClientError(http.StatusBadRequest, "invalid &page_size query parameter: "+pageSize)
 	}
 	pageInt, err := strconv.Atoi(page)
 	if err != nil && page != "" {

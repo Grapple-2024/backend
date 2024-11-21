@@ -17,7 +17,6 @@ import (
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
 	"github.com/sendgrid/sendgrid-go"
@@ -69,7 +68,7 @@ func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgr
 
 // ProcessGetAll handles HTTP requests for GET /gym-requests/
 // TODO: remove dynamodb map after switching off fully
-func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32, _ map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error) {
+func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
 	// Parse filter query params
 	showByWeek := req.QueryStringParameters["show_by_week"]
 	gymID := req.QueryStringParameters["gym_id"]
@@ -87,7 +86,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 	pageSizeInt, err := strconv.Atoi(pageSize)
 	if err != nil && pageSize != "" {
-		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &pageSize query parameter: "+pageSize)
+		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &page_size query parameter: "+pageSize)
 	}
 	pageInt, err := strconv.Atoi(page)
 	if err != nil && page != "" {

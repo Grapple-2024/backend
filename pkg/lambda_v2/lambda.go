@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-sdk-go-v2/service/dynamodb/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -21,7 +20,7 @@ const (
 
 type Lambda interface {
 	ProcessGetByID(context.Context, events.APIGatewayProxyRequest, string) (events.APIGatewayProxyResponse, error)
-	ProcessGetAll(context.Context, events.APIGatewayProxyRequest, int32, map[string]types.AttributeValue) (events.APIGatewayProxyResponse, error)
+	ProcessGetAll(context.Context, events.APIGatewayProxyRequest, int32) (events.APIGatewayProxyResponse, error)
 	ProcessPost(context.Context, events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error)
 	ProcessPut(context.Context, events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error)
 	ProcessDelete(context.Context, events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error)
@@ -74,7 +73,7 @@ func ProcessGet(ctx context.Context, l Lambda, req events.APIGatewayProxyRequest
 	}
 
 	// TODO: remove the dynamodb from the function after switching off dynamo
-	return l.ProcessGetAll(ctx, req, int32(limitInt), nil)
+	return l.ProcessGetAll(ctx, req, int32(limitInt))
 }
 
 // helper functions below this point
