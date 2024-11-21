@@ -383,7 +383,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		}
 
 		randomUID := time.Now().UnixNano()
-		key := fmt.Sprintf("%s/%d/%s", id, randomUID, file)
+		key := fmt.Sprintf("%s/%s-%d", id, file, randomUID)
 
 		log.Debug().Msgf("Generating presigned upload url for a new series video %q in series %q", file, id)
 		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "upload", key)
