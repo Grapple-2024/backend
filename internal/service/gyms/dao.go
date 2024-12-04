@@ -13,8 +13,8 @@ type Gym struct {
 	Slug string `json:"slug" bson:"slug,omitempty"`
 
 	ID          primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
-	Name        string             `json:"name" bson:"name,omitempty" validate:"required,alphanumeric_and_spaces"`
-	Description string             `json:"description" bson:"description,omitempty" validate:"required"`
+	Name        string             `json:"name" bson:"name,omitempty" validate:"alphanumeric_and_spaces"`
+	Description string             `json:"description" bson:"description,omitempty"`
 
 	// Should probably handle this in a separate response to avoid too large of a response when dealing with historical data
 	// TechniquesOfTheWeek []primitive.ObjectID `json:"techniques_of_the_week,omitempty" bson:"techniques_of_the_week,omitempty"`
@@ -29,9 +29,14 @@ type Gym struct {
 	State        string `json:"state" bson:"state,omitempty" validate:"required,is_state"`
 	ZIP          string `json:"zip" bson:"zip,omitempty" validate:"required"`
 	Country      string `json:"country" bson:"country,omitempty" validate:"required"`
+	Longitude    string `json:"longitude" bson:"longitude,omitempty" validate:"required"`
+	Latitude     string `json:"latitude" bson:"latitude,omitempty" validate:"required"`
 
 	// PublicEmail is the public email displayed to students for contacting the gym
 	PublicEmail string `json:"public_email" bson:"public_email,omitempty"`
+
+	GymLogo   string `json:"gym_logo" bson:"gym_logo,omitempty"`
+	GymBanner string `json:"gym_banner" bson:"gym_banner,omitempty"`
 
 	// CoachEmail is the coach's personal email address for notifications, sign-in, etc
 	CoachEmail     string `json:"coach_email" bson:"coach_email,omitempty"`
@@ -43,8 +48,8 @@ type Gym struct {
 	Banner string `json:"banner" bson:"banner,omitempty"`
 
 	// Disciplines
-	Disciplines []string           `json:"disciplines" bson:"disciplines,omitempty" validate:"required"`
-	Schedule    map[string][]Event `json:"schedule" bson:"schedule,omitempty" validate:"required"`
+	Disciplines []string           `json:"disciplines" bson:"disciplines,omitempty"`
+	Schedule    map[string][]Event `json:"schedule" bson:"schedule,omitempty"`
 
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
 	UpdatedAt time.Time `json:"updated_at" bson:"updated_at,omitempty"`
