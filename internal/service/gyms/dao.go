@@ -38,8 +38,9 @@ type Gym struct {
 	CoachFirstName string `json:"coach_first_name" bson:"coach_first_name,omitempty" validate:"required"`
 	CoachLastName  string `json:"coach_last_name" bson:"coach_last_name,omitempty" validate:"required"`
 
-	// s3 object uri of gym logo
-	Logo string `json:"logo" bson:"logo,omitempty"`
+	// s3 object uri of gym logo & banner
+	Logo   string `json:"logo" bson:"logo,omitempty"`
+	Banner string `json:"banner" bson:"banner,omitempty"`
 
 	// Disciplines
 	Disciplines []string           `json:"disciplines" bson:"disciplines,omitempty" validate:"required"`

@@ -13,6 +13,9 @@ import (
 	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-playground/validator/v10"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -22,12 +25,15 @@ import (
 // Service is the object that handles the business logic of all gym related operations.
 // Service talks to the underlying Mongo Client (Data access layer) to CRUD gym objects.
 type Service struct {
+	*s3.PresignClient
 	*mongoext.Client
 	*mongo.Collection
+	publicAssetsBucketName string
+	region                 string
 }
 
 // NewService creates a new instance of a Gym Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
+func NewService(ctx context.Context, publicAssetsBucketName, region string, mc *mongoext.Client) (*Service, error) {
 	c := mc.Database("grapple").Collection("gyms")
 
 	// Create unique index for gyms collection
@@ -36,7 +42,21 @@ func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
 		return nil, err
 	}
 
-	return &Service{Client: mc, Collection: c}, nil
+	// Using the SDK's default configuration, loading additional config
+	// and credentials values from the environment variables, shared
+	// credentials, and shared configuration files
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return nil, err
+	}
+
+	return &Service{
+		Client:                 mc,
+		Collection:             c,
+		PresignClient:          s3.NewPresignClient(s3.NewFromConfig(cfg)),
+		region:                 region,
+		publicAssetsBucketName: publicAssetsBucketName,
+	}, nil
 }
 
 // ProcessGetAll handles HTTP requests for GET /gyms/
@@ -169,18 +189,68 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
-// ProcessPut handles HTTP requests for PUT /gyms/{id}
+// ProcessPut handles HTTP requests for
+// 1. PUT /gyms - insert/update a profile document
+// 2. PUT /profiles/logo - generate presigned upload url for gym logo
+// 3. PUT /profiles/banner - generate presigned upload url for gym banner
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var gym Gym
-	if err := json.Unmarshal([]byte(req.Body), &gym); err != nil {
-		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
-	}
+	var result any
 
 	// update the record in mongo
 	id := req.PathParameters["id"]
-	var result Gym
-	if err := mongoext.UpdateByID(ctx, s.Collection, id, gym, &result, nil); err != nil {
-		return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
+
+	gymSubPath := fmt.Sprintf("/gyms/%s", id)
+	switch req.Path {
+	case gymSubPath:
+		var gym Gym
+		if err := json.Unmarshal([]byte(req.Body), &gym); err != nil {
+			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+		}
+
+		// update the record in mongo
+		if err := mongoext.UpdateByID(ctx, s.Collection, id, gym, &result, nil); err != nil {
+			return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
+		}
+
+	case fmt.Sprintf("%s/presign", gymSubPath):
+		presignType := req.QueryStringParameters["type"] // either banner or logo
+		file := req.QueryStringParameters["file"]
+		_, err := service.GetToken(req.Headers)
+		if err != nil {
+			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		}
+		if file == "" {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("?file cannot be empty"))
+
+		}
+
+		var key string
+		if presignType == "banner" {
+			key = fmt.Sprintf("gyms/%s/banners/%s", id, file)
+		} else if presignType == "logo" {
+			key = fmt.Sprintf("gyms/%s/logos/%s", id, file)
+		} else {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid request, ?type must be one of [banner, logo]: %v", req.Path))
+		}
+
+		// generate presigned avatar upload url
+		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.publicAssetsBucketName, "upload", key)
+		if err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to generate presigned upload url: %v", err))
+		}
+
+		s3ObjectURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.publicAssetsBucketName, s.region, key)
+		resp := struct {
+			*v4.PresignedHTTPRequest
+			S3ObjectURL string `json:"s3_object_url"`
+		}{
+			PresignedHTTPRequest: p,
+			S3ObjectURL:          s3ObjectURL,
+		}
+
+		result = resp
+	default:
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid request path: %v", req.Path))
 	}
 
 	// Marshal result to JSON and return it in the response
@@ -191,6 +261,29 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 }
+
+// ProcessPut handles HTTP requests for PUT /gyms/{id}
+// func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+// 	var gym Gym
+// 	if err := json.Unmarshal([]byte(req.Body), &gym); err != nil {
+// 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+// 	}
+
+// 	// update the record in mongo
+// 	id := req.PathParameters["id"]
+// 	var result Gym
+// 	if err := mongoext.UpdateByID(ctx, s.Collection, id, gym, &result, nil); err != nil {
+// 		return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
+// 	}
+
+// 	// Marshal result to JSON and return it in the response
+// 	resp, err := json.Marshal(result)
+// 	if err != nil {
+// 		return lambda.ServerError(fmt.Errorf("failed to marshal response: %v", err))
+// 	}
+
+// 	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
+// }
 
 // ProcessDelete handles HTTP requests for DELETE /gyms/{id}
 func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {

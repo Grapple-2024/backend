@@ -36,6 +36,7 @@ const (
 	EnvVideosBucketName       = "GYM_VIDEOS_BUCKET_NAME"
 	EnvPublicAssetsBucketName = "PUBLIC_USER_ASSETS_BUCKET_NAME"
 	EnvAWSRegion              = "AWS_REGION"
+	EnvStripeAPIKey           = "STRIPE_API_KEY"
 )
 
 func main() {
@@ -65,7 +66,6 @@ func main() {
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", EnvPublicAssetsBucketName)
 	}
-
 	awsRegion, ok := os.LookupEnv(EnvAWSRegion)
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", EnvAWSRegion)
@@ -77,8 +77,9 @@ func main() {
 	sendGridClient := sendgrid.NewSendClient(sendGridAPIKey)
 
 	// Create mongo client
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+
 	mongoClient, err := mongo.New(ctx, mongoEndpoint)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to connect to mongo endpoint: %q", mongoEndpoint)
@@ -91,13 +92,13 @@ func main() {
 	}()
 
 	// Create services for each api entity
-	gyms, err := gyms.NewService(ctx, mongoClient)
+	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, region, mongoClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
 	}
 	search, err := search.NewService(ctx, mongoClient)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
+		log.Fatal().Err(err).Msgf("failed to initialize Search Service")
 	}
 	profiles, err := profiles.NewService(ctx, mongoClient, publicAssetsBucketName, awsRegion, cognitoClientID, cognitoClientSecret)
 	if err != nil {

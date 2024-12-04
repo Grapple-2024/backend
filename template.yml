@@ -36,10 +36,10 @@ Parameters:
       Description: "The cognito client secret"
       Type: 'String'
       Default: ""
-    VpcCIDR:
-      Description: Please enter the IP range (CIDR notation) for the VPC in which the lambda functions will execute.
-      Type: String
-      Default: 10.192.0.0/16
+    StripeAPIKey:
+      Description: "The Stripe API secret key"
+      Type: 'String'
+      Default: "sk_test_51QOsVjQ4nix99ZIYPPH7ONKCvpDEO6ui8DZpC3U2ANGEZ1anvWpS2IB0FUhIhNTWehxwHGWmsb7c56Cje3X0TfuV00JjMl2jFL"
 
 Resources:
   Gateway:
@@ -72,7 +72,6 @@ Resources:
             Identity: # OPTIONAL
               Header: Authorization # OPTIONAL; Default: 'Authorization'
 
- 
   CreateProfileOnSignupLambda:
     Type: AWS::Serverless::Function
     Metadata:
@@ -112,7 +111,9 @@ Resources:
           GYM_VIDEOS_BUCKET_NAME: !Sub grapple-${Environment}-gym-videos
           SENDGRID_API_KEY: !Ref SendGridAPIKey
           COGNITO_CLIENT_ID: !Ref CognitoClientID
-          COGNITO_CLIENT_SECRET: !Ref CognitoClientID
+          COGNITO_CLIENT_SECRET: !Ref CognitoClientSecret
+          STRIPE_API_KEY: !Ref StripeAPIKey
+
       Tracing: Active
       Role: !GetAtt FunctionRole.Arn
       Events:
@@ -147,6 +148,13 @@ Resources:
           Type: Api
           Properties:
             Path: /gyms/{id}
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        PresignGymObject:
+          Type: Api
+          Properties:
+            Path: /gyms/{id}/presign
             Method: PUT
             RestApiId: !Ref Gateway
 
