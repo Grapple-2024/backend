@@ -465,7 +465,7 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, i
 		log.Warn().Err(err).Msgf("failed to run mongo transaction for profile creation")
 		return nil, err
 	} else {
-		log.Info().Msgf("createProfile transaction completed successfully!")
+		log.Info().Msgf("updateGymRequest transaction completed successfully!")
 	}
 
 	if request, ok := result.(GymRequest); ok {

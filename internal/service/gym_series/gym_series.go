@@ -616,7 +616,7 @@ func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSerie
 		log.Warn().Err(err).Msgf("Failed to run mongo transaction for profile creation")
 		return nil, err
 	} else {
-		log.Info().Msgf("createProfile transaction completed successfully!")
+		log.Info().Msgf("updateSeries transaction completed successfully!")
 	}
 
 	return result.(*GymSeries), nil

@@ -6,3 +6,6 @@ samconfig.yml
 
 .aws-sam/*
 .aws-sam
+
+.DS_Store
+main

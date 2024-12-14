@@ -40,6 +40,10 @@ Parameters:
       Description: "The Stripe API secret key"
       Type: 'String'
       Default: "sk_test_51QOsVjQ4nix99ZIYPPH7ONKCvpDEO6ui8DZpC3U2ANGEZ1anvWpS2IB0FUhIhNTWehxwHGWmsb7c56Cje3X0TfuV00JjMl2jFL"
+    MapBoxAPIKey:
+      Description: "The Mapbox API secret key"
+      Type: 'String'
+      Default: ""
 
 Resources:
   Gateway:
@@ -113,6 +117,7 @@ Resources:
           COGNITO_CLIENT_ID: !Ref CognitoClientID
           COGNITO_CLIENT_SECRET: !Ref CognitoClientSecret
           STRIPE_API_KEY: !Ref StripeAPIKey
+          MAPBOX_API_KEY: !Ref MapBoxAPIKey
 
       Tracing: Active
       Role: !GetAtt FunctionRole.Arn
@@ -363,10 +368,18 @@ Resources:
             Method: DELETE
             RestApiId: !Ref Gateway
 
+        # Miscellaneous endpoints
         Search:
           Type: Api
           Properties:
             Path: /search
+            Method: GET
+            RestApiId: !Ref Gateway
+
+        MapboxGeocodeForward:
+          Type: Api
+          Properties:
+            Path: /mapbox
             Method: GET
             RestApiId: !Ref Gateway
 

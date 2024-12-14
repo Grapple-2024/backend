@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/service"
+	"github.com/Grapple-2024/backend/internal/service/profiles"
+	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
@@ -17,14 +19,19 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-playground/validator/v10"
+	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 	"gopkg.in/mgo.v2/bson"
 )
 
 // Service is the object that handles the business logic of all gym related operations.
 // Service talks to the underlying Mongo Client (Data access layer) to CRUD gym objects.
 type Service struct {
+	mongo.Session
+
 	*s3.PresignClient
 	*mongoext.Client
 	*mongo.Collection
@@ -50,7 +57,13 @@ func NewService(ctx context.Context, publicAssetsBucketName, region string, mc *
 		return nil, err
 	}
 
+	session, err := svc.StartSession()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Service{
+		Session:                session,
 		Client:                 mc,
 		Collection:             c,
 		PresignClient:          s3.NewPresignClient(s3.NewFromConfig(cfg)),
@@ -149,50 +162,24 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	if err := json.Unmarshal([]byte(req.Body), &gym); err != nil {
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 	}
-	gym.CoachFirstName = token.GivenName
-	gym.CoachLastName = token.FamilyName
 
-	// Validate request body for required fields
-	validate := validator.New()
-	validate.RegisterValidation("alphanumeric_and_spaces", service.IsAlphaNumericAndSpaces)
-	validate.RegisterValidation("is_state", service.IsState)
-
-	if err := validate.Struct(gym); err != nil {
-		var errMsgs []string
-		for _, err := range err.(validator.ValidationErrors) {
-			errMsgs = append(errMsgs, fmt.Sprintf("Field '%s' failed validation with tag '%s'", err.Field(), err.Tag()))
-		}
-		return lambda.ClientError(http.StatusUnprocessableEntity, errMsgs...)
+	result, err := s.createGymTX(ctx, token, &gym)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to finish updateGymRequest transaction: %v", err))
 	}
 
-	// Remove all special characters from the gym name (paranthesis mainly)
-	citySlug := strings.ToLower(strings.ReplaceAll(gym.City, " ", "-"))
-	stateSlug := strings.ToLower(strings.ReplaceAll(gym.State, " ", "-"))
-	gymNameSlug := strings.ToLower(strings.ReplaceAll(gym.Name, " ", "-"))
-
-	// Set computed fields for slug, created_at, and updated_at
-	gym.Slug = fmt.Sprintf("state/%s/city/%s/gym/%s", stateSlug, citySlug, gymNameSlug)
-	gym.CreatedAt = time.Now().Local().UTC()
-	gym.UpdatedAt = gym.CreatedAt
-
-	// insert the announcement, store the resulting record in 'result' variable
-	var result Gym
-	if err := mongoext.Insert(ctx, s.Collection, &gym, &result); err != nil {
-		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to insert record: %v", err))
-	}
-
+	log.Info().Msgf("Create gym result: %v", result)
 	resp, err := json.Marshal(result)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
 
-	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
+	return lambda.NewResponse(http.StatusCreated, string(resp), nil), nil
 }
 
 // ProcessPut handles HTTP requests for
-// 1. PUT /gyms - insert/update a profile document
-// 2. PUT /profiles/logo - generate presigned upload url for gym logo
-// 3. PUT /profiles/banner - generate presigned upload url for gym banner
+// 1. PUT /gyms - insert/update a gym object
+// 2. PUT /gyms/presign - generate presigned upload url for gym logo/banner/hero
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	var result any
 
@@ -213,7 +200,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		}
 
 	case fmt.Sprintf("%s/presign", gymSubPath):
-		presignType := req.QueryStringParameters["type"] // either banner or logo
+		fileType := req.QueryStringParameters["type"] // should be banner or logo or hero, but can be anything
 		file := req.QueryStringParameters["file"]
 		_, err := service.GetToken(req.Headers)
 		if err != nil {
@@ -221,19 +208,10 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		}
 		if file == "" {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("?file cannot be empty"))
-
-		}
-
-		var key string
-		if presignType == "banner" {
-			key = fmt.Sprintf("gyms/%s/banners/%s", id, file)
-		} else if presignType == "logo" {
-			key = fmt.Sprintf("gyms/%s/logos/%s", id, file)
-		} else {
-			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid request, ?type must be one of [banner, logo]: %v", req.Path))
 		}
 
 		// generate presigned avatar upload url
+		key := fmt.Sprintf("gyms/%s/%s/%s", id, fileType, file)
 		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.publicAssetsBucketName, "upload", key)
 		if err != nil {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to generate presigned upload url: %v", err))
@@ -319,4 +297,99 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (s *Service) createGym(ctx context.Context, gym *Gym, token *service.Token) (*Gym, error) {
+	gym.CoachFirstName = token.GivenName
+	gym.CoachLastName = token.FamilyName
+	gym.Creator = token.Sub
+
+	// Validate request body for required fields
+	validate := validator.New()
+	validate.RegisterValidation("alphanumeric_and_spaces", service.IsAlphaNumericAndSpaces)
+	validate.RegisterValidation("is_state", service.IsState)
+
+	if err := validate.Struct(gym); err != nil {
+		var errMsgs []string
+		for _, err := range err.(validator.ValidationErrors) {
+			errMsgs = append(errMsgs, fmt.Sprintf("Field '%s' failed validation with tag '%s'", err.Field(), err.Tag()))
+		}
+		return nil, err
+	}
+
+	// Remove all special characters from the gym name (paranthesis mainly)
+	citySlug := strings.ToLower(strings.ReplaceAll(gym.City, " ", "-"))
+	stateSlug := strings.ToLower(strings.ReplaceAll(gym.State, " ", "-"))
+	gymNameSlug := strings.ToLower(strings.ReplaceAll(gym.Name, " ", "-"))
+
+	// Set computed fields for slug, created_at, and updated_at
+	gym.Slug = fmt.Sprintf("state/%s/city/%s/gym/%s", stateSlug, citySlug, gymNameSlug)
+	gym.CreatedAt = time.Now().Local().UTC()
+	gym.UpdatedAt = gym.CreatedAt
+
+	// insert the gym, store the resulting record in 'result' variable
+	var result Gym
+	if err := mongoext.Insert(ctx, s.Collection, &gym, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
+}
+
+func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload *Gym) (*Gym, error) {
+	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
+
+	result, err := s.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
+		// create the gym
+		gym, err := s.createGym(ctx, payload, token)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create gym: %v", err)
+		}
+
+		// create new gym association for this Gym Owner
+		gymAssociation := profiles.GymAssociation{
+			CoachName: fmt.Sprintf("%s %s", gym.CoachFirstName, gym.CoachLastName),
+			Email:     gym.CoachEmail,
+			GymID:     gym.ID,
+			Role:      profiles.OwnerRole,
+			EmailPreferences: &profiles.EmailPreferences{
+				NotifyOnAnnouncements: false,
+				NotifyOnRequests:      true,
+			},
+		}
+
+		log.Info().Msgf("Adding owner gym association to profile: %v", gymAssociation)
+
+		// create filter & update statements, send to mongodb to update the student's profile.
+		filter := bson.M{
+			"cognito_id": gym.Creator, // find the profile with cognito_id equal to the creator of the Gym.
+		}
+		update := bson.M{
+			"$push": bson.M{
+				"gyms": gymAssociation,
+			},
+		}
+
+		// Update student profile with the new gym association
+		var upsertResult profiles.Profile
+		coll := s.Client.Database("grapple").Collection("profiles")
+		if err := mongoext.Update(ctx, coll, update, filter, &upsertResult, nil); err != nil {
+			return nil, fmt.Errorf("failed to upsert student's profile with filter %v: %v", filter, err)
+		}
+
+		log.Info().Msgf("Successfully added gym association to user profile: %s", payload.Creator)
+		return *gym, nil
+	}, transactionOptions)
+
+	if err != nil {
+		log.Warn().Err(err).Msgf("failed to run mongo transaction for gym creation")
+		return nil, err
+	}
+	log.Info().Msgf("createGym transaction completed successfully: %v", result)
+
+	if request, ok := result.(Gym); ok {
+		return &request, nil
+	}
+
+	return nil, err
 }

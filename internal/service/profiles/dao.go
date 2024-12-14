@@ -8,6 +8,7 @@ import (
 
 // Role enum
 var (
+	OwnerRole   = "Owner"
 	CoachRole   = "Coach"
 	StudentRole = "Student"
 )

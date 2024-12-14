@@ -419,9 +419,8 @@ func (s *Service) createProfile(ctx context.Context, p *Profile) (*Profile, erro
 	if err != nil {
 		log.Warn().Err(err).Msgf("Failed to run mongo transaction for profile creation")
 		return nil, err
-	} else {
-		log.Info().Msgf("createProfile transaction completed successfully!")
 	}
+	log.Info().Msgf("createProfile transaction completed successfully!")
 
 	return result.(*Profile), nil
 }
