@@ -11,7 +11,6 @@ deploy: build
 		--profile=grapple-sam-deployer \
 		--config-env=${ENV} \
 		--config-file=$$PWD/samconfig.yml
-		--capabilities CAPABILITY_NAMED_IAM
 
 ### LOCAL DEVELOPMENT RECIPES
 # Runs the post-signup lambda (cmd/post-signup-lambda)

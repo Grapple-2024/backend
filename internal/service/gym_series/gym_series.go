@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"slices"
 	"strconv"
 	"time"
 
+	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service"
-	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
@@ -30,6 +29,8 @@ import (
 // Service is the object that handles the business logic of all Gym Series related operations.
 // Service talks to the underlying Mongo Client (Data access layer or DAO) to CRUD Gym Series objects.
 type Service struct {
+	*rbac.RBAC
+
 	mongo.Session
 
 	*mongoext.Client
@@ -41,7 +42,7 @@ type Service struct {
 }
 
 // NewService creates a new instance of a GymSeries Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, publicAssetsBucketName, region string) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, publicAssetsBucketName, region string, rbac *rbac.RBAC) (*Service, error) {
 	c := mc.Database("grapple").Collection("series")
 
 	// Using the SDK's default configuration, loading additional config
@@ -53,6 +54,7 @@ func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, publ
 	}
 
 	svc := &Service{
+		RBAC:                   rbac,
 		Client:                 mc,
 		Collection:             c,
 		videosBucketName:       videosBucketName,
@@ -90,37 +92,23 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 // ProcessGetAll handles HTTP requests for GET /gym-requests/
 // It takes in a context and a list of the requesting entitie's gym associations (IDs). It will query mongodb for series that match those IDs.
 // TODO: remove dynamodb map after switching off fully
-func (s *Service) buildGetAllFilter(req *events.APIGatewayProxyRequest, gymAssociations []primitive.ObjectID) (bson.M, error) {
+func (s *Service) buildGetAllFilter(req *events.APIGatewayProxyRequest, gymID string) (bson.M, error) {
 	title := req.QueryStringParameters["title"]
 	disciplines := req.MultiValueQueryStringParameters["discipline"]
 	difficulties := req.MultiValueQueryStringParameters["difficulty"]
 	// showByWeek := req.QueryStringParameters["show_by_week"]
-	gymID := req.QueryStringParameters["gym_id"]
-
 	var and []bson.M
 	var or []bson.M
 
 	// Gym ID filter
-	if gymID != "" {
-		gymObjID, err := primitive.ObjectIDFromHex(gymID)
-		if err != nil {
-			return nil, fmt.Errorf("invalid object ID specified for gym_id query param: %s", gymID)
-		}
-
-		if !slices.Contains(gymAssociations, gymObjID) {
-			return nil, fmt.Errorf("user does not have permission for gym %v", gymID)
-		}
-
-		and = append(and, bson.M{
-			"gym_id": gymObjID,
-		})
-	} else {
-		and = append(and, bson.M{
-			"gym_id": bson.M{
-				"$in": gymAssociations, // if user doesn't specify gym_id, we only want to return series that they have permission to
-			},
-		})
+	gymObjID, err := primitive.ObjectIDFromHex(gymID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid object ID specified for gym_id query param: %s", gymID)
 	}
+
+	and = append(and, bson.M{
+		"gym_id": gymObjID,
+	})
 
 	// Show by week filter
 	// if showByWeek != "" {
@@ -192,14 +180,24 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authenticate:: %v", err))
 	}
 
-	profilesCollection := s.Database().Collection("profiles")
-	gyms, err := profiles.GetGymsOf(ctx, profilesCollection, token.Sub)
+	gymID := req.QueryStringParameters["gym_id"]
+	if gymID == "" {
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("required query param ?gym_id not present"))
+	}
+
+	// check permission to read series on this gym
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymID, rbac.ResourceSeries) // gym:<gym_id>:series
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("failed to find gyms for cognito ID %v: %v", token.Sub, err))
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda_v2.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionRead, resourceID),
+		)
 	}
 
 	// Parse filter query params
-	filter, err := s.buildGetAllFilter(&req, gyms)
+	filter, err := s.buildGetAllFilter(&req, gymID)
 	if err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid filter param: %v", err))
 	}
@@ -252,10 +250,26 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 // ProcessGet handles HTTP requests for GET /gym-series/{id}
 func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authenticate:: %v", err))
+	}
+
 	// Get the gymSeries by ID
 	var gymSeries GymSeries
 	if err := mongoext.FindByID(ctx, s.Collection, id, &gymSeries); err != nil {
 		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gymSeries by ID: %v", err))
+	}
+
+	// check permission to read series on this gym
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymSeries.GymID, rbac.ResourceSeries) // gym:<gym_id>:series
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda_v2.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionRead, resourceID),
+		)
 	}
 
 	// generate presigned urls for each video in the series
@@ -272,14 +286,29 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 
 // ProcessPost handles HTTP requests for POST /gym-series
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var gymSeries GymSeries
-	if err := json.Unmarshal([]byte(req.Body), &gymSeries); err != nil {
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
+	var payload GymSeries
+	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+	}
+
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, payload.GymID.Hex(), rbac.ResourceSeries) // gym:<gym_id>:series
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionCreate)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda_v2.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionCreate, resourceID),
+		)
 	}
 
 	// Validate request body for required fields
 	validate := validator.New()
-	if err := validate.Struct(gymSeries); err != nil {
+	if err := validate.Struct(payload); err != nil {
 		var errMsgs []string
 		for _, err := range err.(validator.ValidationErrors) {
 			errMsgs = append(errMsgs, fmt.Sprintf("Field '%s' failed validation with tag '%s'", err.Field(), err.Tag()))
@@ -287,13 +316,13 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 		return lambda_v2.ClientError(http.StatusUnprocessableEntity, errMsgs...)
 	}
 
-	gymSeries.CreatedAt = time.Now().Local().UTC()
-	gymSeries.UpdatedAt = gymSeries.CreatedAt
-	gymSeries.Videos = []Video{}
+	payload.CreatedAt = time.Now().Local().UTC()
+	payload.UpdatedAt = payload.CreatedAt
+	payload.Videos = []Video{}
 
-	// insert the GymSeries, store the resulting record in 'result' variable
+	// insert the series (payload), store the resulting record in 'result' variable
 	var result GymSeries
-	if err := mongoext.Insert(ctx, s.Collection, gymSeries, &result); err != nil {
+	if err := mongoext.Insert(ctx, s.Collection, payload, &result); err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to insert gym request ooc: %v", err))
 	}
 
@@ -306,15 +335,34 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 }
 
 // ProcessPut handles HTTP requests for three endpoints:
-// 1. PUT /gym-series/{id} -- Series Update)
+// 1. PUT /gym-series/{id} -- Series Update
 // 2. PUT /gym-videos/{id}/video/{id} -- Video insert/update
 // 3. PUT /gym-series/{id}/presign -- generate presigned upload url for a new video
 // 4. PUT /gym-series/{id}/video/presign-thumbnail - generate presigned upload url for video-level thumbnail
 // 5. PUT /gym-series/{id}/presign-thumbnail - generate presigned upload url for series-level thumbnail
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
 	id := req.PathParameters["id"]
 	if id == "" {
 		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("must specify {id} in request url"))
+	}
+	var series GymSeries
+	if err := mongoext.FindByID(ctx, s.Collection, id, &series); err != nil {
+		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("could not find series with id %q: %v", id, err))
+	}
+
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, series.GymID.Hex(), rbac.ResourceSeries) // gym:<gym_id>:series
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionUpdate)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda_v2.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionUpdate, resourceID),
+		)
 	}
 
 	var result any
@@ -413,10 +461,6 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		}
 
 		// re-calculate the top level disciplines/difficulties on the series
-		var series GymSeries
-		if err := mongoext.FindByID(ctx, s.Collection, id, &series); err != nil {
-			return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("could not find series with id %q: %v", id, err))
-		}
 
 		var filter bson.M
 		var update bson.M
@@ -513,9 +557,32 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	return lambda_v2.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
-// ProcessDelete handles HTTP requests for DELETE /gym-series/{id} and /gym-series/{id}/videos/{id}.
+// ProcessDelete handles HTTP requests for
+// 1. DELETE /gym-series/{id}
+// 2. DELETE /gym-series/{id}/videos/{id}.
 func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id := req.PathParameters["id"]
+
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
+	var series GymSeries
+	if err := mongoext.FindByID(ctx, s.Collection, id, &series); err != nil {
+		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("could not find series with id %q: %v", id, err))
+	}
+
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, series.GymID, rbac.ResourceSeries) // gym:<gym_id>:series
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionDelete)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda_v2.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionDelete, resourceID),
+		)
+	}
+
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object id specified in url %q: %v", id, err))

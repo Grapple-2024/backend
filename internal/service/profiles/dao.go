@@ -28,7 +28,7 @@ type Profile struct {
 	AvatarURL string `json:"avatar_url" bson:"avatar_url,omitempty"`
 	// AvatarS3ObjectKey string `json:"avatar_s3_object_key" bson:"avatar_s3_object_key,omitempty"`
 	NotifyOnRequestAccepted bool             `json:"notify_on_request_accepted" bson:"notify_on_request_accepted,omitempty"`
-	Gyms                    []GymAssociation `json:"gyms,omit" bson:"gyms,omitempty"`
+	Gyms                    []GymAssociation `json:"gyms" bson:"gyms,omitempty"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
@@ -39,7 +39,7 @@ type Profile struct {
 // A GymAssociation can either be for a student or a coach.
 type GymAssociation struct {
 	GymID            primitive.ObjectID `json:"gym_id" bson:"gym_id,omitempty"`
-	Email            string             `json:"email" bson:"email,omitempty"`
+	Email            string             `json:"email,omitempty" bson:"email,omitempty"`
 	CoachName        string             `json:"coach_name,omitempty" bson:"coach_name,omitempty"`
 	Role             string             `json:"role" bson:"role,omitempty"`
 	EmailPreferences *EmailPreferences  `json:"email_preferences" bson:"email_preferences,omitempty"`

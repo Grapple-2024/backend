@@ -11,6 +11,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service"
 	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
@@ -38,6 +39,7 @@ var requestAcceptedEmailTmpl string
 // Service is the object that handles the business logic of all gymRequest related operations.
 // Service talks to the underlying Mongo Client (Data access layer) to CRUD gymRequest objects.
 type Service struct {
+	*rbac.RBAC
 	mongo.Session
 
 	*mongoext.Client
@@ -47,11 +49,12 @@ type Service struct {
 }
 
 // NewService creates a new instance of a GymRequest Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgrid.Client) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgrid.Client, rbac *rbac.RBAC) (*Service, error) {
 	c := mc.Database("grapple").Collection("gymRequests")
 
 	// Create Mongo Session (needed for transactions)
 	svc := &Service{
+		RBAC:           rbac,
 		Client:         mc,
 		Collection:     c,
 		sendGridClient: sendGridClient,
@@ -162,6 +165,7 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 
 // ProcessPost handles HTTP requests for POST /gymRequests
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+
 	var payload GymRequest
 	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
@@ -208,9 +212,25 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 
 // ProcessPut handles HTTP requests for PUT /gymRequests/{id}
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
 	var gymRequest GymRequest
 	if err := json.Unmarshal([]byte(req.Body), &gymRequest); err != nil {
 		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+	}
+
+	// check permissions
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymRequest.GymID, rbac.ResourceGymRequests) // gym:<gym_id>:requests
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionUpdate)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda_v2.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionUpdate, resourceID),
+		)
 	}
 
 	if !isValidStatus(gymRequest.Status) {
@@ -417,7 +437,7 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, i
 		}
 
 		// The request was approved by the coach: update the student profile's gym_associations field.
-		log.Debug().Msgf("a gym request was approved by coach for student %q (%s)", request.RequestorEmail, request.RequestorID)
+		log.Info().Msgf("a gym request was approved by coach for student %q (%s)", request.RequestorEmail, request.RequestorID)
 
 		// fetch the gym associated with this gym request, make sure it exists.
 		var gym gyms.Gym
@@ -429,16 +449,16 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, i
 		// create new gym association for this student profile
 		gymAssociation := profiles.GymAssociation{
 			CoachName: fmt.Sprintf("%s %s", gym.CoachFirstName, gym.CoachLastName),
-			Email:     request.RequestorEmail,
 			GymID:     request.GymID,
-			Role:      profiles.StudentRole,
+			Role:      fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, request.GymID, rbac.Students),
 			EmailPreferences: &profiles.EmailPreferences{
 				NotifyOnAnnouncements: true,
-				NotifyOnRequests:      true, // only used if this is a coach profile
+				NotifyOnRequests:      false, // only used if this is a coach profile
 			},
 		}
-
-		log.Info().Msgf("Adding gym association to profile: %v", gymAssociation)
+		if err := s.RBAC.AssignUserToGymGroup(ctx, request.RequestorEmail, request.GymID.Hex(), rbac.Students); err != nil {
+			return nil, fmt.Errorf("could not assign user to students group of gym %s: %v", request.GymID.Hex(), err)
+		}
 
 		// create filter & update statements, send to mongodb to update the student's profile.
 		filter := bson.M{

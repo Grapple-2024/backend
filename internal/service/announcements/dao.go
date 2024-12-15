@@ -9,7 +9,7 @@ import (
 // Gym represents the Gym document structure in MongoDB.
 type Announcement struct {
 	ID          primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
-	GymID       primitive.ObjectID `json:"gym_id,omitempty" bson:"gym_id,omitempty"`
+	GymID       primitive.ObjectID `json:"gym_id,omitempty" bson:"gym_id,omitempty" validate:"required"`
 	CoachName   string             `json:"coach_name,omitempty" bson:"coach_name,omitempty" validate:"required"`
 	CoachAvatar string             `json:"coach_avatar,omitempty" bson:"coach_avatar,omitempty" validate:"required"`
 	Title       string             `json:"title" bson:"title,omitempty" validate:"required"`

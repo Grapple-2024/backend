@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
@@ -30,6 +31,7 @@ import (
 // Service is the object that handles the business logic of all gym related operations.
 // Service talks to the underlying Mongo Client (Data access layer) to CRUD gym objects.
 type Service struct {
+	*rbac.RBAC
 	mongo.Session
 
 	*s3.PresignClient
@@ -40,11 +42,14 @@ type Service struct {
 }
 
 // NewService creates a new instance of a Gym Service given a mongo client
-func NewService(ctx context.Context, publicAssetsBucketName, region string, mc *mongoext.Client) (*Service, error) {
-	c := mc.Database("grapple").Collection("gyms")
-
-	// Create unique index for gyms collection
-	svc := &Service{Client: mc, Collection: c}
+func NewService(ctx context.Context, publicAssetsBucketName, region string, mc *mongoext.Client, rbac *rbac.RBAC) (*Service, error) {
+	svc := &Service{
+		Client:                 mc,
+		Collection:             mc.Database("grapple").Collection("gyms"),
+		RBAC:                   rbac,
+		publicAssetsBucketName: publicAssetsBucketName,
+		region:                 region,
+	}
 	if err := svc.ensureIndices(ctx); err != nil {
 		return nil, err
 	}
@@ -61,15 +66,10 @@ func NewService(ctx context.Context, publicAssetsBucketName, region string, mc *
 	if err != nil {
 		return nil, err
 	}
+	svc.Session = session
+	svc.PresignClient = s3.NewPresignClient(s3.NewFromConfig(cfg))
 
-	return &Service{
-		Session:                session,
-		Client:                 mc,
-		Collection:             c,
-		PresignClient:          s3.NewPresignClient(s3.NewFromConfig(cfg)),
-		region:                 region,
-		publicAssetsBucketName: publicAssetsBucketName,
-	}, nil
+	return svc, nil
 }
 
 // ProcessGetAll handles HTTP requests for GET /gyms/
@@ -151,11 +151,20 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
 
-// ProcessPost handles HTTP requests for POST /gyms
+// ProcessPost handless the creation of a Gym
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, rbac.ResourceGym, rbac.ActionCreate)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionCreate, rbac.ResourceGym),
+		)
 	}
 
 	var gym Gym
@@ -165,27 +174,50 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 
 	result, err := s.createGymTX(ctx, token, &gym)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to finish updateGymRequest transaction: %v", err))
+		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to finish createGymTX: %v", err))
 	}
 
-	log.Info().Msgf("Create gym result: %v", result)
 	resp, err := json.Marshal(result)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
 
+	log.Info().Msgf("result.ID: %v", result)
 	return lambda.NewResponse(http.StatusCreated, string(resp), nil), nil
 }
 
 // ProcessPut handles HTTP requests for
-// 1. PUT /gyms - insert/update a gym object
-// 2. PUT /gyms/presign - generate presigned upload url for gym logo/banner/hero
-func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var result any
+// 1. PUT /gyms/{id} - insert/update a gym object
+// 2. PUT /gyms/{id}/presign - generate presigned upload url for gym logo/banner/hero
+// 3. PUT /gyms/{id}/add-coach - add a coach to the gym
+// 4. PUT /gyms/{id}/add-owner - add a coach to the gym
 
+func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	// update the record in mongo
 	id := req.PathParameters["id"]
 
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
+	resourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionUpdate)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionUpdate, resourceID),
+		)
+	}
+
+	// make sure the gym exists
+	var gym Gym
+	if err := mongoext.FindByID(ctx, s.Collection, id, &gym); err != nil {
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gym by ID: %v", err))
+	}
+
+	var result any
 	gymSubPath := fmt.Sprintf("/gyms/%s", id)
 	switch req.Path {
 	case gymSubPath:
@@ -197,6 +229,76 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		// update the record in mongo
 		if err := mongoext.UpdateByID(ctx, s.Collection, id, gym, &result, nil); err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
+		}
+	case fmt.Sprintf("%s/owners", gymSubPath):
+		// check authorization
+		resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, id, rbac.ResourceOwners)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionCreate)
+		if err != nil {
+			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		} else if !isAuthorized {
+			return lambda.ClientError(http.StatusForbidden,
+				fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionCreate, resourceID),
+			)
+		}
+
+		var payload map[string]string
+		if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
+			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+		}
+		if payload["email"] == "" {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("must specify email of user to add as coach in 'email' body field"))
+		}
+
+		// update the record in mongo
+		if err := s.RBAC.AssignUserToGymGroup(ctx, payload["email"], id, rbac.Owners); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to assign user %s to coaches group for gym %s", token.Username, id))
+		}
+
+		// create the owners association on the gym owner's profile
+		roleName := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, id, rbac.Owners)
+		coachName := fmt.Sprintf("%s %s", gym.CoachFirstName, gym.CoachLastName)
+		if err := profiles.AddGymAssociation(ctx, s.Client, gym.ID, coachName, roleName, token); err != nil {
+			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to add gym association to profile: %v", err))
+		}
+
+		result = map[string]string{
+			"message": "success",
+		}
+	case fmt.Sprintf("%s/coaches", gymSubPath):
+		// check authorization
+		resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, id, rbac.ResourceCoaches)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionCreate)
+		if err != nil {
+			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		} else if !isAuthorized {
+			return lambda.ClientError(http.StatusForbidden,
+				fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionCreate, resourceID),
+			)
+		}
+
+		var payload map[string]string
+		if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
+			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+		}
+		if payload["email"] == "" {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("must specify email of user to add as coach in 'email' field:"))
+		}
+
+		// update the record in mongo
+		if err := s.RBAC.AssignUserToGymGroup(ctx, payload["email"], id, rbac.Coaches); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to assign user %s to coaches group for gym %s", token.Username, id))
+		}
+
+		// create the owners association on the gym owner's profile
+		roleName := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, id, rbac.Coaches)
+		coachName := fmt.Sprintf("%s %s", gym.CoachFirstName, gym.CoachLastName)
+		if err := profiles.AddGymAssociation(ctx, s.Client, gym.ID, coachName, roleName, token); err != nil {
+			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to add gym association to profile: %v", err))
+		}
+
+		result = map[string]string{
+			"message": "success",
 		}
 
 	case fmt.Sprintf("%s/presign", gymSubPath):
@@ -243,6 +345,22 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 // ProcessDelete handles HTTP requests for DELETE /gyms/{id}
 func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id := req.PathParameters["id"]
+
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
+	resourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionDelete)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionDelete, resourceID),
+		)
+	}
+
 	if err := mongoext.Delete(ctx, s.Collection, id); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete gym record: %v", err))
 	}
@@ -323,35 +441,20 @@ func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload
 			return nil, fmt.Errorf("failed to create gym: %v", err)
 		}
 
-		// create new gym association for this Gym Owner
-		gymAssociation := profiles.GymAssociation{
-			CoachName: fmt.Sprintf("%s %s", gym.CoachFirstName, gym.CoachLastName),
-			Email:     gym.CoachEmail,
-			GymID:     gym.ID,
-			Role:      profiles.OwnerRole,
-			EmailPreferences: &profiles.EmailPreferences{
-				NotifyOnAnnouncements: false,
-				NotifyOnRequests:      true,
-			},
+		// create the owners association on the gym owner's profile
+		roleName := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, gym.ID, rbac.Owners)
+		coachName := fmt.Sprintf("%s %s", gym.CoachFirstName, gym.CoachLastName)
+		if err := profiles.AddGymAssociation(ctx, s.Client, gym.ID, coachName, roleName, token); err != nil {
+			return nil, err
 		}
 
-		log.Info().Msgf("Adding owner gym association to profile: %v", gymAssociation)
-
-		// create filter & update statements, send to mongodb to update the student's profile.
-		filter := bson.M{
-			"cognito_id": gym.Creator, // find the profile with cognito_id equal to the creator of the Gym.
-		}
-		update := bson.M{
-			"$push": bson.M{
-				"gyms": gymAssociation,
-			},
+		gymID := gym.ID.Hex()
+		if err := s.RBAC.CreateGymRBAC(ctx, gymID); err != nil {
+			return lambda.ServerError(err)
 		}
 
-		// Update student profile with the new gym association
-		var upsertResult profiles.Profile
-		coll := s.Client.Database("grapple").Collection("profiles")
-		if err := mongoext.Update(ctx, coll, update, filter, &upsertResult, nil); err != nil {
-			return nil, fmt.Errorf("failed to upsert student's profile with filter %v: %v", filter, err)
+		if err := s.RBAC.AssignUserToGymGroup(ctx, token.Username, gymID, rbac.Owners); err != nil {
+			return lambda.ServerError(err)
 		}
 
 		log.Info().Msgf("Successfully added gym association to user profile: %s", payload.Creator)

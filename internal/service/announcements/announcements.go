@@ -11,6 +11,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service"
 	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
@@ -33,6 +34,7 @@ var newAnnouncementEmailTmpl string
 // Service is the object that handles the business logic of all announcement related operations.
 // Service talks to the underlying Mongo Client (Data access layer) to CRUD announcement objects.
 type Service struct {
+	*rbac.RBAC
 	*mongoext.Client
 	*mongo.Collection
 
@@ -41,11 +43,12 @@ type Service struct {
 }
 
 // NewService creates a new instance of a Announcement Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgrid.Client, profilesService *profiles.Service) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgrid.Client, profilesService *profiles.Service, rbac *rbac.RBAC) (*Service, error) {
 	c := mc.Database("grapple").Collection("announcements")
 
 	// Create unique index for announcement names
 	svc := &Service{
+		RBAC:            rbac,
 		Client:          mc,
 		Collection:      c,
 		sendGridClient:  sendGridClient,
@@ -61,9 +64,29 @@ func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgr
 // ProcessGetAll handles HTTP requests for GET /announcements/
 // TODO: remove dynamodb map after switching off fully
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
 	// Parse filter query params
 	showByWeek := req.QueryStringParameters["show_by_week"]
 	gymID := req.QueryStringParameters["gym_id"]
+	if gymID == "" {
+		return lambda.ClientError(http.StatusBadRequest, "?gym_id=<gym_id query parameter is required")
+
+	}
+
+	// check permissions for read
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymID, rbac.ResourceAnnouncements)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s': %v", rbac.ActionRead, resourceID, err),
+		)
+	}
 
 	// parse pagination query params
 	page := req.QueryStringParameters["page"]
@@ -85,13 +108,11 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	// create the filter based on query parameters in the request
 	filter := bson.M{}
-	if gymID != "" {
-		gymObjID, err := primitive.ObjectIDFromHex(gymID)
-		if err != nil {
-			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
-		}
-		filter["gym_id"] = gymObjID
+	gymObjID, err := primitive.ObjectIDFromHex(gymID)
+	if err != nil {
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
 	}
+	filter["gym_id"] = gymObjID
 
 	if showByWeek != "" {
 		time, err := time.Parse(time.RFC3339, showByWeek)
@@ -128,10 +149,26 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 // ProcessGet handles HTTP requests for GET /announcements/{id}
 func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
 	// Get the announcement by ID
 	var announcement Announcement
 	if err := mongoext.FindByID(ctx, s.Collection, id, &announcement); err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find announcement by ID: %v", err))
+	}
+
+	// check permissions for read
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, announcement.GymID, rbac.ResourceAnnouncements)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s': %v", rbac.ActionRead, resourceID, err),
+		)
 	}
 
 	// Return record as JSON
@@ -144,6 +181,11 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 
 // ProcessPost handles HTTP requests for POST /announcements
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
 	var announcement Announcement
 	if err := json.Unmarshal([]byte(req.Body), &announcement); err != nil {
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
@@ -157,6 +199,17 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 			errMsgs = append(errMsgs, fmt.Sprintf("Field '%s' failed validation with tag '%s'", err.Field(), err.Tag()))
 		}
 		return lambda.ClientError(http.StatusUnprocessableEntity, errMsgs...)
+	}
+
+	// check permissions
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, announcement.GymID.Hex(), rbac.ResourceAnnouncements)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionCreate)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s': %v", rbac.ActionCreate, resourceID, err),
+		)
 	}
 
 	announcement.CreatedAt = time.Now().Local().UTC()
@@ -184,15 +237,38 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 
 // ProcessPut handles HTTP requests for PUT /announcements/{id}
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var announcement Announcement
-	if err := json.Unmarshal([]byte(req.Body), &announcement); err != nil {
+	id := req.PathParameters["id"]
+
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
+	var payload Announcement
+	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 	}
 
+	var announcement Announcement
+	if err := mongoext.FindByID(ctx, s.Collection, id, &announcement); err != nil {
+		return lambda.ServerError(fmt.Errorf("failed to find announcement with id %s: %v", id, err))
+	}
+
+	// check permissions
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, announcement.GymID.Hex(), rbac.ResourceAnnouncements)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionUpdate)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s': %v", rbac.ActionUpdate, resourceID, err),
+		)
+	}
+
+	// Update the announcement only if the user has permission to
 	announcement.UpdatedAt = time.Now().Local().UTC()
 
 	// update the record in mongo
-	id := req.PathParameters["id"]
 	var result Announcement
 	if err := mongoext.UpdateByID(ctx, s.Collection, id, announcement, &result, nil); err != nil {
 		return lambda.ServerError(fmt.Errorf("failed to update announcement: %v", err))
@@ -210,6 +286,28 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 // ProcessDelete handles HTTP requests for DELETE /announcements/{id}
 func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id := req.PathParameters["id"]
+
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
+	var announcement Announcement
+	if err := mongoext.FindByID(ctx, s.Collection, id, &announcement); err != nil {
+		return lambda.ServerError(fmt.Errorf("failed to find announcement with id %s: %v", id, err))
+	}
+
+	// check permissions
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, announcement.GymID.Hex(), rbac.ResourceAnnouncements)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionDelete)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s': %v", rbac.ActionDelete, resourceID, err),
+		)
+	}
+
 	objID, err := primitive.ObjectIDFromHex(id)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object id specified in url %q: %v", id, err))
@@ -232,8 +330,9 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 }
 
 func (s *Service) notifyStudentsOnAnnouncement(ctx context.Context, a *Announcement) error {
+	studentRole := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, a.GymID, rbac.Students)
 	// get all students for this gym
-	memberships, err := s.profilesService.GetGymAssociationsBy(ctx, a.GymID.Hex(), profiles.StudentRole)
+	memberships, err := s.profilesService.GetGymAssociationsBy(ctx, a.GymID.Hex(), studentRole)
 	if err != nil {
 		return err
 	}

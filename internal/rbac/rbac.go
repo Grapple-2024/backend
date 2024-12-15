@@ -1,0 +1,229 @@
+package rbac
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/Grapple-2024/backend/internal/service/profiles"
+	"github.com/Grapple-2024/backend/pkg/cognito"
+	"github.com/rs/zerolog/log"
+)
+
+// Groups are the 3 different types of groups.
+var groups = []string{"owners", "coaches", "students"}
+
+const (
+	owner   = "owner"
+	coach   = "coach"
+	student = "student"
+
+	Owners   = "owners"
+	Coaches  = "coaches"
+	Students = "students"
+
+	ActionRead   = "read"
+	ActionCreate = "create"
+	ActionUpdate = "update"
+	ActionDelete = "delete"
+
+	ResourceSeries        = "series"
+	ResourceGym           = "gym"
+	ResourceCoaches       = "coaches"
+	ResourceOwners        = "owners"
+	ResourceAnnouncements = "announcements"
+	ResourceGymRequests   = "requests"
+)
+
+// Role represents a role in the system with its associated permissions.
+type Role struct {
+	Name        string
+	Permissions []string
+}
+
+// Permission represents a permission to access a specific resource or perform an action within a scope.
+type Permission struct {
+	Resource string
+	Action   string
+}
+
+// User represents a user with assigned roles.
+type User struct {
+	ID    string
+	Roles []string
+}
+
+// UserStore interface for fetching user data.
+type UserStore interface {
+	GetUser(ctx context.Context, userID string) (*User, error)
+}
+
+// RBAC is the core RBAC object.
+type RBAC struct {
+	*cognito.Client
+
+	users       map[string]User
+	roles       map[string]Role
+	permissions map[string]Permission
+}
+
+// New initializes a new RBAC instance.
+func New(profileSVC *profiles.Service, cognito *cognito.Client) (*RBAC, error) {
+	r := &RBAC{
+		roles:       make(map[string]Role),
+		permissions: make(map[string]Permission),
+		Client:      cognito,
+	}
+
+	// seed in-memory cache of roles and permissions
+	if err := r.SeedCache(context.Background()); err != nil {
+		return nil, err
+	}
+
+	return r, nil
+}
+
+func (r *RBAC) GetUser(ctx context.Context, userID string) (*User, error) {
+	// check cache before retrieving the user and their groups from Cognito
+	if val, ok := r.users[userID]; ok {
+		return &val, nil
+	}
+
+	// send API request only if user is not in cache
+	resp, err := r.ListGroupsForUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	u := &User{
+		ID: userID,
+	}
+	for _, g := range resp.Groups {
+		// g.GroupName follows the form `gym::<id>::<owner/coach/student>`, or "gym-creator"
+		u.Roles = append(u.Roles, *g.GroupName)
+	}
+	log.Info().Msgf("User has the following roles: %v", u.Roles)
+
+	return u, nil
+}
+
+// groupName -> eg "gym::<id>::<roleType>"
+// roleType -> eg "coach", "owner" or "student"
+func (r *RBAC) createGymRole(gymResourceID, groupName, roleType string) {
+	permissions := []string{}
+	switch roleType {
+	case Owners:
+		permissions = append(permissions,
+			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceSeries, ActionCreate),
+			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceSeries, ActionUpdate),
+			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceSeries, ActionDelete),
+
+			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceAnnouncements, ActionCreate),
+			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceAnnouncements, ActionUpdate),
+			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceAnnouncements, ActionDelete),
+
+			fmt.Sprintf("%s:%s", gymResourceID, ActionUpdate),
+			fmt.Sprintf("%s:%s", gymResourceID, ActionDelete),
+		)
+
+	case Coaches:
+		permissions = append(permissions,
+			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceSeries, ActionCreate),
+			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceSeries, ActionUpdate),
+
+			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceAnnouncements, ActionCreate),
+			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceAnnouncements, ActionUpdate),
+
+			fmt.Sprintf("%s:%s", gymResourceID, ActionUpdate),
+		)
+	case Students:
+		permissions = append(permissions,
+			fmt.Sprintf("%s:%s", gymResourceID, ActionRead),
+		)
+
+	default:
+		log.Warn().Msgf("failed to create gym role, invalid role type: %q", roleType)
+
+	}
+
+	r.AddRoles([]Role{
+		{
+			Name:        groupName,
+			Permissions: permissions,
+		},
+	}...)
+}
+
+// AddRoles adds one or more roles to the RBAC system (in-memory cache).
+func (r *RBAC) AddRoles(roles ...Role) {
+	for _, role := range roles {
+		r.roles[role.Name] = role
+	}
+}
+
+// AddPermission adds a new permission to the RBAC system (in-memory cache)
+func (r *RBAC) AddPermissions(permissions ...Permission) {
+	for _, p := range permissions {
+		permission := fmt.Sprintf("%s:%s", p.Resource, p.Action)
+
+		if _, ok := r.permissions[permission]; !ok {
+			r.permissions[permission] = p
+		}
+	}
+}
+
+// IsAuthorized checks if a user is authorized to perform an action on a resource.
+func (r *RBAC) IsAuthorized(ctx context.Context, userID, resource, action string) (bool, error) {
+	user, err := r.GetUser(ctx, userID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	permissionNeeded := fmt.Sprintf("%s:%s", resource, action)
+	totalPermissions := []string{} // just used to output what permissions the user has for debugging
+	for _, roleName := range user.Roles {
+		role, ok := r.roles[roleName]
+		if !ok {
+			log.Warn().Msgf("could not find role '%s' in role cache: %v", roleName, r.roles)
+			continue
+		}
+		totalPermissions = append(totalPermissions, role.Permissions...)
+
+		for _, userPermission := range role.Permissions {
+			if userPermission == permissionNeeded {
+				return true, nil
+			}
+		}
+	}
+
+	log.Warn().Msgf("User does not have permission for %s, user's permissions are: %v", permissionNeeded, totalPermissions)
+
+	return false, nil
+}
+
+// CreateGymGroups creates Cognito groups and stores roles and permissions in RBAC cache for a new gym.
+// This function is called when a new gym is created and is part of the gym creation transaction.
+func (r *RBAC) CreateGymRBAC(ctx context.Context, gymID string) error {
+	for _, groupType := range groups {
+		groupName := fmt.Sprintf("%s::%s::%s", ResourceGym, gymID, groupType)
+		err := r.CreateGroup(ctx, groupName)
+		if err != nil {
+			return fmt.Errorf("failed to create group %s: %w", groupName, err)
+		}
+
+	}
+
+	if err := r.StoreGymRBAC(gymID); err != nil {
+		return err
+	}
+	return nil
+}
+
+// AssignUserToGymGroup assigns a user to a specific gym's group (owner, coach, student, etc).
+func (r *RBAC) AssignUserToGymGroup(ctx context.Context, username, gymID, group string) error {
+	groupName := fmt.Sprintf("%s::%s::%s", ResourceGym, gymID, group)
+	err := r.AddUserToGroup(ctx, username, groupName)
+	if err != nil {
+		return fmt.Errorf("failed to add user %s to group %s: %w", username, groupName, err)
+	}
+	return nil
+}

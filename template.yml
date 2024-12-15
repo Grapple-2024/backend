@@ -36,6 +36,10 @@ Parameters:
       Description: "The cognito client secret"
       Type: 'String'
       Default: ""
+    CognitoUserPoolID:
+      Description: "ID of Cognito User Pool"
+      Type: 'String'
+      Default: "us-west-1_HT5oR6AwO"
     StripeAPIKey:
       Description: "The Stripe API secret key"
       Type: 'String'
@@ -114,6 +118,7 @@ Resources:
           PUBLIC_USER_ASSETS_BUCKET_NAME: !Sub grapple-${Environment}-public-user-assets
           GYM_VIDEOS_BUCKET_NAME: !Sub grapple-${Environment}-gym-videos
           SENDGRID_API_KEY: !Ref SendGridAPIKey
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolID
           COGNITO_CLIENT_ID: !Ref CognitoClientID
           COGNITO_CLIENT_SECRET: !Ref CognitoClientSecret
           STRIPE_API_KEY: !Ref StripeAPIKey
@@ -160,6 +165,20 @@ Resources:
           Type: Api
           Properties:
             Path: /gyms/{id}/presign
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        AddGymCoach:
+          Type: Api
+          Properties:
+            Path: /gyms/{id}/coaches
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        AddGymOwner:
+          Type: Api
+          Properties:
+            Path: /gyms/{id}/owners
             Method: PUT
             RestApiId: !Ref Gateway
 

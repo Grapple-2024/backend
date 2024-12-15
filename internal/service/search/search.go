@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service"
 	"github.com/Grapple-2024/backend/internal/service/gym_series"
 	"github.com/Grapple-2024/backend/internal/service/gyms"
@@ -25,6 +26,7 @@ type (
 	// Service is the object that handles the business logic of all /search operations.
 	// Service talks to the underlying Mongo Client (Data access layer) to CRUD announcement objects.
 	Service struct {
+		*rbac.RBAC
 		*mongoext.Client
 		Gyms            *mongo.Collection
 		Series          *mongo.Collection
@@ -55,7 +57,7 @@ type (
 )
 
 // NewService creates a new instance of a Announcement Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, rbac *rbac.RBAC) (*Service, error) {
 	series := mc.Database("grapple").Collection("series")
 	gyms := mc.Database("grapple").Collection("gyms")
 
@@ -175,6 +177,11 @@ func buildSeriesFilter(params *queryParams) bson.M {
 
 // ProcessGetAll handles HTTP requests for GET /search/
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	}
+
 	// parse query params
 	params, err := parseQueryParams(req.QueryStringParameters)
 	if err != nil {
@@ -207,6 +214,19 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 
+	seriesToReturn := []gym_series.GymSeries{}
+	for _, gymSeries := range series {
+		resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymSeries.GymID, rbac.ResourceSeries)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionCreate)
+		if err != nil {
+			continue
+		} else if !isAuthorized {
+			continue
+		}
+
+		seriesToReturn = append(seriesToReturn, gymSeries)
+	}
+
 	// Get the total count of gyms
 	totalGyms, err := s.Gyms.CountDocuments(ctx, gymsFilter, nil)
 	if err != nil {
@@ -221,7 +241,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	resp := searchResponse{
 		Gyms:        gyms,
-		Series:      series,
+		Series:      seriesToReturn,
 		TotalGyms:   totalGyms,
 		TotalSeries: totalSeries,
 		TotalCount:  totalGyms + totalSeries,
