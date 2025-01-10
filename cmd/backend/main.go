@@ -118,10 +118,6 @@ func main() {
 		log.Fatal().Err(err).Msgf("failed to initialize MapBox Service")
 	}
 
-	search, err := search.NewService(ctx, mongoClient)
-	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to initialize Search Service")
-	}
 	techniques, err := techniques.NewService(ctx, mongoClient, gymVideosBucketName, awsRegion)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
@@ -132,10 +128,14 @@ func main() {
 		log.Fatal().Err(err).Msgf("failed to initialize Profiles Service")
 	}
 
+	// RBAC Framework service is not an HTTP Handler, but it is injected inside of the HTTP Handlers so that they can manage RBAC
 	rbac, err := rbac.New(profiles, cognitoClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize RBAC Service")
 	}
+
+	/**** HTTP Handlers ****/
+	// Gyms HTTP Handler
 	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, region, mongoClient, rbac)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
@@ -144,7 +144,6 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Announcements Service")
 	}
-
 	requests, err := gym_requests.NewService(ctx, mongoClient, sendGridClient, rbac)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gym Requests Service")
@@ -152,6 +151,10 @@ func main() {
 	series, err := gym_series.NewService(ctx, mongoClient, gymVideosBucketName, publicAssetsBucketName, awsRegion, rbac)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gym Series Service")
+	}
+	search, err := search.NewService(ctx, mongoClient, rbac)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Search Service")
 	}
 
 	// Register handlers to their base endpoints

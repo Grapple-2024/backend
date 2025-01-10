@@ -331,14 +331,16 @@ func (s *Service) notifyStudent(ctx context.Context, request *GymRequest) error 
 }
 
 func (s *Service) notifyCoachesOnNewRequest(ctx context.Context, request *GymRequest) error {
+
 	tmpl, err := template.New("").Parse(newRequestEmailTmpl)
 	if err != nil {
 		return fmt.Errorf("failed to parse template: %v", err)
 	}
 
+	gymID := request.GymID.Hex()
 	gymsColl := s.Database().Collection("gyms")
 	var gym *gyms.Gym
-	if err := mongoext.FindByID(ctx, gymsColl, request.GymID.Hex(), &gym); err != nil {
+	if err := mongoext.FindByID(ctx, gymsColl, gymID, &gym); err != nil {
 		return fmt.Errorf("could not find gym with ID %v: %v", request.GymID, err)
 	}
 
@@ -354,33 +356,27 @@ func (s *Service) notifyCoachesOnNewRequest(ctx context.Context, request *GymReq
 		return fmt.Errorf("error executing template with data %v:\n %v", tmplData, err)
 	}
 
-	// get all coaches for this gym
-	profilesColl := s.Client.Database("grapple").Collection("profiles")
-	filter := bson.M{
-		"gyms": bson.M{
-			"$elemMatch": bson.M{
-				"gym_id": request.GymID,
-				"role":   "Coach",
-			},
-		},
-	}
-	var profiles []profiles.Profile
-	if err := mongoext.Paginate(ctx, profilesColl, filter, 1, 1000, true, &profiles); err != nil {
-		return fmt.Errorf("could not find any profiles that have a coach association to gym id %q %v", request.GymID, err)
+	// get all coaches and owners for this gym
+	coachesGroup := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, gymID, rbac.Coaches)
+	coaches, err := s.RBAC.ListUsersInGroup(ctx, coachesGroup)
+	if err != nil {
+		return err
 	}
 
-	log.Info().Msgf("Found profiles with coach association to gym: %v", profiles)
+	ownersGroup := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, gymID, rbac.Owners)
+	owners, err := s.RBAC.ListUsersInGroup(ctx, ownersGroup)
+	if err != nil {
+		return err
+	}
+
+	allCoaches := append(owners, coaches...)
 
 	var tos []*mail.Email
-	for _, p := range profiles {
-		for _, g := range p.Gyms {
-			if g.GymID != request.GymID || !g.EmailPreferences.NotifyOnRequests {
-				continue
-			}
-			tos = append(tos, mail.NewEmail("Grapple Coach", p.Email))
-		}
+	for _, u := range allCoaches {
+		tos = append(tos, mail.NewEmail("Grapple Coach", *u.Username))
 	}
 	if len(tos) == 0 {
+		log.Info().Msgf("No coaches or owners found for gym %v", gymID)
 		return nil
 	}
 	log.Info().Msgf("Notifying coaches of new gym request: %v", tos)
@@ -391,23 +387,23 @@ func (s *Service) notifyCoachesOnNewRequest(ctx context.Context, request *GymReq
 	// Just for debugging, all mail will be BCC'd to Jordan
 	email.AddBCCs([]*mail.Email{
 		mail.NewEmail("Jordan", "jordan@dionysustechnologygroup.com"),
+		mail.NewEmail("Stephen", "stephen@dionysustechnologygroup.com"),
 	}...)
 
 	payload := mail.NewV3Mail().
 		AddPersonalizations(email).
 		AddContent(mail.NewContent("text/html", tmplOut.String()))
 
-	log.Info().Msgf("Email tos: %v %v", tos[0].Address, tos[1].Address)
 	payload.SetFrom(mail.NewEmail("Grapple Notifications", "support@grapplemma.com"))
 	payload.Subject = fmt.Sprintf("Grapple MMA: a student has requested to join %s", gym.Name)
 
 	resp, err := s.sendGridClient.Send(payload)
 	if err != nil {
-		log.Warn().Msgf("Failed to send email: %v", err)
+		log.Warn().Msgf("failed to send email: %v", err)
 		return fmt.Errorf("failed to send email to coach: %v", err)
 	}
 	if resp.StatusCode != http.StatusAccepted {
-		log.Warn().Msgf("Mail failed to send: %+v", resp)
+		log.Warn().Msgf("mail failed to send: %+v", resp.StatusCode)
 	}
 
 	return nil

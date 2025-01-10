@@ -330,13 +330,12 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 }
 
 func (s *Service) notifyStudentsOnAnnouncement(ctx context.Context, a *Announcement) error {
-	studentRole := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, a.GymID, rbac.Students)
-	// get all students for this gym
-	memberships, err := s.profilesService.GetGymAssociationsBy(ctx, a.GymID.Hex(), studentRole)
+	studentsGroup := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, a.GymID, rbac.Students)
+	students, err := s.RBAC.ListUsersInGroup(ctx, studentsGroup)
 	if err != nil {
 		return err
 	}
-	if len(memberships) == 0 {
+	if len(students) == 0 {
 		log.Warn().Msgf("No students found for gym %q, no notifications will be sent", a.GymID)
 		return nil
 	}
@@ -349,7 +348,7 @@ func (s *Service) notifyStudentsOnAnnouncement(ctx context.Context, a *Announcem
 	}
 
 	// render email template
-	tmpl, err := template.New("").Parse(newAnnouncementEmailTmpl)
+	tmpl, err := template.New(a.ID.Hex()).Parse(newAnnouncementEmailTmpl)
 	if err != nil {
 		return fmt.Errorf("failed to parse template: %v", err)
 	}
@@ -368,21 +367,18 @@ func (s *Service) notifyStudentsOnAnnouncement(ctx context.Context, a *Announcem
 		return fmt.Errorf("error executing template with data %v:\n %v", tmplData, err)
 	}
 
-	// craft email object to send to sendgrid API
+	// aggregate list of sendgrid mail.Email types to send to SendGrid API.
 	var tos []*mail.Email
-	for _, m := range memberships {
-		if m.Email == "" {
-			log.Warn().Msgf("Student membership found but no email: %v", m)
-			continue
-		}
-		tos = append(tos, mail.NewEmail(profiles.StudentRole, m.Email))
+	for _, s := range students {
+		tos = append(tos, mail.NewEmail(profiles.StudentRole, *s.Username))
 	}
 	email := mail.NewPersonalization()
 	email.AddTos(tos...)
 
-	// Just for debugging, all mail will be BCC'd to Jordan
+	// Just for debugging, all mail will be BCC'd to Jordan and Stephen
 	email.AddBCCs([]*mail.Email{
 		mail.NewEmail("Jordan", "jordan@dionysustechnologygroup.com"),
+		mail.NewEmail("Stephen", "stephen@dionysustechnologygroup.com"),
 	}...)
 
 	payload := mail.NewV3Mail().
@@ -393,11 +389,11 @@ func (s *Service) notifyStudentsOnAnnouncement(ctx context.Context, a *Announcem
 
 	resp, err := s.sendGridClient.Send(payload)
 	if err != nil {
-		log.Warn().Msgf("Failed to send email: %v", err)
+		log.Warn().Msgf("failed to send email: %v", err)
 		return fmt.Errorf("failed to send email to coach: %v", err)
 	}
 	if resp.StatusCode != http.StatusAccepted {
-		log.Warn().Msgf("Failed to send email: %+v", resp)
+		log.Warn().Msgf("failed to send email: %+v", resp)
 	}
 
 	return nil

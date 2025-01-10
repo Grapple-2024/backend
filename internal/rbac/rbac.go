@@ -6,11 +6,10 @@ import (
 
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/pkg/cognito"
+	cip "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
+	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
 	"github.com/rs/zerolog/log"
 )
-
-// Groups are the 3 different types of groups.
-var groups = []string{"owners", "coaches", "students"}
 
 const (
 	owner   = "owner"
@@ -47,7 +46,10 @@ type Permission struct {
 }
 
 // User represents a user with assigned roles.
+// Users inherit Cognito API's types.UserType.
 type User struct {
+	types.UserType
+
 	ID    string
 	Roles []string
 }
@@ -136,13 +138,10 @@ func (r *RBAC) createGymRole(gymResourceID, groupName, roleType string) {
 			fmt.Sprintf("%s:%s", gymResourceID, ActionUpdate),
 		)
 	case Students:
-		permissions = append(permissions,
-			fmt.Sprintf("%s:%s", gymResourceID, ActionRead),
-		)
+		permissions = append(permissions, fmt.Sprintf("%s:%s", gymResourceID, ActionRead))
 
 	default:
 		log.Warn().Msgf("failed to create gym role, invalid role type: %q", roleType)
-
 	}
 
 	r.AddRoles([]Role{
@@ -203,6 +202,8 @@ func (r *RBAC) IsAuthorized(ctx context.Context, userID, resource, action string
 // CreateGymGroups creates Cognito groups and stores roles and permissions in RBAC cache for a new gym.
 // This function is called when a new gym is created and is part of the gym creation transaction.
 func (r *RBAC) CreateGymRBAC(ctx context.Context, gymID string) error {
+	var groups = []string{"owners", "coaches", "students"}
+
 	for _, groupType := range groups {
 		groupName := fmt.Sprintf("%s::%s::%s", ResourceGym, gymID, groupType)
 		err := r.CreateGroup(ctx, groupName)
@@ -226,4 +227,22 @@ func (r *RBAC) AssignUserToGymGroup(ctx context.Context, username, gymID, group 
 		return fmt.Errorf("failed to add user %s to group %s: %w", username, groupName, err)
 	}
 	return nil
+}
+
+// ListUsersInGroupByGym returns a list of users that are in a particular group.
+func (r *RBAC) ListUsersInGroup(ctx context.Context, group string) ([]types.UserType, error) {
+	paginator := cip.NewListUsersInGroupPaginator(r.Client, &cip.ListUsersInGroupInput{
+		GroupName: &group,
+	})
+
+	var users []types.UserType
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to list users in group %q: %w", group, err)
+		}
+		users = append(users, page.Users...)
+	}
+
+	return users, nil
 }
