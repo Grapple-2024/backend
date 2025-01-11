@@ -302,7 +302,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 		return lambda_v2.ServerError(err)
 	}
 
-	return lambda_v2.NewResponse(http.StatusOK, string(resp), nil), nil
+	return lambda_v2.NewResponse(http.StatusCreated, string(resp), nil), nil
 }
 
 // ProcessPut handles HTTP requests for three endpoints:
@@ -616,7 +616,7 @@ func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSerie
 		log.Warn().Err(err).Msgf("Failed to run mongo transaction for profile creation")
 		return nil, err
 	} else {
-		log.Info().Msgf("createProfile transaction completed successfully!")
+		log.Info().Msgf("updateSeries transaction completed successfully!")
 	}
 
 	return result.(*GymSeries), nil

@@ -179,7 +179,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 		return lambda.ServerError(err)
 	}
 
-	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
+	return lambda.NewResponse(http.StatusCreated, string(resp), nil), nil
 }
 
 // ProcessPut handles HTTP requests for PUT /announcements/{id}

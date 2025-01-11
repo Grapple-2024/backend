@@ -35,16 +35,15 @@ type Gym struct {
 	// PublicEmail is the public email displayed to students for contacting the gym
 	PublicEmail string `json:"public_email" bson:"public_email,omitempty"`
 
-	GymLogo   string `json:"gym_logo" bson:"gym_logo,omitempty"`
-	GymBanner string `json:"gym_banner" bson:"gym_banner,omitempty"`
-
 	// CoachEmail is the coach's personal email address for notifications, sign-in, etc
 	CoachEmail     string `json:"coach_email" bson:"coach_email,omitempty"`
 	CoachFirstName string `json:"coach_first_name" bson:"coach_first_name,omitempty" validate:"required"`
 	CoachLastName  string `json:"coach_last_name" bson:"coach_last_name,omitempty" validate:"required"`
 
-	// s3 object uri of gym logo
-	Logo string `json:"logo" bson:"logo,omitempty"`
+	// s3 object uri of gym logo & banner
+	LogoURL   string `json:"logo_url" bson:"logo_url,omitempty"`
+	BannerURL string `json:"banner_url" bson:"banner_url,omitempty"`
+	HeroURL   string `json:"hero_url" bson:"hero_url,omitempty"`
 
 	// Disciplines
 	Disciplines []string           `json:"disciplines" bson:"disciplines,omitempty"`

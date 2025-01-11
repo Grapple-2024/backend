@@ -100,6 +100,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 			"cognito_id": token.Sub,
 		}
 	}
+
 	// parse pagination query parameters
 	page := req.QueryStringParameters["page"]
 	if page == "" {
@@ -125,6 +126,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, &records); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
+
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
 	if records == nil {
 		records = []Profile{}
@@ -417,9 +419,8 @@ func (s *Service) createProfile(ctx context.Context, p *Profile) (*Profile, erro
 	if err != nil {
 		log.Warn().Err(err).Msgf("Failed to run mongo transaction for profile creation")
 		return nil, err
-	} else {
-		log.Info().Msgf("createProfile transaction completed successfully!")
 	}
+	log.Info().Msgf("createProfile transaction completed successfully!")
 
 	return result.(*Profile), nil
 }

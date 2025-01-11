@@ -7,11 +7,11 @@ import (
 
 	"github.com/Grapple-2024/backend/internal/service/announcements"
 	"github.com/Grapple-2024/backend/internal/service/gym_requests"
-	"github.com/Grapple-2024/backend/internal/service/search"
-
 	"github.com/Grapple-2024/backend/internal/service/gym_series"
 	"github.com/Grapple-2024/backend/internal/service/gyms"
+	"github.com/Grapple-2024/backend/internal/service/mapbox"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
+	"github.com/Grapple-2024/backend/internal/service/search"
 	"github.com/Grapple-2024/backend/internal/service/techniques"
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	"github.com/Grapple-2024/backend/pkg/mongo"
@@ -36,13 +36,14 @@ const (
 	EnvVideosBucketName       = "GYM_VIDEOS_BUCKET_NAME"
 	EnvPublicAssetsBucketName = "PUBLIC_USER_ASSETS_BUCKET_NAME"
 	EnvAWSRegion              = "AWS_REGION"
+	EnvStripeAPIKey           = "STRIPE_API_KEY"
+	EnvMapBoxAPIKey           = "MAPBOX_API_KEY"
 )
 
 func main() {
 	// read all environment variables
 	mongoEndpoint, ok := os.LookupEnv(EnvMongoEndpoint)
 	if !ok {
-
 		log.Fatal().Msgf("missing required env var: %s", EnvMongoEndpoint)
 	}
 	sendGridAPIKey, ok := os.LookupEnv(EnvSendGridAPIKey)
@@ -65,10 +66,13 @@ func main() {
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", EnvPublicAssetsBucketName)
 	}
-
 	awsRegion, ok := os.LookupEnv(EnvAWSRegion)
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", EnvAWSRegion)
+	}
+	mapboxAPIKey, ok := os.LookupEnv(EnvMapBoxAPIKey)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", EnvMapBoxAPIKey)
 	}
 	log.Debug().Msgf("AWS Region: %v", awsRegion)
 	log.Debug().Msgf("connected to mongo server: %s", mongoEndpoint)
@@ -77,8 +81,9 @@ func main() {
 	sendGridClient := sendgrid.NewSendClient(sendGridAPIKey)
 
 	// Create mongo client
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+
 	mongoClient, err := mongo.New(ctx, mongoEndpoint)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to connect to mongo endpoint: %q", mongoEndpoint)
@@ -90,14 +95,18 @@ func main() {
 		}
 	}()
 
-	// Create services for each api entity
-	gyms, err := gyms.NewService(ctx, mongoClient)
+	// Create services for each api controller/handler
+	mapbox, err := mapbox.NewService(ctx, mapboxAPIKey)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize MapBox Service")
+	}
+	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, region, mongoClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
 	}
 	search, err := search.NewService(ctx, mongoClient)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
+		log.Fatal().Err(err).Msgf("failed to initialize Search Service")
 	}
 	profiles, err := profiles.NewService(ctx, mongoClient, publicAssetsBucketName, awsRegion, cognitoClientID, cognitoClientSecret)
 	if err != nil {
@@ -133,6 +142,7 @@ func main() {
 		"gym-requests":  requests,
 		"gym-series":    series,
 		"search":        search,
+		"mapbox":        mapbox,
 	}
 
 	router := lambda_v2.NewRouter(lambdas)
