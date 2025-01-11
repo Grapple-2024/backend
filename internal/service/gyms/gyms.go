@@ -75,18 +75,17 @@ func NewService(ctx context.Context, publicAssetsBucketName, region string, mc *
 // ProcessGetAll handles HTTP requests for GET /gyms/
 // TODO: remove dynamodb map after switching off fully
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
-	// Parse query parameters
 	gymSlug := req.QueryStringParameters["slug"]
 	creatorID := req.QueryStringParameters["creator_id"]
 	name := req.QueryStringParameters["name"]
 
 	page := req.QueryStringParameters["page"]
 	if page == "" {
-		page = "1" // default to first page
+		page = "1"
 	}
 	pageSize := req.QueryStringParameters["page_size"]
 	if pageSize == "" {
-		pageSize = "10" // default to 10 records per page
+		pageSize = "10"
 	}
 	pageSizeInt, err := strconv.Atoi(pageSize)
 	if err != nil && pageSize != "" {
@@ -117,12 +116,10 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, &records); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
-	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
 	if records == nil {
 		records = []Gym{}
 	}
 
-	// Get the total count of documents
 	totalCount, err := s.Collection.CountDocuments(ctx, filter, nil)
 	if err != nil {
 		return lambda.ServerError(fmt.Errorf("error counting documents: %v", err))
@@ -182,36 +179,31 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 		return lambda.ServerError(err)
 	}
 
-	log.Info().Msgf("result.ID: %v", result)
 	return lambda.NewResponse(http.StatusCreated, string(resp), nil), nil
 }
 
 // ProcessPut handles HTTP requests for
 // 1. PUT /gyms/{id} - insert/update a gym object
 // 2. PUT /gyms/{id}/presign - generate presigned upload url for gym logo/banner/hero
-// 3. PUT /gyms/{id}/add-coach - add a coach to the gym
-// 4. PUT /gyms/{id}/add-owner - add a coach to the gym
-
+// 3. PUT /gyms/{id}/assign-role - assign a user's role in the gym
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	// update the record in mongo
-	id := req.PathParameters["id"]
-
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	}
 
-	resourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionUpdate)
+	id := req.PathParameters["id"]
+	gymResourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, gymResourceID, rbac.ActionUpdate)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
 		return lambda.ClientError(http.StatusForbidden,
-			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionUpdate, resourceID),
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionUpdate, gymResourceID),
 		)
 	}
 
-	// make sure the gym exists
 	var gym Gym
 	if err := mongoext.FindByID(ctx, s.Collection, id, &gym); err != nil {
 		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gym by ID: %v", err))
@@ -225,20 +217,17 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		if err := json.Unmarshal([]byte(req.Body), &gym); err != nil {
 			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
-
-		// update the record in mongo
 		if err := mongoext.UpdateByID(ctx, s.Collection, id, gym, &result, nil); err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 		}
-	case fmt.Sprintf("%s/owners", gymSubPath):
-		// check authorization
-		resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, id, rbac.ResourceOwners)
-		isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionCreate)
+	case fmt.Sprintf("%s/assign-role", gymSubPath):
+		gymRolesResource := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, id, rbac.ResourceRoles)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Username, gymRolesResource, rbac.ActionUpdate)
 		if err != nil {
 			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 		} else if !isAuthorized {
 			return lambda.ClientError(http.StatusForbidden,
-				fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionCreate, resourceID),
+				fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionCreate, gymRolesResource),
 			)
 		}
 
@@ -246,16 +235,20 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
-		if payload["email"] == "" {
-			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("must specify email of user to add as coach in 'email' body field"))
+		email := payload["email"]
+		role := payload["role"]
+		if email == "" {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("must specify email of user to assign roles to in the 'email' body field"))
 		}
-
-		// update the record in mongo
-		if err := s.RBAC.AssignUserToGymGroup(ctx, payload["email"], id, rbac.Owners); err != nil {
+		if role == "" {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("must specify role to assign in the 'role' body field"))
+		} else if role != rbac.Owners && role != rbac.Students && role != rbac.Coaches {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("must specify a valid role name in the 'role' body field: [owners, coaches, students]"))
+		}}
+		if err := s.RBAC.AssignUserToGymGroup(ctx, email, id, role); err != nil {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to assign user %s to coaches group for gym %s", token.Username, id))
 		}
 
-		// create the owners association on the gym owner's profile
 		roleName := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, id, rbac.Owners)
 		coachName := fmt.Sprintf("%s %s", gym.CoachFirstName, gym.CoachLastName)
 		if err := profiles.AddGymAssociation(ctx, s.Client, gym.ID, coachName, roleName, token); err != nil {

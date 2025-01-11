@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/service"
+	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/pkg/cognito"
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
@@ -18,11 +19,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/rs/zerolog/log"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 	"gopkg.in/mgo.v2/bson"
 )
 
@@ -277,135 +275,6 @@ func (s *Service) deleteUser(ctx context.Context, profileID string) error {
 	return nil
 }
 
-// GetGymAssociationsBy returns all gym associations with the specified Gym ID and role (Student or Coach).
-func (s *Service) GetGymAssociationsBy(ctx context.Context, gymID string, role string) ([]GymAssociation, error) {
-	gymObjID, err := primitive.ObjectIDFromHex(gymID)
-	if err != nil {
-		return nil, err
-	}
-
-	// get all coaches for this gym
-	filter := bson.M{
-		"gyms": bson.M{
-			"$elemMatch": bson.M{
-				"gym_id": gymObjID,
-				"role":   role,
-			},
-		},
-	}
-
-	var profiles []Profile
-	if err := mongoext.Paginate(ctx, s.Collection, filter, 1, 1000, true, &profiles); err != nil {
-		return nil, fmt.Errorf("could not find any profiles that have a %s role with gym id %q %v", role, gymID, err)
-	}
-
-	var gymAssociations []GymAssociation
-	for _, p := range profiles {
-		for _, g := range p.Gyms {
-			if g.GymID != gymObjID || g.Role != role {
-				continue
-			}
-
-			gymAssociations = append(gymAssociations, g)
-		}
-	}
-
-	return gymAssociations, nil
-}
-
-// GetAllStudents returns a slice of gym IDs associated with the cognito token. The associations can either be Student or Coach.
-func GetGymsOf(ctx context.Context, collection *mongo.Collection, cognitoID string) ([]primitive.ObjectID, error) {
-	filter := bson.M{
-		"cognito_id": cognitoID,
-	}
-
-	var profile Profile
-	if err := mongoext.Find(ctx, collection, filter, &profile); err != nil {
-		return nil, fmt.Errorf("could not find any profiles with cognito ID %q: %v", cognitoID, err)
-	}
-	log.Info().Msgf("Found profile, fetching gyms: %v", profile)
-
-	var gymIDs []primitive.ObjectID
-	for _, g := range profile.Gyms {
-		gymIDs = append(gymIDs, g.GymID)
-	}
-	return gymIDs, nil
-}
-
-// GetAllStudents returns true if the Cognito ID is a student of the specified Gym ID.
-func (s *Service) IsStudentOf(ctx context.Context, cognitoID, gymID string) (bool, error) {
-	gymObjID, err := primitive.ObjectIDFromHex(gymID)
-	if err != nil {
-		return false, err
-	}
-
-	// find the profile if it exists
-	filter := bson.M{
-		"cognito_id": cognitoID,
-		"gyms": bson.M{
-			"$elemMatch": bson.M{
-				"gym_id": gymObjID,
-				"role":   StudentRole,
-			},
-		},
-	}
-	var profile Profile
-	if err := mongoext.Find(ctx, s.Collection, filter, &profile); err != nil {
-		return false, fmt.Errorf("could not find any profiles that have a student role with gym id %q %v", gymID, err)
-	}
-
-	if profile.CognitoID == cognitoID {
-		return true, nil
-	}
-	return false, nil
-}
-
-// GetAllStudents returns all student profiles associated with a specific gym.
-func (s *Service) GetStudentsOf(ctx context.Context, gymID string) ([]Profile, error) {
-	gymObjID, err := primitive.ObjectIDFromHex(gymID)
-	if err != nil {
-		return nil, err
-	}
-
-	// get all coaches for this gym
-	filter := bson.M{
-		"gyms": bson.M{
-			"$elemMatch": bson.M{
-				"gym_id": gymObjID,
-				"role":   StudentRole,
-			},
-		},
-	}
-	var profiles []Profile
-	if err := mongoext.Paginate(ctx, s.Collection, filter, 1, 1000, true, &profiles); err != nil {
-		return nil, fmt.Errorf("could not find any profiles that have a student role in gym id %q %v", gymID, err)
-	}
-
-	return profiles, nil
-}
-
-func (s *Service) createProfile(ctx context.Context, p *Profile) (*Profile, error) {
-	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
-
-	result, err := s.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (interface{}, error) {
-		var result Profile
-		if err := mongoext.Insert(sessCtx, s.Collection, p, &result); err != nil {
-			return nil, err
-		}
-		log.Info().Msgf("Insert result: %v", result)
-
-		return result, nil
-	}, transactionOptions)
-
-	if err != nil {
-		log.Warn().Err(err).Msgf("Failed to run mongo transaction for profile creation")
-		return nil, err
-	}
-	log.Info().Msgf("createProfile transaction completed successfully!")
-
-	return result.(*Profile), nil
-}
-
 // ensureIndices ensures the proper indices are creatd for the 'gyms' collection.
 func (s *Service) ensureIndices(ctx context.Context) error {
 	// Cognito ID index
@@ -421,22 +290,23 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 	return nil
 }
 
-func AddGymAssociation(ctx context.Context, mc *mongoext.Client, gymID primitive.ObjectID, coachName, role string, token *service.Token) error {
+// AddGymAssociation adds a gym association to a user profile object.
+// It does not update any groups in Cognito or the RBAC framework.
+func AddGymAssociation(ctx context.Context, mc *mongoext.Client, gym *gyms.Gym, role string, token *service.Token) error {
 	// create new gym association for this Gym Owner
 	gymAssociation := GymAssociation{
-		CoachName: coachName,
-		Email:     token.Email,
-		GymID:     gymID,
-		Role:      role,
+		Gym:   gym,
+		Email: token.Email,
+		Role:  role,
 		EmailPreferences: &EmailPreferences{
 			NotifyOnAnnouncements: true,
 			NotifyOnRequests:      true,
 		},
 	}
 
-	// create filter & update statements, send to mongodb to update the profile.
+	// update the user profile with the new gym association
 	filter := bson.M{
-		"cognito_id": token.Sub, // find the profile with cognito_id equal to the creator of the Gym.
+		"cognito_id": token.Sub,
 	}
 	update := bson.M{
 		"$push": bson.M{

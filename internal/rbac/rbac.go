@@ -31,6 +31,7 @@ const (
 	ResourceOwners        = "owners"
 	ResourceAnnouncements = "announcements"
 	ResourceGymRequests   = "requests"
+	ResourceRoles         = "roles"
 )
 
 // Role represents a role in the system with its associated permissions.
@@ -219,9 +220,8 @@ func (r *RBAC) CreateGymRBAC(ctx context.Context, gymID string) error {
 	return nil
 }
 
-// AssignUserToGymGroup assigns a user to a specific gym's group (owner, coach, student, etc).
-func (r *RBAC) AssignUserToGymGroup(ctx context.Context, username, gymID, group string) error {
-	groupName := fmt.Sprintf("%s::%s::%s", ResourceGym, gymID, group)
+// AssignUserToGroup assigns a user to a specific gym's group (owner, coach, student, etc).
+func (r *RBAC) AssignUserToGroup(ctx context.Context, username, groupName string) error {
 	err := r.AddUserToGroup(ctx, username, groupName)
 	if err != nil {
 		return fmt.Errorf("failed to add user %s to group %s: %w", username, groupName, err)

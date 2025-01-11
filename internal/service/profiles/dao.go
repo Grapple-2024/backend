@@ -3,6 +3,7 @@ package profiles
 import (
 	"time"
 
+	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -38,11 +39,10 @@ type Profile struct {
 // GymAssociation represents a user's association to a gym.
 // A GymAssociation can either be for a student or a coach.
 type GymAssociation struct {
-	GymID            primitive.ObjectID `json:"gym_id" bson:"gym_id,omitempty"`
-	Email            string             `json:"email,omitempty" bson:"email,omitempty"`
-	CoachName        string             `json:"coach_name,omitempty" bson:"coach_name,omitempty"`
-	Role             string             `json:"role" bson:"role,omitempty"`
-	EmailPreferences *EmailPreferences  `json:"email_preferences" bson:"email_preferences,omitempty"`
+	Gym              *gyms.Gym         `json:"gym" bson:"gym,omitempty"`
+	Email            string            `json:"email,omitempty" bson:"email,omitempty"`
+	Role             string            `json:"role" bson:"role,omitempty"`
+	EmailPreferences *EmailPreferences `json:"email_preferences" bson:"email_preferences,omitempty"`
 }
 
 // EmailPreferences represent the email preferences for a specific Gym Association.

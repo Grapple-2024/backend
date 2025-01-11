@@ -444,16 +444,17 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, i
 
 		// create new gym association for this student profile
 		gymAssociation := profiles.GymAssociation{
-			CoachName: fmt.Sprintf("%s %s", gym.CoachFirstName, gym.CoachLastName),
-			GymID:     request.GymID,
-			Role:      fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, request.GymID, rbac.Students),
+			Gym:  &gym,
+			Role: fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, request.GymID, rbac.Students),
 			EmailPreferences: &profiles.EmailPreferences{
 				NotifyOnAnnouncements: true,
 				NotifyOnRequests:      false, // only used if this is a coach profile
 			},
 		}
-		if err := s.RBAC.AssignUserToGymGroup(ctx, request.RequestorEmail, request.GymID.Hex(), rbac.Students); err != nil {
-			return nil, fmt.Errorf("could not assign user to students group of gym %s: %v", request.GymID.Hex(), err)
+		gymID := request.GymID.Hex()
+		groupName := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, gymID, rbac.Students)
+		if err := s.RBAC.AssignUserToGroup(ctx, request.RequestorEmail, groupName); err != nil {
+			return nil, fmt.Errorf("could not assign user to students group of gym %s: %v", gymID, err)
 		}
 
 		// create filter & update statements, send to mongodb to update the student's profile.
