@@ -3,17 +3,17 @@ package announcements
 import (
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // Gym represents the Gym document structure in MongoDB.
 type Announcement struct {
-	ID          primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
-	GymID       primitive.ObjectID `json:"gym_id,omitempty" bson:"gym_id,omitempty" validate:"required"`
-	CoachName   string             `json:"coach_name,omitempty" bson:"coach_name,omitempty" validate:"required"`
-	CoachAvatar string             `json:"coach_avatar,omitempty" bson:"coach_avatar,omitempty" validate:"required"`
-	Title       string             `json:"title" bson:"title,omitempty" validate:"required"`
-	Content     string             `json:"content" bson:"description,omitempty" validate:"required"`
+	ID          bson.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
+	GymID       bson.ObjectID `json:"gym_id,omitempty" bson:"gym_id,omitempty" validate:"required"`
+	CoachName   string        `json:"coach_name,omitempty" bson:"coach_name,omitempty" validate:"required"`
+	CoachAvatar string        `json:"coach_avatar,omitempty" bson:"coach_avatar,omitempty" validate:"required"`
+	Title       string        `json:"title" bson:"title,omitempty" validate:"required"`
+	Content     string        `json:"content" bson:"description,omitempty" validate:"required"`
 
 	CreatedAtWeek int       `json:"created_at_week" bson:"created_at_week,omitempty"`
 	CreatedAtYear int       `json:"created_at_year" bson:"created_at_year,omitempty"`

@@ -17,19 +17,18 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
-	"gopkg.in/mgo.v2/bson"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 )
 
 // Service is the object that handles the business logic of all technique related operations.
 // Service talks to the underlying Mongo Client (Data access layer) to CRUD technique objects.
 type Service struct {
-	mongo.Session
-
+	*mongo.Session
 	*mongoext.Client
 	*mongo.Collection
 	*s3.PresignClient
@@ -49,12 +48,10 @@ func NewService(ctx context.Context, mc *mongoext.Client, videosBucketName, regi
 		PresignClient:    s3.NewPresignClient(s3.NewFromConfig(cfg)),
 	}
 
-	// Create unique index for technique names
 	if err := svc.ensureIndices(ctx); err != nil {
 		return nil, err
 	}
 
-	// Create Mongo Session (needed for transactions)
 	session, err := svc.StartSession()
 	if err != nil {
 		return nil, err
@@ -92,7 +89,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	// create the filter based on query parameters in the request
 	filter := bson.M{}
 	if gymID != "" {
-		gymObjID, err := primitive.ObjectIDFromHex(gymID)
+		gymObjID, err := bson.ObjectIDFromHex(gymID)
 		if err != nil {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
 		}
@@ -218,31 +215,19 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 // ProcessDelete handles HTTP requests for DELETE /techniques/{id}
 func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id := req.PathParameters["id"]
-	objID, err := primitive.ObjectIDFromHex(id)
+
+	// delete mongo record
+	err := mongoext.DeleteOne(ctx, s.Collection, id)
 	if err != nil {
-		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object id specified in url %q: %v", id, err))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete record: %v", err))
 	}
-
-	// create filter and options
-	filter := bson.M{"_id": objID}
-	opts := options.Delete().SetHint(bson.M{"_id": 1}) // use _id index to find object
-
-	result, err := s.Collection.DeleteOne(context.TODO(), filter, opts)
-	if err != nil {
-		return lambda.ServerError(err)
-	}
-
-	if result.DeletedCount == 0 {
-		return lambda.NewResponse(http.StatusNotFound, ``, nil), nil
-	}
-
 	return lambda.NewResponse(http.StatusOK, ``, nil), nil
 }
 
 func (s *Service) createTechnique(ctx context.Context, t *Technique) (*Technique, error) {
 	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
 
-	result, err := s.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
+	result, err := s.WithTransaction(ctx, func(sessCtx context.Context) (any, error) {
 		// Fetch the series that is being marked as a technique of the week
 		var series gym_series.GymSeries
 		seriesCollection := s.Client.Database("grapple").Collection("series")

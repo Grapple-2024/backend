@@ -3,7 +3,7 @@ package gym_requests
 import (
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // Status - Custom enum type to hold value for a request's status
@@ -17,8 +17,8 @@ const (
 
 // GymRequest represents the GymRequest document structure in MongoDB.
 type GymRequest struct {
-	ID    primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
-	GymID primitive.ObjectID `json:"gym_id" bson:"gym_id,omitempty" validate:"required"`
+	ID    bson.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
+	GymID bson.ObjectID `json:"gym_id" bson:"gym_id,omitempty" validate:"required"`
 
 	RequestorID    string `json:"requestor_id" bson:"requestor_id,omitempty" validate:"required"`
 	RequestorEmail string `json:"requestor_email" bson:"requestor_email,omitempty" validate:"required"`

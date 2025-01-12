@@ -9,17 +9,17 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/Grapple-2024/backend/internal/dao"
 	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service"
 	"github.com/Grapple-2024/backend/internal/service/gym_series"
-	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"gopkg.in/mgo.v2/bson"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 type (
@@ -34,7 +34,7 @@ type (
 	}
 
 	searchResponse struct {
-		Gyms   []gyms.Gym             `json:"gyms"`
+		Gyms   []dao.Gym              `json:"gyms"`
 		Series []gym_series.GymSeries `json:"series"`
 
 		TotalGyms   int64 `json:"total_gyms"`
@@ -51,7 +51,7 @@ type (
 	queryParams struct {
 		Page     int
 		PageSize int
-		GymID    primitive.ObjectID
+		GymID    bson.ObjectID
 		Query    string
 	}
 )
@@ -103,7 +103,7 @@ func parseQueryParams(params map[string]string) (*queryParams, error) {
 	}
 
 	if gymID != "" {
-		gymObjID, err := primitive.ObjectIDFromHex(gymID)
+		gymObjID, err := bson.ObjectIDFromHex(gymID)
 		if err != nil {
 			return nil, err
 		}
@@ -124,7 +124,7 @@ func buildSeriesFilter(params *queryParams) bson.M {
 	var or []bson.M
 
 	// Gym ID filter
-	if gymID != primitive.NilObjectID {
+	if gymID != bson.NilObjectID {
 		and = append(and, bson.M{
 			"gym_id": params.GymID,
 		})
@@ -197,13 +197,13 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 			"$options": "i",
 		}
 	}
-	if params.GymID != primitive.NilObjectID {
+	if params.GymID != bson.NilObjectID {
 		gymsFilter["gym_id"] = params.GymID
 	}
 	seriesFilter := buildSeriesFilter(params)
 
 	// Fetch gyms
-	var gyms []gyms.Gym
+	var gyms []dao.Gym
 	if err := mongoext.Paginate(ctx, s.Gyms, gymsFilter, params.Page, params.PageSize, true, &gyms); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}

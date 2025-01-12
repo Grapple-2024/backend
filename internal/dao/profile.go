@@ -1,10 +1,9 @@
-package profiles
+package dao
 
 import (
 	"time"
 
-	"github.com/Grapple-2024/backend/internal/service/gyms"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // Role enum
@@ -16,7 +15,7 @@ var (
 
 // Profile represents the Profile mongodb entity
 type Profile struct {
-	ID primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
+	ID bson.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
 
 	CognitoID string `json:"cognito_id,omitempty" bson:"cognito_id,omitempty" validate:"required"`
 
@@ -39,9 +38,9 @@ type Profile struct {
 // GymAssociation represents a user's association to a gym.
 // A GymAssociation can either be for a student or a coach.
 type GymAssociation struct {
-	Gym              *gyms.Gym         `json:"gym" bson:"gym,omitempty"`
+	Gym              *Gym              `json:"gym" bson:"gym,omitempty"`
 	Email            string            `json:"email,omitempty" bson:"email,omitempty"`
-	Role             string            `json:"role" bson:"role,omitempty"`
+	Group            string            `json:"group" bson:"group,omitempty"`
 	EmailPreferences *EmailPreferences `json:"email_preferences" bson:"email_preferences,omitempty"`
 }
 

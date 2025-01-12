@@ -11,9 +11,9 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/Grapple-2024/backend/internal/dao"
 	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service"
-	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
@@ -22,10 +22,9 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/sendgrid/sendgrid-go"
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"gopkg.in/mgo.v2/bson"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 //go:embed templates/new_announcement.html
@@ -108,7 +107,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	// create the filter based on query parameters in the request
 	filter := bson.M{}
-	gymObjID, err := primitive.ObjectIDFromHex(gymID)
+	gymObjID, err := bson.ObjectIDFromHex(gymID)
 	if err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
 	}
@@ -308,22 +307,9 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 		)
 	}
 
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object id specified in url %q: %v", id, err))
-	}
-
 	// create filter and options
-	filter := bson.M{"_id": objID}
-	opts := options.Delete().SetHint(bson.M{"_id": 1}) // use _id index to find object
-
-	result, err := s.Collection.DeleteOne(context.TODO(), filter, opts)
-	if err != nil {
+	if err := mongoext.DeleteOne(ctx, s.Collection, id); err != nil {
 		return lambda.ServerError(err)
-	}
-
-	if result.DeletedCount == 0 {
-		return lambda.NewResponse(http.StatusNotFound, ``, nil), nil
 	}
 
 	return lambda.NewResponse(http.StatusOK, ``, nil), nil
@@ -342,7 +328,7 @@ func (s *Service) notifyStudentsOnAnnouncement(ctx context.Context, a *Announcem
 
 	// fetch the gym from mongo
 	gymsColl := s.Database().Collection("gyms")
-	var gym *gyms.Gym
+	var gym *dao.Gym
 	if err := mongoext.FindByID(ctx, gymsColl, a.GymID.Hex(), &gym); err != nil {
 		return err
 	}
@@ -370,7 +356,7 @@ func (s *Service) notifyStudentsOnAnnouncement(ctx context.Context, a *Announcem
 	// aggregate list of sendgrid mail.Email types to send to SendGrid API.
 	var tos []*mail.Email
 	for _, s := range students {
-		tos = append(tos, mail.NewEmail(profiles.StudentRole, *s.Username))
+		tos = append(tos, mail.NewEmail("Student", *s.Username))
 	}
 	email := mail.NewPersonalization()
 	email.AddTos(tos...)
@@ -390,7 +376,7 @@ func (s *Service) notifyStudentsOnAnnouncement(ctx context.Context, a *Announcem
 	resp, err := s.sendGridClient.Send(payload)
 	if err != nil {
 		log.Warn().Msgf("failed to send email: %v", err)
-		return fmt.Errorf("failed to send email to coach: %v", err)
+		return fmt.Errorf("failed to send email to students: %v", err)
 	}
 	if resp.StatusCode != http.StatusAccepted {
 		log.Warn().Msgf("failed to send email: %+v", resp)

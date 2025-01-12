@@ -168,17 +168,10 @@ Resources:
             Method: PUT
             RestApiId: !Ref Gateway
 
-        AddGymCoach:
+        AssignGymRole:
           Type: Api
           Properties:
-            Path: /gyms/{id}/coaches
-            Method: PUT
-            RestApiId: !Ref Gateway
-
-        AddGymOwner:
-          Type: Api
-          Properties:
-            Path: /gyms/{id}/owners
+            Path: /gyms/{id}/assign-role
             Method: PUT
             RestApiId: !Ref Gateway
 

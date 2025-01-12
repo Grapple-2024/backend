@@ -81,8 +81,6 @@ func main() {
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envCognitoUserPoolID)
 	}
-	log.Debug().Msgf("AWS Region: %v", awsRegion)
-	log.Debug().Msgf("connected to mongo server: %s", mongoEndpoint)
 
 	// Create sendgrid client
 	sendGridClient := sendgrid.NewSendClient(sendGridAPIKey)
@@ -170,7 +168,6 @@ func main() {
 		"mapbox":        mapbox,
 	}
 
-	log.Info().Msgf("Grapple API URL: %v", os.Getenv("API_URL"))
 	router := lambda_v2.NewRouter(lambdas)
 	lambda.Start(router)
 }

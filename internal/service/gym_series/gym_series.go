@@ -18,12 +18,12 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
-	"gopkg.in/mgo.v2/bson"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 )
 
 // Service is the object that handles the business logic of all Gym Series related operations.
@@ -31,8 +31,7 @@ import (
 type Service struct {
 	*rbac.RBAC
 
-	mongo.Session
-
+	*mongo.Session
 	*mongoext.Client
 	*mongo.Collection
 	*s3.PresignClient
@@ -101,7 +100,7 @@ func (s *Service) buildGetAllFilter(req *events.APIGatewayProxyRequest, gymID st
 	var or []bson.M
 
 	// Gym ID filter
-	gymObjID, err := primitive.ObjectIDFromHex(gymID)
+	gymObjID, err := bson.ObjectIDFromHex(gymID)
 	if err != nil {
 		return nil, fmt.Errorf("invalid object ID specified for gym_id query param: %s", gymID)
 	}
@@ -455,7 +454,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
 
-		seriesObjID, err := primitive.ObjectIDFromHex(id)
+		seriesObjID, err := bson.ObjectIDFromHex(id)
 		if err != nil {
 			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid series ID: %v", err))
 		}
@@ -464,9 +463,9 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 		var filter bson.M
 		var update bson.M
-		if video.ID == primitive.NilObjectID {
+		if video.ID == bson.NilObjectID {
 			// Create a new video in the series
-			video.ID = primitive.NewObjectIDFromTimestamp(time.Now())
+			video.ID = bson.NewObjectIDFromTimestamp(time.Now())
 			video.UpdatedAt = time.Now().Local().UTC()
 			video.CreatedAt = video.UpdatedAt
 			validate := validator.New()
@@ -541,7 +540,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		log.Info().Msgf("Update: %v", update)
 
 		// update the series
-		if err := mongoext.Update(ctx, s.Collection, update, filter, &result, nil); err != nil {
+		if err := mongoext.UpdateOne(ctx, s.Collection, update, filter, &result, nil); err != nil {
 			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update series with video: %v", err))
 		}
 	default:
@@ -583,7 +582,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 		)
 	}
 
-	objID, err := primitive.ObjectIDFromHex(id)
+	objID, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object id specified in url %q: %v", id, err))
 	}
@@ -591,43 +590,32 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	videoID := req.PathParameters["video_id"]
 
 	var result any
-	var opts *options.DeleteOptions
 	var filter bson.M
 	switch req.Path {
 	case fmt.Sprintf("/gym-series/%s", id):
-		filter = bson.M{"_id": objID}
-		opts = options.Delete().SetHint(bson.M{"_id": 1}) // use series ID index to delete the object
-
-		result, err = s.Collection.DeleteOne(ctx, filter, opts)
-		if err != nil {
+		if err = mongoext.DeleteOne(ctx, s.Collection, id); err != nil {
 			return lambda_v2.ServerError(err)
 		}
 
+	// Delete a Gym Series Video
 	case fmt.Sprintf("/gym-series/%s/videos/%s", id, videoID):
 		filter = bson.M{
 			"_id": objID,
 		}
 
-		videoObjID, err := primitive.ObjectIDFromHex(videoID)
+		videoObjID, err := bson.ObjectIDFromHex(videoID)
 		if err != nil {
 			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid video ID %q: %v", videoID, err))
 		}
-
-		// re-calculate the top level disciplines/difficulties on the series with the video removed
-		var series GymSeries
-		if err := mongoext.FindByID(ctx, s.Collection, id, &series); err != nil {
-			return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("could not find series with id %q: %v", id, err))
-		}
-
-		log.Info().Msgf("len of videos before delete: %v", len(series.Videos))
 		for i := 0; i < len(series.Videos); i++ {
 			if series.Videos[i].ID == videoObjID {
-				// Remove the element at index i
+				// remove the video from the series.Videos slice
 				series.Videos = append(series.Videos[:i], series.Videos[i+1:]...)
-				// Since the slice is modified, break the loop to avoid index issues
 				break
 			}
 		}
+
+		// recalculate top-level disciplines and difficulties fields on the Series object.
 		if err := s.calculateDisciplines(&series); err != nil {
 			return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
 		}
@@ -648,7 +636,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 		}
 		log.Debug().Msgf("Deleting video from series: update: %v\n filter: %v", update, filter)
 
-		if err := mongoext.Update(ctx, s.Collection, update, filter, &result, nil); err != nil {
+		if err := mongoext.UpdateOne(ctx, s.Collection, update, filter, &result, nil); err != nil {
 			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete video %q from series %q %v", videoID, id, err))
 		}
 		log.Info().Msgf("Update result: %+v", result)
@@ -667,9 +655,9 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 }
 
 func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSeries, id string) (*GymSeries, error) {
-	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
+	transactionOptions := options.Transaction().SetReadConcern(&readconcern.ReadConcern{Level: "local"}).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
 
-	result, err := s.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (interface{}, error) {
+	result, err := s.WithTransaction(ctx, func(sessCtx context.Context) (any, error) {
 		var result GymSeries
 		if err := mongoext.UpdateByID(ctx, s.Collection, id, payload, &result, nil); err != nil {
 			return lambda_v2.ServerError(fmt.Errorf("failed to update gym record: %v", err))

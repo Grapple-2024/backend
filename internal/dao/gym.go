@@ -1,9 +1,9 @@
-package gyms
+package dao
 
 import (
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // Gym represents the Gym document structure in MongoDB.
@@ -12,12 +12,12 @@ type Gym struct {
 	// auto-computed field, not sent in request body
 	Slug string `json:"slug" bson:"slug,omitempty"`
 
-	ID          primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
-	Name        string             `json:"name" bson:"name,omitempty" validate:"alphanumeric_and_spaces"`
-	Description string             `json:"description" bson:"description,omitempty"`
+	ID          bson.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
+	Name        string        `json:"name" bson:"name,omitempty" validate:"alphanumeric_and_spaces"`
+	Description string        `json:"description" bson:"description,omitempty"`
 
 	// Should probably handle this in a separate response to avoid too large of a response when dealing with historical data
-	// TechniquesOfTheWeek []primitive.ObjectID `json:"techniques_of_the_week,omitempty" bson:"techniques_of_the_week,omitempty"`
+	// TechniquesOfTheWeek []bson.ObjectID `json:"techniques_of_the_week,omitempty" bson:"techniques_of_the_week,omitempty"`
 
 	// Cognito User ID for the creator of the gym
 	Creator string `json:"creator" bson:"creator,omitempty" validate:"required"`

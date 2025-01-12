@@ -3,14 +3,14 @@ package gym_series
 import (
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // GymSeries represents a Gym's Series document in MongoDB.
 type GymSeries struct {
 	// keys
-	ID    primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
-	GymID primitive.ObjectID `json:"gym_id" bson:"gym_id,omitempty" validate:"required"`
+	ID    bson.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
+	GymID bson.ObjectID `json:"gym_id" bson:"gym_id,omitempty" validate:"required"`
 
 	// attributes
 	Title       string  `json:"title,omitempty" bson:"title,omitempty" validate:"required"`
@@ -31,7 +31,7 @@ type GymSeries struct {
 }
 
 type Video struct {
-	ID primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
+	ID bson.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
 
 	Title       string   `json:"title,omitempty" bson:"title,omitempty" validate:"required"`
 	Description string   `json:"description,omitempty" bson:"description,omitempty" validate:"required"`

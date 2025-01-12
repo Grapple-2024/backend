@@ -3,6 +3,7 @@ package rbac
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/pkg/cognito"
@@ -69,7 +70,6 @@ type RBAC struct {
 	permissions map[string]Permission
 }
 
-// New initializes a new RBAC instance.
 func New(profileSVC *profiles.Service, cognito *cognito.Client) (*RBAC, error) {
 	r := &RBAC{
 		roles:       make(map[string]Role),
@@ -77,7 +77,6 @@ func New(profileSVC *profiles.Service, cognito *cognito.Client) (*RBAC, error) {
 		Client:      cognito,
 	}
 
-	// seed in-memory cache of roles and permissions
 	if err := r.SeedCache(context.Background()); err != nil {
 		return nil, err
 	}
@@ -86,7 +85,6 @@ func New(profileSVC *profiles.Service, cognito *cognito.Client) (*RBAC, error) {
 }
 
 func (r *RBAC) GetUser(ctx context.Context, userID string) (*User, error) {
-	// check cache before retrieving the user and their groups from Cognito
 	if val, ok := r.users[userID]; ok {
 		return &val, nil
 	}
@@ -101,56 +99,11 @@ func (r *RBAC) GetUser(ctx context.Context, userID string) (*User, error) {
 		ID: userID,
 	}
 	for _, g := range resp.Groups {
-		// g.GroupName follows the form `gym::<id>::<owner/coach/student>`, or "gym-creator"
 		u.Roles = append(u.Roles, *g.GroupName)
 	}
-	log.Info().Msgf("User has the following roles: %v", u.Roles)
+	log.Info().Msgf("User %q has the following roles: %v", userID, u.Roles)
 
 	return u, nil
-}
-
-// groupName -> eg "gym::<id>::<roleType>"
-// roleType -> eg "coach", "owner" or "student"
-func (r *RBAC) createGymRole(gymResourceID, groupName, roleType string) {
-	permissions := []string{}
-	switch roleType {
-	case Owners:
-		permissions = append(permissions,
-			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceSeries, ActionCreate),
-			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceSeries, ActionUpdate),
-			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceSeries, ActionDelete),
-
-			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceAnnouncements, ActionCreate),
-			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceAnnouncements, ActionUpdate),
-			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceAnnouncements, ActionDelete),
-
-			fmt.Sprintf("%s:%s", gymResourceID, ActionUpdate),
-			fmt.Sprintf("%s:%s", gymResourceID, ActionDelete),
-		)
-
-	case Coaches:
-		permissions = append(permissions,
-			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceSeries, ActionCreate),
-			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceSeries, ActionUpdate),
-
-			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceAnnouncements, ActionCreate),
-			fmt.Sprintf("%s:%s:%s", gymResourceID, ResourceAnnouncements, ActionUpdate),
-
-			fmt.Sprintf("%s:%s", gymResourceID, ActionUpdate),
-		)
-	case Students:
-		permissions = append(permissions, fmt.Sprintf("%s:%s", gymResourceID, ActionRead))
-
-	default:
-		log.Warn().Msgf("failed to create gym role, invalid role type: %q", roleType)
-	}
-
-	r.AddRoles([]Role{
-		{
-			Name:        groupName,
-			Permissions: permissions,
-		},
-	}...)
 }
 
 // AddRoles adds one or more roles to the RBAC system (in-memory cache).
@@ -211,7 +164,6 @@ func (r *RBAC) CreateGymRBAC(ctx context.Context, gymID string) error {
 		if err != nil {
 			return fmt.Errorf("failed to create group %s: %w", groupName, err)
 		}
-
 	}
 
 	if err := r.StoreGymRBAC(gymID); err != nil {
@@ -220,12 +172,29 @@ func (r *RBAC) CreateGymRBAC(ctx context.Context, gymID string) error {
 	return nil
 }
 
-// AssignUserToGroup assigns a user to a specific gym's group (owner, coach, student, etc).
-func (r *RBAC) AssignUserToGroup(ctx context.Context, username, groupName string) error {
-	err := r.AddUserToGroup(ctx, username, groupName)
+// AssignUserToGymRole assigns a user to a specific gym's group (owner, coach, student, etc).
+func (r *RBAC) AssignUserToGymRole(ctx context.Context, username, groupName string) error {
+	user, err := r.GetUser(ctx, username)
 	if err != nil {
+		return fmt.Errorf("failed to find user in RBAC system: %v", err)
+	}
+
+	gymGroupPrefix := strings.Join(strings.Split(groupName, "::")[:2], "::")
+	log.Info().Msgf("Gym Group Prefix: %s", gymGroupPrefix)
+	for _, role := range user.Roles {
+		if !strings.HasPrefix(role, gymGroupPrefix) {
+			continue
+		}
+		if err := r.RemoveUserFromGroup(ctx, username, role); err != nil {
+			return err
+		}
+	}
+
+	if err := r.AddUserToGroup(ctx, username, groupName); err != nil {
 		return fmt.Errorf("failed to add user %s to group %s: %w", username, groupName, err)
 	}
+	// invalid the cache for this user so we force the next RBAC IsAuthorized check to pull from cognito
+	delete(r.users, username)
 	return nil
 }
 

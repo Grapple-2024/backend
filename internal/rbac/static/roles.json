@@ -1,12 +1,5 @@
 {
-    "static": [
-        {
-            "name": "gym-creator",
-            "permissions": [
-                "gym:create"
-            ]
-        }
-    ],
+    "static": [],
     "dynamic_gym_id": [
         {
             "name": "gym::{{.GymID}}::owners",
@@ -15,8 +8,7 @@
                 "gym:{{.GymID}}:update",
                 "gym:{{.GymID}}:delete",
                 "gym:{{.GymID}}:requests:update",
-                "gym:{{.GymID}}:owners:create",
-                "gym:{{.GymID}}:coaches:create",
+                "gym:{{.GymID}}:roles:update",
                 "gym:{{.GymID}}:series:read",
                 "gym:{{.GymID}}:series:create",
                 "gym:{{.GymID}}:series:update",
@@ -35,7 +27,6 @@
                 "gym:{{.GymID}}:series:read",
                 "gym:{{.GymID}}:series:create",
                 "gym:{{.GymID}}:series:update",
-                "gym:{{.GymID}}:series:delete",
                 "gym:{{.GymID}}:announcements:read",
                 "gym:{{.GymID}}:announcements:create",
                 "gym:{{.GymID}}:announcements:update",
@@ -45,8 +36,9 @@
         {
             "name": "gym::{{.GymID}}::students",
             "permissions": [
+                "gym:{{.GymID}}:read",
                 "gym:{{.GymID}}:series:read",
-                "gym:{{.GymID}}:announcements:read",
+                "gym:{{.GymID}}:announcements:read"
             ]
         }
     ]

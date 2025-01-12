@@ -5,11 +5,11 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog/log"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readpref"
-	"gopkg.in/mgo.v2/bson"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 type Client struct {
@@ -17,7 +17,7 @@ type Client struct {
 }
 
 func New(ctx context.Context, endpoint string) (*Client, error) {
-	c, err := mongo.Connect(ctx, options.Client().ApplyURI(endpoint))
+	c, err := mongo.Connect(options.Client().ApplyURI(endpoint))
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,7 @@ func Insert(ctx context.Context, collection *mongo.Collection, payload, result a
 	}
 
 	// Find the newly created document by ID, store the result in the result variable
-	insertedID, ok := r.InsertedID.(primitive.ObjectID)
+	insertedID, ok := r.InsertedID.(bson.ObjectID)
 	if !ok {
 		return fmt.Errorf("failed to convert id to primitive ObjectID: %s", r.InsertedID)
 	}
@@ -55,41 +55,40 @@ func Find(ctx context.Context, collection *mongo.Collection, filter bson.M, resu
 }
 
 func FindByID(ctx context.Context, collection *mongo.Collection, id string, result any) error {
-	// Convert the id to a primitive.ObjectID
-	objID, err := primitive.ObjectIDFromHex(id)
+	// Convert the id to a bson.ObjectID
+	objID, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		return fmt.Errorf("failed to convert string %q to ObjectID: %v", id, err)
 	}
 
 	// Find the document by ID
 	filter := bson.M{"_id": objID}
+	log.Info().Msgf("FindOne(%v)", objID)
 	if err := collection.FindOne(ctx, filter).Decode(result); err != nil {
-		return err
+		return fmt.Errorf("failed to FindOne with filter %v: %w", filter, err)
 	}
 
 	return nil
 }
 
-// Update updates a record in mongo.
+// UpdateOne updates a record in mongo.
 // result must be a pointer!
-func Update(ctx context.Context, c *mongo.Collection, update bson.M, filter bson.M, result any, opts *options.UpdateOptions) error {
+func UpdateOne(ctx context.Context, c *mongo.Collection, update bson.M, filter bson.M, result any, opts []options.Lister[options.UpdateOneOptions]) error {
 	// update the record in mongo
-	_, err := c.UpdateOne(ctx, filter, update, opts)
+	_, err := c.UpdateOne(ctx, filter, update, opts...)
 	if err != nil {
 		return err
 	}
 
-	log.Debug().Msgf("Finding record with filter: %v in collection %s", filter, c.Name())
 	if err := Find(ctx, c, filter, result); err != nil {
 		return fmt.Errorf("failed to find mongo object with filter %v, err: %v", filter, err)
 	}
-	log.Debug().Msgf("result : %+v", result)
 
 	return nil
 }
 
-func UpdateByID(ctx context.Context, c *mongo.Collection, id string, payload any, result any, opts *options.UpdateOptions) error {
-	objID, err := primitive.ObjectIDFromHex(id)
+func UpdateByID(ctx context.Context, c *mongo.Collection, id string, payload any, result any, opts []options.Lister[options.UpdateOneOptions]) error {
+	objID, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		return err
 	}
@@ -100,7 +99,7 @@ func UpdateByID(ctx context.Context, c *mongo.Collection, id string, payload any
 	update := bson.M{"$set": payload}
 
 	// update the record in mongo
-	_, err = c.UpdateOne(ctx, filter, update, opts)
+	_, err = c.UpdateOne(ctx, filter, update, opts...)
 	if err != nil {
 		return err
 	}
@@ -112,16 +111,15 @@ func UpdateByID(ctx context.Context, c *mongo.Collection, id string, payload any
 	return nil
 }
 
-func Delete(ctx context.Context, collection *mongo.Collection, id string) error {
-	objID, err := primitive.ObjectIDFromHex(id)
+func DeleteOne(ctx context.Context, collection *mongo.Collection, id string) error {
+	objID, err := bson.ObjectIDFromHex(id)
 	if err != nil {
 		return err
 	}
-
 	filter := bson.M{"_id": objID}
-	opts := options.Delete().SetHint(bson.M{"_id": 1}) // use _id index to find object
 
-	result, err := collection.DeleteOne(context.TODO(), filter, opts)
+	opts := []options.Lister[options.DeleteOneOptions]{options.DeleteOne().SetHint(bson.M{"_id": 1})}
+	result, err := collection.DeleteOne(context.TODO(), filter, opts...)
 	if err != nil {
 		return fmt.Errorf("could not delete record with id %q: %w", id, err)
 	}

@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Grapple-2024/backend/internal/dao"
 	"github.com/Grapple-2024/backend/internal/service"
-	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/pkg/cognito"
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
@@ -19,9 +19,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/rs/zerolog/log"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"gopkg.in/mgo.v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // Service is the object that handles the business logic of all Profile related operations.
@@ -29,7 +29,7 @@ import (
 type Service struct {
 	*mongoext.Client
 	*mongo.Collection
-	mongo.Session
+	*mongo.Session
 	*s3.PresignClient
 
 	publicAssetsBucketName string
@@ -111,14 +111,14 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	// Fetch records with pagination
 
-	var records []Profile
+	var records []dao.Profile
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, &records); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
 	if records == nil {
-		records = []Profile{}
+		records = []dao.Profile{}
 		resp, err := json.Marshal(records)
 		if err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to marshal current user profiles to json: %v", err))
@@ -199,7 +199,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authorize user: %v", err))
 		}
 
-		var payload Profile
+		var payload dao.Profile
 		if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
@@ -214,8 +214,8 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			"$set": payload,
 		}
 
-		var p Profile
-		if err := mongoext.Update(ctx, s.Collection, update, filter, &p, nil); err != nil {
+		var p dao.Profile
+		if err := mongoext.UpdateOne(ctx, s.Collection, update, filter, &p, nil); err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 		}
 
@@ -246,9 +246,8 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 }
 
 func (s *Service) deleteUser(ctx context.Context, profileID string) error {
-
 	// get the profile
-	var profile Profile
+	var profile dao.Profile
 	if err := mongoext.FindByID(ctx, s.Collection, profileID, &profile); err != nil {
 		return fmt.Errorf("failed to find profile with id %s: %v", profileID, err)
 	}
@@ -287,37 +286,51 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
-// AddGymAssociation adds a gym association to a user profile object.
+// UpsertGymAssociation upserts (inserts or updates) a gym association to a user profile object.
 // It does not update any groups in Cognito or the RBAC framework.
-func AddGymAssociation(ctx context.Context, mc *mongoext.Client, gym *gyms.Gym, role string, token *service.Token) error {
+func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym, groupName string, username string) error {
 	// create new gym association for this Gym Owner
-	gymAssociation := GymAssociation{
+	gymAssociation := dao.GymAssociation{
 		Gym:   gym,
-		Email: token.Email,
-		Role:  role,
-		EmailPreferences: &EmailPreferences{
+		Email: username,
+		Group: groupName,
+		EmailPreferences: &dao.EmailPreferences{
 			NotifyOnAnnouncements: true,
 			NotifyOnRequests:      true,
 		},
 	}
 
-	// update the user profile with the new gym association
+	profiles := mc.Database("grapple").Collection("profiles")
 	filter := bson.M{
-		"cognito_id": token.Sub,
+		"email": username,
 	}
+
+	// remove the gym association first
 	update := bson.M{
+		"$pull": bson.M{
+			"gyms": bson.M{"gym._id": gym.ID},
+		},
+	}
+	var result dao.Profile
+	if err := mongoext.UpdateOne(ctx, profiles, update, filter, &result, nil); err != nil {
+		return fmt.Errorf("failed to upsert profile with filter %v: %v", filter, err)
+	}
+
+	// re-add it to ensure no duplication
+	update = bson.M{
 		"$push": bson.M{
 			"gyms": gymAssociation,
 		},
 	}
 
+	log.Info().Msgf("Upserting gym association %v to user %q", gymAssociation, username)
+
 	// Update student profile with the new gym association
-	var upsertResult Profile
-	profiles := mc.Database("grapple").Collection("profiles")
-	if err := mongoext.Update(ctx, profiles, update, filter, &upsertResult, nil); err != nil {
+	if err := mongoext.UpdateOne(ctx, profiles, update, filter, &result, nil); err != nil {
 		return fmt.Errorf("failed to upsert profile with filter %v: %v", filter, err)
 	}
 

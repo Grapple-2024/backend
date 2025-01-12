@@ -15,12 +15,8 @@
             "action": "delete"
         },
         {
-            "resource": "gym:{{.GymID}}:coaches",
-            "action": "create"
-        },
-        {
-            "resource": "gym:{{.GymID}}:owners",
-            "action": "create"
+            "resource": "gym:{{.GymID}}:roles",
+            "action": "update"
         },
         {
             "resource": "gym:{{.GymID}}:series",

@@ -76,6 +76,17 @@ func (c *Client) AddUserToGroup(ctx context.Context, username, groupName string)
 	return err
 }
 
+// RemoveUserFromGroup removes a user to a group in Cognito.
+func (c *Client) RemoveUserFromGroup(ctx context.Context, username, groupName string) error {
+	_, err := c.Client.AdminRemoveUserFromGroup(ctx, &cip.AdminRemoveUserFromGroupInput{
+		GroupName:  aws.String(groupName),
+		UserPoolId: aws.String(c.userPoolID),
+		Username:   aws.String(username),
+	})
+
+	return err
+}
+
 func (c *Client) ListGroups(ctx context.Context) (*cip.ListGroupsOutput, error) {
 	input := &cip.ListGroupsInput{
 		UserPoolId: aws.String(c.userPoolID),

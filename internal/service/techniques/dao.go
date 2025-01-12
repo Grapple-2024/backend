@@ -4,12 +4,12 @@ import (
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/service/gym_series"
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // Technique represents the "Technique" mongodb entity
 type Technique struct {
-	ID     primitive.ObjectID    `json:"id,omitempty" bson:"_id,omitempty"`
+	ID     bson.ObjectID         `json:"id,omitempty" bson:"_id,omitempty"`
 	Series *gym_series.GymSeries `json:"series,omitempty" bson:"series,omitempty" validate:"-"`
 
 	Title       string `json:"title" bson:"title,omitempty" validate:"required"`

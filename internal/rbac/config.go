@@ -102,7 +102,6 @@ func GetRBACConfig() (*RBACConfig, error) {
 		return nil, fmt.Errorf("failed to unmarshal permissions config: %v", err)
 	}
 
-	log.Info().Msgf("Got rbac config: %+v", permissionsConfig)
 	return &RBACConfig{
 		Roles:       &rolesConfig,
 		Permissions: &permissionsConfig,
@@ -146,7 +145,7 @@ func (r *RBAC) SeedCache(ctx context.Context) error {
 	for _, g := range resp.Groups {
 		parts := strings.Split(*g.GroupName, "::")
 		if len(parts) < 3 {
-			log.Debug().Msgf("Found non-dynamic group %s in Cognito! Skipping...", *g.GroupName)
+			log.Debug().Msgf("Found non-dynamic group %s in Cognito! Skipping.", *g.GroupName)
 			continue
 		}
 		gymID := parts[1]

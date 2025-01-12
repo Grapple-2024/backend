@@ -9,7 +9,6 @@ import (
 
 	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/rs/zerolog/log"
 )
 
 // Service is the object that handles the business logic of all Profile related operations.
@@ -25,8 +24,6 @@ func NewService(ctx context.Context, mapboxAPIKey string) (*Service, error) {
 	svc := &Service{
 		mapboxAPIKey: mapboxAPIKey,
 	}
-
-	log.Info().Msgf("map box api key: %v", mapboxAPIKey)
 
 	return svc, nil
 }
