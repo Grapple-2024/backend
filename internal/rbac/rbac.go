@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	owner   = "owner"
-	coach   = "coach"
-	student = "student"
+	Owner   = "owner"
+	Coach   = "coach"
+	Student = "student"
 
 	Owners   = "owners"
 	Coaches  = "coaches"
@@ -214,4 +214,20 @@ func (r *RBAC) ListUsersInGroup(ctx context.Context, group string) ([]types.User
 	}
 
 	return users, nil
+}
+
+// converts singular role name to plural group
+// ie coach -> coaches, student -> students, or owner -> owners
+func PluralGroupNameFromRole(role string) string {
+	switch role {
+	case Owner:
+		return Owners
+	case Coach:
+		return Coaches
+
+	case Student:
+		return Students
+	default:
+		return ""
+	}
 }

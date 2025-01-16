@@ -41,6 +41,7 @@ type GymAssociation struct {
 	Gym              *Gym              `json:"gym" bson:"gym,omitempty"`
 	Email            string            `json:"email,omitempty" bson:"email,omitempty"`
 	Group            string            `json:"group" bson:"group,omitempty"`
+	MembershipType   string            `json:"membership_type" bson:"membership_type,omitempty"`
 	EmailPreferences *EmailPreferences `json:"email_preferences" bson:"email_preferences,omitempty"`
 }
 

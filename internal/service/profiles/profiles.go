@@ -112,7 +112,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	// Fetch records with pagination
 
 	var records []dao.Profile
-	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, &records); err != nil {
+	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, options.Find(), &records); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 
@@ -292,8 +292,7 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 
 // UpsertGymAssociation upserts (inserts or updates) a gym association to a user profile object.
 // It does not update any groups in Cognito or the RBAC framework.
-func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym, groupName string, username string) error {
-	// create new gym association for this Gym Owner
+func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym, groupName, username string) error {
 	gymAssociation := dao.GymAssociation{
 		Gym:   gym,
 		Email: username,

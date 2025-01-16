@@ -138,6 +138,15 @@ Resources:
             Auth:
               Authorizer: NONE # Turn off Authorization for this event
 
+        GetGymStats:
+          Type: Api
+          Properties:
+            Path: /gyms/{id}/stats
+            Method: GET
+            RestApiId: !Ref Gateway
+            Auth:
+              Authorizer: NONE # Turn off Authorization for this event
+
         GetGyms:
           Type: Api
           Properties:

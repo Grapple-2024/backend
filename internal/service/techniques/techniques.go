@@ -113,7 +113,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	// Fetch records with pagination
 	var records []Technique
-	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, &records); err != nil {
+	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, options.Find(), &records); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
@@ -162,7 +162,10 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	}
 
 	// Validate request body for required fields
-	validate := validator.New()
+	validate, err := service.NewValidator()
+	if err != nil {
+		return lambda.ServerError(err)
+	}
 	if err := validate.Struct(technique); err != nil {
 		var errMsgs []string
 		for _, err := range err.(validator.ValidationErrors) {

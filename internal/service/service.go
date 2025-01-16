@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -186,4 +187,17 @@ func GeneratePresignedURL(ctx context.Context, psc *s3.PresignClient, bucketName
 	default:
 		return nil, fmt.Errorf("urlType must be either 'upload' or 'download!'")
 	}
+}
+
+func NewValidator() (*validator.Validate, error) {
+	validator := validator.New()
+	validator.RegisterTagNameFunc(func(fld reflect.StructField) string {
+		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
+		if name == "-" {
+			return ""
+		}
+		return name
+	})
+
+	return validator, nil
 }

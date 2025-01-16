@@ -12,6 +12,7 @@ import (
 	"github.com/Grapple-2024/backend/internal/dao"
 	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service"
+	"github.com/Grapple-2024/backend/internal/service/gym_requests"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/pkg/lambda_v2"
 	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
@@ -110,7 +111,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	// Fetch records with pagination
 	var records []dao.Gym
-	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, &records); err != nil {
+	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, options.Find(), &records); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to paginate gym objects: %v", err))
 	}
 	if records == nil {
@@ -131,18 +132,58 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 // ProcessGet handles HTTP requests for GET /gyms/{id}
 func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
-	// Get the gym by ID
-	var gym dao.Gym
-	if err := mongoext.FindByID(ctx, s.Collection, id, &gym); err != nil {
-		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gym by ID: %v", err))
+	var resp any
+	switch req.Path {
+	case fmt.Sprintf("/gyms/%s/stats", id):
+		log.Info().Msgf("Calculating Gym statistics...")
+
+		objID, err := bson.ObjectIDFromHex(id)
+		if err != nil {
+			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("invalid object id %q: %v", id, err))
+		}
+
+		filter := bson.M{
+			"gym_id": objID,
+			"status": gym_requests.RequestAccepted,
+		}
+		var memberships []gym_requests.GymRequest
+		collection := s.Database().Collection("gymRequests")
+		if err := gym_requests.Find(ctx, collection, filter, &memberships); err != nil {
+			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gym requests: %v", err))
+		}
+
+		virtualMembers := 0
+		inPersonMembers := 0
+		for _, member := range memberships {
+			switch member.MembershipType {
+			case gym_requests.InPersonMembership:
+				inPersonMembers++
+			case gym_requests.VirtualMembership:
+				virtualMembers++
+			}
+		}
+		resp = map[string]any{
+			"members": map[string]int{
+				"in_person": inPersonMembers,
+				"virtual":   virtualMembers,
+				"total":     len(memberships),
+			},
+		}
+	default:
+		var gym dao.Gym
+		if err := mongoext.FindByID(ctx, s.Collection, id, &gym); err != nil {
+			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gym by ID: %v", err))
+		}
+		resp = gym
 	}
 
-	// Return record as JSON
-	json, err := json.Marshal(gym)
+	json, err := json.Marshal(resp)
 	if err != nil {
 		return lambda.ServerError(err)
 	}
+
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
+
 }
 
 // ProcessPost handless the creation of a dao.Gym
@@ -318,11 +359,11 @@ func (s *Service) assignRole(ctx context.Context, gym *dao.Gym, payload map[stri
 	}
 	if role == "" {
 		return fmt.Errorf("must specify role to assign in the 'role' body field")
-	} else if role != rbac.Owners && role != rbac.Students && role != rbac.Coaches {
-		return fmt.Errorf("must specify a valid role name in the 'role' field: [owners, coaches, students]")
+	} else if role != rbac.Owner && role != rbac.Student && role != rbac.Coach {
+		return fmt.Errorf("must specify a valid role name in the 'role' field: [owner, coach, student]")
 	}
 
-	groupName := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, gym.ID.Hex(), role)
+	groupName := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, gym.ID.Hex(), rbac.PluralGroupNameFromRole(role))
 	if err := s.RBAC.AssignUserToGymRole(ctx, username, groupName); err != nil {
 		return fmt.Errorf("failed to assign user %s to cognito group %s", username, groupName)
 	}
@@ -335,7 +376,6 @@ func (s *Service) assignRole(ctx context.Context, gym *dao.Gym, payload map[stri
 
 // ensureIndices ensures the proper indices are creatd for the 'gyms' collection.
 func (s *Service) ensureIndices(ctx context.Context) error {
-	// dao.Gym name index
 	_, err := s.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.M{
 			"name": 1,
@@ -346,7 +386,6 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 		return err
 	}
 
-	// Slug index
 	_, err = s.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.M{
 			"slug": 1,
@@ -365,7 +404,10 @@ func (s *Service) createGym(ctx context.Context, gym *dao.Gym, token *service.To
 	gym.Creator = token.Sub
 
 	// Validate request body for required fields
-	validate := validator.New()
+	validate, err := service.NewValidator()
+	if err != nil {
+		return nil, err
+	}
 	validate.RegisterValidation("alphanumeric_and_spaces", service.IsAlphaNumericAndSpaces)
 	validate.RegisterValidation("is_state", service.IsState)
 

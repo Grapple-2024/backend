@@ -20,6 +20,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type (
@@ -204,13 +205,13 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	// Fetch gyms
 	var gyms []dao.Gym
-	if err := mongoext.Paginate(ctx, s.Gyms, gymsFilter, params.Page, params.PageSize, true, &gyms); err != nil {
+	if err := mongoext.Paginate(ctx, s.Gyms, gymsFilter, params.Page, params.PageSize, true, options.Find(), &gyms); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 
 	// Fetch Series
 	var series []gym_series.GymSeries
-	if err := mongoext.Paginate(ctx, s.Series, seriesFilter, params.Page, params.PageSize, true, &series); err != nil {
+	if err := mongoext.Paginate(ctx, s.Series, seriesFilter, params.Page, params.PageSize, true, options.Find(), &series); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 

@@ -65,27 +65,38 @@ func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgr
 		return nil, err
 	}
 	svc.Session = session
+	if err := svc.ensureIndices(ctx); err != nil {
+		return nil, err
+	}
 
 	return svc, nil
 }
 
-// ProcessGetAll handles HTTP requests for GET /gym-requests/
-// TODO: remove dynamodb map after switching off fully
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
-	// Parse filter query params
 	showByWeek := req.QueryStringParameters["show_by_week"]
 	gymID := req.QueryStringParameters["gym_id"]
 	gymStatus := req.QueryStringParameters["status"]
 	requestorID := req.QueryStringParameters["requestor"]
+	sortColumn := req.QueryStringParameters["sort_column"]
+	if sortColumn == "" {
+		sortColumn = "first_name"
+	}
+	sortDirection := req.QueryStringParameters["sort_direction"]
+	if sortDirection == "" {
+		sortDirection = "-1"
+	}
+	sortDirectionInt, err := strconv.Atoi(sortDirection)
+	if err != nil {
+		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &sort_direction query parameter: must be one of [1 or -1]")
+	}
 
-	// parse pagination query params
 	page := req.QueryStringParameters["page"]
 	if page == "" {
-		page = "1" // default to first page
+		page = "1"
 	}
 	pageSize := req.QueryStringParameters["page_size"]
 	if pageSize == "" {
-		pageSize = "10" // default to 10 records per page
+		pageSize = "10"
 	}
 	pageSizeInt, err := strconv.Atoi(pageSize)
 	if err != nil && pageSize != "" {
@@ -96,7 +107,6 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
 	}
 
-	// create the filter based on query parameters in the request
 	filter := bson.M{}
 	if gymID != "" {
 		gymObjID, err := bson.ObjectIDFromHex(gymID)
@@ -125,22 +135,32 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	// Fetch records with pagination
-	var records []GymRequest
-	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, true, &records); err != nil {
+	var requests []GymRequest
+	opts := options.Find().SetSort(bson.M{sortColumn: sortDirectionInt}) // -1 = DESCENDING (newest at the top), 1 = ASCENDING (oldest at the top)
+	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, opts, &requests); err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
-	if records == nil {
-		records = []GymRequest{}
+	if requests == nil {
+		requests = []GymRequest{}
 	}
 
-	// Get the total count of documents
+	// join the profiles collection on each gym request
+	for i, req := range requests {
+		profile, err := s.getProfileByCognitoID(ctx, req.RequestorID)
+		if err != nil {
+			log.Warn().Msgf("Could not find profile by gym request! Highly likely this is a data consistency issue: %v", err)
+			continue
+		}
+		requests[i].Profile = profile
+	}
+
 	totalCount, err := s.Collection.CountDocuments(ctx, filter, nil)
 	if err != nil {
 		return lambda_v2.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
-	resp, err := service.NewGetAllResponse("gymRequests", records, totalCount, len(records), pageInt, pageSizeInt)
+	resp, err := service.NewGetAllResponse("gymRequests", requests, totalCount, len(requests), pageInt, pageSizeInt)
 	if err != nil {
 		return lambda_v2.ServerError(err)
 	}
@@ -163,23 +183,27 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 	return lambda_v2.NewResponse(http.StatusOK, string(json), nil), nil
 }
 
-// ProcessPost handles HTTP requests for POST /gymRequests
+// ProcessPost handles HTTP requests for POST /gym-requests
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-
 	var payload GymRequest
 	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 	}
 	payload.Status = RequestPending
 
-	// Validate request body for required fields
-	validate := validator.New()
+	validate, err := service.NewValidator()
+	if err != nil {
+		return lambda_v2.ServerError(err)
+	}
 	if err := validate.Struct(payload); err != nil {
 		var errMsgs []string
 		for _, err := range err.(validator.ValidationErrors) {
 			errMsgs = append(errMsgs, fmt.Sprintf("Field '%s' failed validation with tag '%s'", err.Field(), err.Tag()))
 		}
-		return lambda_v2.ClientError(http.StatusUnprocessableEntity, errMsgs...)
+		return lambda_v2.ClientError(http.StatusBadRequest, errMsgs...)
+	}
+	if err := validateMembershipType(payload.MembershipType); err != nil {
+		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
 	}
 
 	gymsColl := s.Database().Collection("gyms")
@@ -210,14 +234,13 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	return lambda_v2.NewResponse(http.StatusCreated, string(resp), nil), nil
 }
 
-// ProcessPut handles HTTP requests for PUT /gymRequests/{id}
+// ProcessPut handles HTTP requests for PUT /gym-requests/{id}
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
 		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	}
 
-	// get payload and validate it
 	var payload GymRequest
 	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
@@ -226,15 +249,12 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		return lambda_v2.ClientError(http.StatusBadRequest, "invalid value for status field, must be one of [Pending, Accepted, Denied]")
 	}
 
-	// get gym request
 	id := req.PathParameters["id"]
 	var request GymRequest
 	if err := mongoext.FindByID(ctx, s.Collection, id, &request); err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find gym request with ID %s: %v", id, err))
-
 	}
 
-	// check permissions
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, request.GymID.Hex(), rbac.ResourceGymRequests) // gym:<gym_id>:requests
 	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionUpdate)
 	if err != nil {
@@ -270,24 +290,28 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	return lambda_v2.NewResponse(http.StatusOK, ``, nil), nil
 }
 
-func (s *Service) notifyStudent(ctx context.Context, request *GymRequest) error {
-	// get the profile for this student
-	profilesColl := s.Client.Database("grapple").Collection("profiles")
-	filter := bson.M{
-		"cognito_id": request.RequestorID,
-	}
+func (s *Service) getProfileByCognitoID(ctx context.Context, cognitoSubID string) (*dao.Profile, error) {
+	c := s.Client.Database("grapple").Collection("profiles")
+	filter := bson.M{"cognito_id": cognitoSubID}
 	var profile dao.Profile
-	if err := mongoext.Find(ctx, profilesColl, filter, &profile); err != nil {
-		return fmt.Errorf("could not find any profile with cognito id %q: %v", request.RequestorID, err)
+	if err := mongoext.FindOne(ctx, c, filter, &profile); err != nil {
+		return nil, fmt.Errorf("could not find any profile with cognito id %q: %v", cognitoSubID, err)
 	}
 
-	log.Info().Msgf("Got profile for student: %v", profile)
+	return &profile, nil
+}
+
+func (s *Service) notifyStudent(ctx context.Context, request *GymRequest) error {
+	profile, err := s.getProfileByCognitoID(ctx, request.RequestorID)
+	if err != nil {
+		return err
+	}
+
 	if !profile.NotifyOnRequestAccepted {
 		log.Warn().Msgf("Student has disabled notifications for new requests, nothing will be sent")
 		return nil
 	}
 
-	// execute the template for the email
 	tmpl, err := template.New("").Parse(requestAcceptedEmailTmpl)
 	if err != nil {
 		return fmt.Errorf("failed to parse template: %v", err)
@@ -449,4 +473,57 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, r
 	}
 
 	return nil, err
+}
+
+func Find(ctx context.Context, collection *mongo.Collection, filter bson.M, result *[]GymRequest) error {
+	cursor, err := collection.Find(ctx, filter, nil)
+	if err != nil {
+		return err
+	}
+
+	for cursor.Next(ctx) {
+		var request GymRequest
+		if err := cursor.Decode(&request); err != nil {
+			return err
+		}
+		log.Info().Msgf("Cursor decoded %v", request)
+
+		*result = append(*result, request)
+	}
+
+	if err := cursor.Err(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Service) ensureIndices(ctx context.Context) error {
+	indexModel := mongo.IndexModel{
+		Keys:    bson.D{{"gym_id", 1}, {"requestor_id", -1}},
+		Options: options.Index().SetUnique(true),
+	}
+
+	_, err := s.Indexes().CreateOne(ctx, indexModel)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateMembershipType(membershipType string) error {
+	switch membershipType {
+	case VirtualMembership:
+		return nil
+	case InPersonMembership:
+		return nil
+
+	default:
+		return fmt.Errorf("invalid membership type: %v, must be one of [%s, %s]",
+			membershipType,
+			VirtualMembership,
+			InPersonMembership,
+		)
+	}
 }

@@ -221,7 +221,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	// Fetch records with pagination
 	var records []GymSeries
-	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, true, &records); err != nil {
+	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, true, options.Find(), &records); err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
@@ -306,7 +306,10 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	}
 
 	// Validate request body for required fields
-	validate := validator.New()
+	validate, err := service.NewValidator()
+	if err != nil {
+		return lambda_v2.ServerError(err)
+	}
 	if err := validate.Struct(payload); err != nil {
 		var errMsgs []string
 		for _, err := range err.(validator.ValidationErrors) {
@@ -351,7 +354,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	}
 	var series GymSeries
 	if err := mongoext.FindByID(ctx, s.Collection, id, &series); err != nil {
-		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("could not find series with id %q: %v", id, err))
+		return lambda_v2.ClientError(http.StatusNotFound, err.Error())
 	}
 
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, series.GymID.Hex(), rbac.ResourceSeries) // gym:<gym_id>:series
@@ -561,6 +564,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 // 2. DELETE /gym-series/{id}/videos/{id}.
 func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id := req.PathParameters["id"]
+	videoID := req.PathParameters["video_id"]
 
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
@@ -569,10 +573,10 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 
 	var series GymSeries
 	if err := mongoext.FindByID(ctx, s.Collection, id, &series); err != nil {
-		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("could not find series with id %q: %v", id, err))
+		return lambda_v2.ClientError(http.StatusNotFound, err.Error())
 	}
 
-	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, series.GymID, rbac.ResourceSeries) // gym:<gym_id>:series
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, series.GymID, rbac.ResourceSeries)
 	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionDelete)
 	if err != nil {
 		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
@@ -586,8 +590,6 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	if err != nil {
 		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object id specified in url %q: %v", id, err))
 	}
-
-	videoID := req.PathParameters["video_id"]
 
 	var result any
 	var filter bson.M

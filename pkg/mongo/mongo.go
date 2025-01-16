@@ -48,9 +48,8 @@ func Insert(ctx context.Context, collection *mongo.Collection, payload, result a
 	return nil
 }
 
-func Find(ctx context.Context, collection *mongo.Collection, filter bson.M, result any) error {
+func FindOne(ctx context.Context, collection *mongo.Collection, filter bson.M, result any) error {
 	res := collection.FindOne(ctx, filter)
-
 	return res.Decode(result)
 }
 
@@ -80,7 +79,7 @@ func UpdateOne(ctx context.Context, c *mongo.Collection, update bson.M, filter b
 		return err
 	}
 
-	if err := Find(ctx, c, filter, result); err != nil {
+	if err := FindOne(ctx, c, filter, result); err != nil {
 		return fmt.Errorf("failed to find mongo object with filter %v, err: %v", filter, err)
 	}
 
@@ -131,12 +130,9 @@ func DeleteOne(ctx context.Context, collection *mongo.Collection, id string) err
 	return nil
 }
 
-func Paginate(ctx context.Context, c *mongo.Collection, filter bson.M, page int, pageSize int, sortByCreated bool, result any) error {
-	// Calculate the number of documents to skip
+func Paginate(ctx context.Context, c *mongo.Collection, filter bson.M, page, pageSize int, sortByCreated bool, opts *options.FindOptionsBuilder, result any) error {
 	skip := (page - 1) * pageSize
 
-	// Query options
-	opts := options.Find()
 	opts.SetSkip(int64(skip))
 	opts.SetLimit(int64(pageSize))
 
@@ -144,17 +140,11 @@ func Paginate(ctx context.Context, c *mongo.Collection, filter bson.M, page int,
 		opts.SetSort(bson.M{"created_at": -1}) // -1 = DESCENDING (newest at the top)
 	}
 
-	// Execute the query
 	cursor, err := c.Find(ctx, filter, opts)
 	if err != nil {
 		return err
 	}
 	defer cursor.Close(ctx)
 
-	// Collect and return results
-	if err = cursor.All(ctx, result); err != nil {
-		return err
-	}
-
-	return nil
+	return cursor.All(ctx, result)
 }
