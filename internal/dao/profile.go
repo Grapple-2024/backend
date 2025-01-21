@@ -38,9 +38,10 @@ type Profile struct {
 // GymAssociation represents a user's association to a gym.
 // A GymAssociation can either be for a student or a coach.
 type GymAssociation struct {
-	Gym              *Gym              `json:"gym" bson:"gym,omitempty"`
-	Email            string            `json:"email,omitempty" bson:"email,omitempty"`
-	Group            string            `json:"group" bson:"group,omitempty"`
+	Gym              *Gym              `json:"gym" bson:"_"`
+	GymID            bson.ObjectID     `json:"gym_id" bson:"gym_id"`
+	Email            string            `json:"email,omitempty" bson:"email"`
+	Group            string            `json:"group" bson:"group"`
 	MembershipType   string            `json:"membership_type" bson:"membership_type,omitempty"`
 	EmailPreferences *EmailPreferences `json:"email_preferences" bson:"email_preferences,omitempty"`
 }

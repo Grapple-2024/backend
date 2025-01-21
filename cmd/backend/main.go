@@ -15,7 +15,7 @@ import (
 	"github.com/Grapple-2024/backend/internal/service/search"
 	"github.com/Grapple-2024/backend/internal/service/techniques"
 	"github.com/Grapple-2024/backend/pkg/cognito"
-	"github.com/Grapple-2024/backend/pkg/lambda_v2"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/rs/zerolog"
@@ -156,7 +156,7 @@ func main() {
 	}
 
 	// Register handlers to their base endpoints
-	lambdas := map[string]lambda_v2.Lambda{
+	lambdas := map[string]lambda.Lambda{
 		// v2 endpoints are using mongodb
 		"profiles":      profiles,
 		"gyms":          gyms,
@@ -168,6 +168,6 @@ func main() {
 		"mapbox":        mapbox,
 	}
 
-	router := lambda_v2.NewRouter(lambdas)
+	router := lambda.NewRouter(lambdas)
 	lambda.Start(router)
 }

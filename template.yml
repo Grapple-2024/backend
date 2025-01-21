@@ -32,6 +32,10 @@ Parameters:
       Description: "The endpoint for dynamodb"
       Type: 'String'
       Default: ""
+    UserPoolARN:
+      Description: "full ARN of Cognito user pool"
+      Type: 'String'
+      Default: ""
     CognitoClientSecret:
       Description: "The cognito client secret"
       Type: 'String'
@@ -48,6 +52,7 @@ Parameters:
       Description: "The Mapbox API secret key"
       Type: 'String'
       Default: ""
+    
 
 Resources:
   Gateway:
@@ -76,9 +81,9 @@ Resources:
         DefaultAuthorizer: MyCognitoAuth # OPTIONAL
         Authorizers:
           MyCognitoAuth:
-            UserPoolArn: arn:aws:cognito-idp:us-west-1:381491926210:userpool/us-west-1_HT5oR6AwO # Can also accept an array
-            Identity: # OPTIONAL
-              Header: Authorization # OPTIONAL; Default: 'Authorization'
+            UserPoolArn: !Ref UserPoolARN
+            Identity:
+              Header: Authorization
 
   CreateProfileOnSignupLambda:
     Type: AWS::Serverless::Function

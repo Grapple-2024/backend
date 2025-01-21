@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
-	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/aws/aws-lambda-go/events"
 )
 

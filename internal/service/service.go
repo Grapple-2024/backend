@@ -123,7 +123,7 @@ func GetToken(hdrs map[string]string) (*Token, error) {
 	tokenString := strings.TrimSpace(bearer[1])
 
 	regionID := "us-west-1"
-	userPoolID := "us-west-1_HT5oR6AwO"
+	userPoolID := os.Getenv("COGNITO_USER_POOL_ID")
 	jwksURL := fmt.Sprintf("https://cognito-idp.%s.amazonaws.com/%s/.well-known/jwks.json", regionID, userPoolID)
 
 	// Create the keyfunc.Keyfunc.

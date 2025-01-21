@@ -11,8 +11,7 @@ import (
 	"github.com/Grapple-2024/backend/internal/dao"
 	"github.com/Grapple-2024/backend/internal/service"
 	"github.com/Grapple-2024/backend/pkg/cognito"
-	"github.com/Grapple-2024/backend/pkg/lambda_v2"
-	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -110,20 +109,30 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	// Fetch records with pagination
-
-	var records []dao.Profile
-	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, options.Find(), &records); err != nil {
+	var profiles []dao.Profile
+	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, options.Find(), &profiles); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
-	if records == nil {
-		records = []dao.Profile{}
-		resp, err := json.Marshal(records)
+	if profiles == nil {
+		resp, err := json.Marshal([]dao.Profile{})
 		if err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to marshal current user profiles to json: %v", err))
 		}
 		return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
+	}
+
+	for i, profile := range profiles {
+		for j, membership := range profile.Gyms {
+			var gym dao.Gym
+			gymsColl := s.Database().Collection("gyms")
+			if err := mongoext.FindByID(ctx, gymsColl, membership.GymID.Hex(), &gym); err != nil {
+				return lambda.ServerError(fmt.Errorf("failed to find gym for gym membership! DATA INCONSISTENCY ERROR: %v", err))
+			}
+
+			profiles[i].Gyms[j].Gym = &gym
+		}
 	}
 
 	// Get the total count of documents
@@ -134,7 +143,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	var result []byte
 	if req.QueryStringParameters["current_user"] == "true" {
-		profile := records[0]
+		profile := profiles[0]
 
 		// marshal response as single profile object for easier frontend consumption
 		resp, err := json.Marshal(profile)
@@ -144,7 +153,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		result = resp
 	} else {
 		// marshal response as array
-		result, err = service.NewGetAllResponse("profiles", records, totalCount, len(records), pageInt, pageSizeInt)
+		result, err = service.NewGetAllResponse("profiles", profiles, totalCount, len(profiles), pageInt, pageSizeInt)
 		if err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to create response: %v", err))
 		}
@@ -240,7 +249,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	id := req.PathParameters["id"]
 
 	if err := s.deleteUser(ctx, id); err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete profile with ID %q: %v", id, err))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete profile with ID %q: %v", id, err))
 	}
 	return lambda.NewResponse(http.StatusOK, ``, nil), nil
 }
@@ -294,6 +303,7 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 // It does not update any groups in Cognito or the RBAC framework.
 func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym, groupName, username string) error {
 	gymAssociation := dao.GymAssociation{
+		GymID: gym.ID,
 		Gym:   gym,
 		Email: username,
 		Group: groupName,

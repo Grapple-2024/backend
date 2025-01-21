@@ -14,8 +14,7 @@ import (
 	"github.com/Grapple-2024/backend/internal/service"
 	"github.com/Grapple-2024/backend/internal/service/gym_requests"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
-	"github.com/Grapple-2024/backend/pkg/lambda_v2"
-	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -200,7 +199,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 
 	result, err := s.createGymTX(ctx, token, &gym)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to finish createGymTX: %v", err))
+		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to finish createGymTX: %v", err))
 	}
 
 	resp, err := json.Marshal(result)

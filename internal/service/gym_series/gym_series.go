@@ -10,7 +10,7 @@ import (
 
 	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service"
-	"github.com/Grapple-2024/backend/pkg/lambda_v2"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -176,21 +176,21 @@ func (s *Service) buildGetAllFilter(req *events.APIGatewayProxyRequest, gymID st
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authenticate:: %v", err))
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authenticate:: %v", err))
 	}
 
 	gymID := req.QueryStringParameters["gym_id"]
 	if gymID == "" {
-		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("required query param ?gym_id not present"))
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("required query param ?gym_id not present"))
 	}
 
 	// check permission to read series on this gym
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymID, rbac.ResourceSeries) // gym:<gym_id>:series
 	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
-		return lambda_v2.ClientError(http.StatusForbidden,
+		return lambda.ClientError(http.StatusForbidden,
 			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionRead, resourceID),
 		)
 	}
@@ -198,7 +198,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	// Parse filter query params
 	filter, err := s.buildGetAllFilter(&req, gymID)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid filter param: %v", err))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid filter param: %v", err))
 	}
 
 	// parse pagination query params
@@ -212,17 +212,17 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 	pageSizeInt, err := strconv.Atoi(pageSize)
 	if err != nil && pageSize != "" {
-		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &page_size query parameter: "+pageSize)
+		return lambda.ClientError(http.StatusBadRequest, "invalid &page_size query parameter: "+pageSize)
 	}
 	pageInt, err := strconv.Atoi(page)
 	if err != nil && page != "" {
-		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
+		return lambda.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
 	}
 
 	// Fetch records with pagination
 	var records []GymSeries
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, true, options.Find(), &records); err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
 	if records == nil {
@@ -231,76 +231,76 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	// generate presigned url for each video in the series
 	if err := s.generatePresignedURLs(ctx, records); err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
+		return lambda.ClientError(http.StatusBadRequest, err.Error())
 	}
 
 	// Get the total count of documents
 	totalCount, err := s.Collection.CountDocuments(ctx, filter, nil)
 	if err != nil {
-		return lambda_v2.ServerError(fmt.Errorf("error counting documents: %v", err))
+		return lambda.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
 	resp, err := service.NewGetAllResponse("gym-series", records, totalCount, len(records), pageInt, pageSizeInt)
 	if err != nil {
-		return lambda_v2.ServerError(err)
+		return lambda.ServerError(err)
 	}
-	return lambda_v2.NewResponse(http.StatusOK, string(resp), nil), nil
+	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
 // ProcessGet handles HTTP requests for GET /gym-series/{id}
 func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authenticate:: %v", err))
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authenticate:: %v", err))
 	}
 
 	// Get the gymSeries by ID
 	var gymSeries GymSeries
 	if err := mongoext.FindByID(ctx, s.Collection, id, &gymSeries); err != nil {
-		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gymSeries by ID: %v", err))
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gymSeries by ID: %v", err))
 	}
 
 	// check permission to read series on this gym
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymSeries.GymID, rbac.ResourceSeries) // gym:<gym_id>:series
 	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
-		return lambda_v2.ClientError(http.StatusForbidden,
+		return lambda.ClientError(http.StatusForbidden,
 			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionRead, resourceID),
 		)
 	}
 
 	// generate presigned urls for each video in the series
 	if err := s.generatePresignedURLs(ctx, []GymSeries{gymSeries}); err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
+		return lambda.ClientError(http.StatusBadRequest, err.Error())
 	}
 	// Return record as JSON
 	json, err := json.Marshal(gymSeries)
 	if err != nil {
-		return lambda_v2.ServerError(err)
+		return lambda.ServerError(err)
 	}
-	return lambda_v2.NewResponse(http.StatusOK, string(json), nil), nil
+	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
 
 // ProcessPost handles HTTP requests for POST /gym-series
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	var payload GymSeries
 	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
-		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 	}
 
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, payload.GymID.Hex(), rbac.ResourceSeries) // gym:<gym_id>:series
 	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionCreate)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
-		return lambda_v2.ClientError(http.StatusForbidden,
+		return lambda.ClientError(http.StatusForbidden,
 			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionCreate, resourceID),
 		)
 	}
@@ -308,14 +308,14 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	// Validate request body for required fields
 	validate, err := service.NewValidator()
 	if err != nil {
-		return lambda_v2.ServerError(err)
+		return lambda.ServerError(err)
 	}
 	if err := validate.Struct(payload); err != nil {
 		var errMsgs []string
 		for _, err := range err.(validator.ValidationErrors) {
 			errMsgs = append(errMsgs, fmt.Sprintf("Field '%s' failed validation with tag '%s'", err.Field(), err.Tag()))
 		}
-		return lambda_v2.ClientError(http.StatusUnprocessableEntity, errMsgs...)
+		return lambda.ClientError(http.StatusUnprocessableEntity, errMsgs...)
 	}
 
 	payload.CreatedAt = time.Now().Local().UTC()
@@ -325,15 +325,15 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	// insert the series (payload), store the resulting record in 'result' variable
 	var result GymSeries
 	if err := mongoext.Insert(ctx, s.Collection, payload, &result); err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to insert gym request ooc: %v", err))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to insert gym request ooc: %v", err))
 	}
 
 	resp, err := json.Marshal(result)
 	if err != nil {
-		return lambda_v2.ServerError(err)
+		return lambda.ServerError(err)
 	}
 
-	return lambda_v2.NewResponse(http.StatusCreated, string(resp), nil), nil
+	return lambda.NewResponse(http.StatusCreated, string(resp), nil), nil
 }
 
 // ProcessPut handles HTTP requests for three endpoints:
@@ -345,24 +345,24 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	id := req.PathParameters["id"]
 	if id == "" {
-		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("must specify {id} in request url"))
+		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("must specify {id} in request url"))
 	}
 	var series GymSeries
 	if err := mongoext.FindByID(ctx, s.Collection, id, &series); err != nil {
-		return lambda_v2.ClientError(http.StatusNotFound, err.Error())
+		return lambda.ClientError(http.StatusNotFound, err.Error())
 	}
 
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, series.GymID.Hex(), rbac.ResourceSeries) // gym:<gym_id>:series
 	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionUpdate)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
-		return lambda_v2.ClientError(http.StatusForbidden,
+		return lambda.ClientError(http.StatusForbidden,
 			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionUpdate, resourceID),
 		)
 	}
@@ -374,17 +374,17 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	case "/gym-series/presign-thumbnail":
 		file := req.QueryStringParameters["file"]
 		if file == "" {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=thumbnail.png"))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=thumbnail.png"))
 		}
 		gymID := req.QueryStringParameters["gym_id"]
 		if gymID == "" {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the gym id via ?gym_id parameter, ie ?gym_id=abc123"))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the gym id via ?gym_id parameter, ie ?gym_id=abc123"))
 		}
 		now := time.Now().Unix()
 		key := fmt.Sprintf("%s/thumbnails/%d_%s", gymID, now, file)
 		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.publicAssetsBucketName, "upload", key)
 		if err != nil {
-			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
+			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
 		}
 
 		s3ObjectURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.publicAssetsBucketName, "us-west-1", key)
@@ -401,7 +401,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	case fmt.Sprintf("/gym-series/%s", id):
 		var gymSeries GymSeries
 		if err := json.Unmarshal([]byte(req.Body), &gymSeries); err != nil {
-			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
 		// if gymSeries.Videos != nil {
 		// 	log.Warn().Msgf("must use /gym-series/{id}/videos/{id} to update a video in a series")
@@ -414,22 +414,22 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			gymSeries.Difficulties = nil
 		}
 		if err := s.calculateDisciplines(&gymSeries); err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add disciplines to series: %v", err))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add disciplines to series: %v", err))
 		}
 		if err := s.calculateDifficulties(&gymSeries); err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
 		}
 
 		// update the record in mongo
 		if err := mongoext.UpdateByID(ctx, s.Collection, id, gymSeries, &result, nil); err != nil {
-			return lambda_v2.ServerError(fmt.Errorf("failed to update gym record: %v", err))
+			return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 		}
 
 	case fmt.Sprintf("/gym-series/%s/presign", id):
 		// uploading a video to the series, generate presigned upload URL
 		file := req.QueryStringParameters["file"]
 		if file == "" {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=video1.mp4"))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=video1.mp4"))
 		}
 
 		randomUID := time.Now().UnixNano()
@@ -438,7 +438,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		log.Debug().Msgf("Generating presigned upload url for a new series video %q in series %q", file, id)
 		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "upload", key)
 		if err != nil {
-			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
+			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
 		}
 		resp := struct {
 			*v4.PresignedHTTPRequest
@@ -454,12 +454,12 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		// TOOD: separate this logic out into func getUpdateVideoFilter()
 		var video Video
 		if err := json.Unmarshal([]byte(req.Body), &video); err != nil {
-			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
 
 		seriesObjID, err := bson.ObjectIDFromHex(id)
 		if err != nil {
-			return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid series ID: %v", err))
+			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid series ID: %v", err))
 		}
 
 		// re-calculate the top level disciplines/difficulties on the series
@@ -479,15 +479,15 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 				for _, err := range err.(validator.ValidationErrors) {
 					errMsgs = append(errMsgs, fmt.Sprintf("Field '%s' failed validation with tag '%s'", err.Field(), err.Tag()))
 				}
-				return lambda_v2.ClientError(http.StatusUnprocessableEntity, errMsgs...)
+				return lambda.ClientError(http.StatusUnprocessableEntity, errMsgs...)
 			}
 
 			series.Videos = append(series.Videos, video)
 			if err := s.calculateDisciplines(&series); err != nil {
-				return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add disciplines to series: %v", err))
+				return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add disciplines to series: %v", err))
 			}
 			if err := s.calculateDifficulties(&series); err != nil {
-				return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
+				return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
 			}
 
 			// create a new video
@@ -514,10 +514,10 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 				series.Videos[i].Difficulty = video.Difficulty
 			}
 			if err := s.calculateDisciplines(&series); err != nil {
-				return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add disciplines to series: %v", err))
+				return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add disciplines to series: %v", err))
 			}
 			if err := s.calculateDifficulties(&series); err != nil {
-				return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
+				return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
 			}
 
 			// Update an existing video in the series
@@ -544,19 +544,19 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 		// update the series
 		if err := mongoext.UpdateOne(ctx, s.Collection, update, filter, &result, nil); err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update series with video: %v", err))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update series with video: %v", err))
 		}
 	default:
-		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("invalid request url: %v", req.Path))
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("invalid request url: %v", req.Path))
 	}
 
 	// Marshal result to JSON and return it in the response
 	resp, err := json.Marshal(result)
 	if err != nil {
-		return lambda_v2.ServerError(fmt.Errorf("failed to marshal response: %v", err))
+		return lambda.ServerError(fmt.Errorf("failed to marshal response: %v", err))
 	}
 
-	return lambda_v2.NewResponse(http.StatusOK, string(resp), nil), nil
+	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
 // ProcessDelete handles HTTP requests for
@@ -568,27 +568,27 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	var series GymSeries
 	if err := mongoext.FindByID(ctx, s.Collection, id, &series); err != nil {
-		return lambda_v2.ClientError(http.StatusNotFound, err.Error())
+		return lambda.ClientError(http.StatusNotFound, err.Error())
 	}
 
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, series.GymID, rbac.ResourceSeries)
 	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionDelete)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
-		return lambda_v2.ClientError(http.StatusForbidden,
+		return lambda.ClientError(http.StatusForbidden,
 			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionDelete, resourceID),
 		)
 	}
 
 	objID, err := bson.ObjectIDFromHex(id)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object id specified in url %q: %v", id, err))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object id specified in url %q: %v", id, err))
 	}
 
 	var result any
@@ -596,7 +596,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	switch req.Path {
 	case fmt.Sprintf("/gym-series/%s", id):
 		if err = mongoext.DeleteOne(ctx, s.Collection, id); err != nil {
-			return lambda_v2.ServerError(err)
+			return lambda.ServerError(err)
 		}
 
 	// Delete a Gym Series Video
@@ -607,7 +607,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 
 		videoObjID, err := bson.ObjectIDFromHex(videoID)
 		if err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid video ID %q: %v", videoID, err))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid video ID %q: %v", videoID, err))
 		}
 		for i := 0; i < len(series.Videos); i++ {
 			if series.Videos[i].ID == videoObjID {
@@ -619,10 +619,10 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 
 		// recalculate top-level disciplines and difficulties fields on the Series object.
 		if err := s.calculateDisciplines(&series); err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
+			return lambda.ClientError(http.StatusBadRequest, err.Error())
 		}
 		if err := s.calculateDifficulties(&series); err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, err.Error())
+			return lambda.ClientError(http.StatusBadRequest, err.Error())
 		}
 
 		update := bson.M{
@@ -639,21 +639,21 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 		log.Debug().Msgf("Deleting video from series: update: %v\n filter: %v", update, filter)
 
 		if err := mongoext.UpdateOne(ctx, s.Collection, update, filter, &result, nil); err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete video %q from series %q %v", videoID, id, err))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete video %q from series %q %v", videoID, id, err))
 		}
 		log.Info().Msgf("Update result: %+v", result)
 
 	default:
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid request path %q: %v", req.Path, err))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid request path %q: %v", req.Path, err))
 	}
 
 	// Marshal result to JSON and return it in the response
 	resp, err := json.Marshal(result)
 	if err != nil {
-		return lambda_v2.ServerError(fmt.Errorf("failed to marshal response: %v", err))
+		return lambda.ServerError(fmt.Errorf("failed to marshal response: %v", err))
 	}
 
-	return lambda_v2.NewResponse(http.StatusOK, string(resp), nil), nil
+	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
 func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSeries, id string) (*GymSeries, error) {
@@ -662,7 +662,7 @@ func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSerie
 	result, err := s.WithTransaction(ctx, func(sessCtx context.Context) (any, error) {
 		var result GymSeries
 		if err := mongoext.UpdateByID(ctx, s.Collection, id, payload, &result, nil); err != nil {
-			return lambda_v2.ServerError(fmt.Errorf("failed to update gym record: %v", err))
+			return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 		}
 		log.Info().Msgf("Update GymSeries result: %v", result)
 
