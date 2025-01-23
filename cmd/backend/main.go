@@ -17,7 +17,7 @@ import (
 	"github.com/Grapple-2024/backend/pkg/cognito"
 	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/Grapple-2024/backend/pkg/mongo"
-	"github.com/aws/aws-lambda-go/lambda"
+	lambda_aws "github.com/aws/aws-lambda-go/lambda"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/sendgrid/sendgrid-go"
@@ -169,5 +169,5 @@ func main() {
 	}
 
 	router := lambda.NewRouter(lambdas)
-	lambda.Start(router)
+	lambda_aws.Start(router)
 }

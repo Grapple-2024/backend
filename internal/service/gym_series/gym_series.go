@@ -340,24 +340,23 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 // 1. PUT /gym-series/{id} -- Series Update
 // 2. PUT /gym-videos/{id}/video/{id} -- Video insert/update
 // 3. PUT /gym-series/{id}/presign -- generate presigned upload url for a new video
-// 4. PUT /gym-series/{id}/video/presign-thumbnail - generate presigned upload url for video-level thumbnail
-// 5. PUT /gym-series/{id}/presign-thumbnail - generate presigned upload url for series-level thumbnail
+// 5. PUT /gym-series/{id}/presign-thumbnail - generate presigned upload url for series and videos
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	}
 
-	id := req.PathParameters["id"]
-	if id == "" {
-		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("must specify {id} in request url"))
+	seriesID := req.PathParameters["id"]
+	if seriesID == "" {
+		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("must specify series ID in request url, ie /gym-series/{id}"))
 	}
 	var series GymSeries
-	if err := mongoext.FindByID(ctx, s.Collection, id, &series); err != nil {
+	if err := mongoext.FindByID(ctx, s.Collection, seriesID, &series); err != nil {
 		return lambda.ClientError(http.StatusNotFound, err.Error())
 	}
 
-	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, series.GymID.Hex(), rbac.ResourceSeries) // gym:<gym_id>:series
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, series.GymID.Hex(), rbac.ResourceSeries)
 	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionUpdate)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
@@ -369,19 +368,17 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 	var result any
 	switch req.Path {
-
-	// generate presigned upload url for series-level thumbnail
-	case "/gym-series/presign-thumbnail":
+	case fmt.Sprintf("/gym-series/%s/presign-thumbnail", seriesID):
 		file := req.QueryStringParameters["file"]
 		if file == "" {
-			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=thumbnail.png"))
+			return lambda.ClientError(
+				http.StatusBadRequest,
+				fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=thumbnail.png"),
+			)
 		}
-		gymID := req.QueryStringParameters["gym_id"]
-		if gymID == "" {
-			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the gym id via ?gym_id parameter, ie ?gym_id=abc123"))
-		}
+
 		now := time.Now().Unix()
-		key := fmt.Sprintf("%s/thumbnails/%d_%s", gymID, now, file)
+		key := fmt.Sprintf("gyms/%s/series/%s/thumbnails/%d_%s", series.GymID.Hex(), series.ID.Hex(), now, file)
 		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.publicAssetsBucketName, "upload", key)
 		if err != nil {
 			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
@@ -397,16 +394,11 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		}
 
 		result = resp
-
-	case fmt.Sprintf("/gym-series/%s", id):
+	case fmt.Sprintf("/gym-series/%s", seriesID):
 		var gymSeries GymSeries
 		if err := json.Unmarshal([]byte(req.Body), &gymSeries); err != nil {
 			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
-		// if gymSeries.Videos != nil {
-		// 	log.Warn().Msgf("must use /gym-series/{id}/videos/{id} to update a video in a series")
-		// 	gymSeries.Videos = nil
-		// }
 
 		if gymSeries.Disciplines != nil || gymSeries.Difficulties != nil {
 			log.Warn().Msgf("difficulties and disciplines are calculated fields, must not specify in update request body.")
@@ -420,22 +412,30 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("could not add difficulties to series: %v", err))
 		}
 
-		// update the record in mongo
-		if err := mongoext.UpdateByID(ctx, s.Collection, id, gymSeries, &result, nil); err != nil {
+		if err := mongoext.UpdateByID(ctx, s.Collection, seriesID, gymSeries, &result, nil); err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 		}
 
-	case fmt.Sprintf("/gym-series/%s/presign", id):
-		// uploading a video to the series, generate presigned upload URL
+	case fmt.Sprintf("/gym-series/%s/presign", seriesID):
 		file := req.QueryStringParameters["file"]
 		if file == "" {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=video1.mp4"))
 		}
+		fileType := req.QueryStringParameters["type"]
+		if file == "" {
+			return lambda.ClientError(
+				http.StatusBadRequest,
+				fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=video.mp4&type=video OR ?file=thumbnail.png&type=thumbnail"),
+			)
+		}
+		if fileType != "video" && fileType != "thumbnail" {
+			return lambda.ClientError(
+				http.StatusBadRequest,
+				fmt.Sprintf("invalid file type specified in ?file query parameter, possible options are: [video, thumbnail]"),
+			)
+		}
 
-		randomUID := time.Now().UnixNano()
-		key := fmt.Sprintf("%s/%s-%d", id, file, randomUID)
-
-		log.Debug().Msgf("Generating presigned upload url for a new series video %q in series %q", file, id)
+		key := fmt.Sprintf("gyms/%s/series/%s/%s/%d_%s", series.GymID.Hex(), series.ID.Hex(), fileType, time.Now().UnixNano(), file)
 		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "upload", key)
 		if err != nil {
 			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
@@ -449,7 +449,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		}
 
 		result = resp
-	case fmt.Sprintf("/gym-series/%s/videos", id):
+	case fmt.Sprintf("/gym-series/%s/videos", seriesID):
 		// Create or Update a Video in a series
 		// TOOD: separate this logic out into func getUpdateVideoFilter()
 		var video Video
@@ -457,12 +457,10 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
 
-		seriesObjID, err := bson.ObjectIDFromHex(id)
+		seriesObjID, err := bson.ObjectIDFromHex(seriesID)
 		if err != nil {
 			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid series ID: %v", err))
 		}
-
-		// re-calculate the top level disciplines/difficulties on the series
 
 		var filter bson.M
 		var update bson.M
@@ -473,7 +471,6 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			video.CreatedAt = video.UpdatedAt
 			validate := validator.New()
 
-			// validate the struct
 			if err := validate.Struct(video); err != nil {
 				var errMsgs []string
 				for _, err := range err.(validator.ValidationErrors) {
@@ -539,10 +536,6 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			}
 		}
 
-		log.Info().Msgf("Filter: %v", filter)
-		log.Info().Msgf("Update: %v", update)
-
-		// update the series
 		if err := mongoext.UpdateOne(ctx, s.Collection, update, filter, &result, nil); err != nil {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to update series with video: %v", err))
 		}
@@ -576,7 +569,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 		return lambda.ClientError(http.StatusNotFound, err.Error())
 	}
 
-	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, series.GymID, rbac.ResourceSeries)
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, series.GymID.Hex(), rbac.ResourceSeries)
 	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionDelete)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
@@ -653,7 +646,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 		return lambda.ServerError(fmt.Errorf("failed to marshal response: %v", err))
 	}
 
-	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
+	return lambda.NewResponse(http.StatusAccepted, string(resp), nil), nil
 }
 
 func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSeries, id string) (*GymSeries, error) {

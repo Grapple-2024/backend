@@ -290,7 +290,7 @@ Resources:
             Method: POST
             RestApiId: !Ref Gateway
 
-        GenerateUploadURL:
+        PresignSeriesObject:
           Type: Api
           Properties:
             Path: /gym-series/{id}/presign
