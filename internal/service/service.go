@@ -160,11 +160,13 @@ func GeneratePresignedURL(ctx context.Context, psc *s3.PresignClient, bucketName
 		opts.Expires = time.Minute * 30
 	}
 
+	s3BucketName := aws.String(bucketName)
+	s3Key := aws.String(key)
 	switch operation {
 	case "upload":
 		params := &s3.PutObjectInput{
-			Bucket: aws.String(bucketName),
-			Key:    aws.String(key),
+			Bucket: s3BucketName,
+			Key:    s3Key,
 		}
 		r, err := psc.PresignPutObject(ctx, params, opts)
 		if err != nil {
@@ -174,8 +176,8 @@ func GeneratePresignedURL(ctx context.Context, psc *s3.PresignClient, bucketName
 		return r, nil
 	case "download":
 		params := &s3.GetObjectInput{
-			Bucket: aws.String(bucketName),
-			Key:    aws.String(key),
+			Bucket: s3BucketName,
+			Key:    s3Key,
 		}
 
 		r, err := psc.PresignGetObject(ctx, params, opts)

@@ -261,7 +261,7 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 	}
 
 	// check permission to read series on this gym
-	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymSeries.GymID, rbac.ResourceSeries) // gym:<gym_id>:series
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymSeries.GymID.Hex(), rbac.ResourceSeries) // gym:<gym_id>:series
 	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
@@ -431,7 +431,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		if fileType != "video" && fileType != "thumbnail" {
 			return lambda.ClientError(
 				http.StatusBadRequest,
-				fmt.Sprintf("invalid file type specified in ?file query parameter, possible options are: [video, thumbnail]"),
+				fmt.Sprintf("invalid file type specified in ?type query parameter, possible options are: [video, thumbnail]"),
 			)
 		}
 

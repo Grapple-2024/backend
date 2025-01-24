@@ -74,7 +74,6 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	gymID := req.QueryStringParameters["gym_id"]
 	if gymID == "" {
 		return lambda.ClientError(http.StatusBadRequest, "?gym_id=<gym_id query parameter is required")
-
 	}
 
 	// check permissions for read
@@ -161,7 +160,7 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 	}
 
 	// check permissions for read
-	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, announcement.GymID, rbac.ResourceAnnouncements)
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, announcement.GymID.Hex(), rbac.ResourceAnnouncements)
 	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
