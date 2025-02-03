@@ -121,7 +121,7 @@ func main() {
 		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
 	}
 
-	profiles, err := profiles.NewService(ctx, mongoClient, publicAssetsBucketName, awsRegion, cognitoClient)
+	profiles, err := profiles.NewService(ctx, mongoClient, publicAssetsBucketName, awsRegion, cognitoUserPoolID, cognitoClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Profiles Service")
 	}

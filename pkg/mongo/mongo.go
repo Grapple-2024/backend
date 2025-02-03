@@ -62,7 +62,6 @@ func FindByID(ctx context.Context, collection *mongo.Collection, id string, resu
 
 	// Find the document by ID
 	filter := bson.M{"_id": objID}
-	log.Info().Msgf("FindOne(%v)", objID)
 	if err := collection.FindOne(ctx, filter).Decode(result); err != nil {
 		return fmt.Errorf("failed to FindOne with filter %v: %w", filter, err)
 	}
@@ -72,9 +71,9 @@ func FindByID(ctx context.Context, collection *mongo.Collection, id string, resu
 
 // UpdateOne updates a record in mongo.
 // result must be a pointer!
-func UpdateOne(ctx context.Context, c *mongo.Collection, update bson.M, filter bson.M, result any, opts []options.Lister[options.UpdateOneOptions]) error {
+func UpdateOne(ctx context.Context, c *mongo.Collection, update bson.M, filter bson.M, result any, opts *options.UpdateOneOptionsBuilder) error {
 	// update the record in mongo
-	_, err := c.UpdateOne(ctx, filter, update, opts...)
+	_, err := c.UpdateOne(ctx, filter, update, opts)
 	if err != nil {
 		return err
 	}
@@ -132,7 +131,6 @@ func DeleteOne(ctx context.Context, collection *mongo.Collection, id string) err
 
 func Paginate(ctx context.Context, c *mongo.Collection, filter bson.M, page, pageSize int, sortByCreated bool, opts *options.FindOptionsBuilder, result any) error {
 	skip := (page - 1) * pageSize
-
 	opts.SetSkip(int64(skip))
 	opts.SetLimit(int64(pageSize))
 

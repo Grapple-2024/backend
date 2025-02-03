@@ -241,6 +241,7 @@ func (s *Service) createTechnique(ctx context.Context, t *Technique) (*Technique
 		// Insert the technique with the series nested within it
 		var result Technique
 		t.Series = &series
+		t.GymID = series.GymID
 		if err := mongoext.Insert(sessCtx, s.Collection, t, &result); err != nil {
 			return nil, err
 		}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/rbac"
@@ -340,7 +341,6 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 // 1. PUT /gym-series/{id} -- Series Update
 // 2. PUT /gym-videos/{id}/video/{id} -- Video insert/update
 // 3. PUT /gym-series/{id}/presign -- generate presigned upload url for a new video
-// 5. PUT /gym-series/{id}/presign-thumbnail - generate presigned upload url for series and videos
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
@@ -368,32 +368,6 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 	var result any
 	switch req.Path {
-	case fmt.Sprintf("/gym-series/%s/presign-thumbnail", seriesID):
-		file := req.QueryStringParameters["file"]
-		if file == "" {
-			return lambda.ClientError(
-				http.StatusBadRequest,
-				fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=thumbnail.png"),
-			)
-		}
-
-		now := time.Now().Unix()
-		key := fmt.Sprintf("gyms/%s/series/%s/thumbnails/%d_%s", series.GymID.Hex(), series.ID.Hex(), now, file)
-		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.publicAssetsBucketName, "upload", key)
-		if err != nil {
-			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
-		}
-
-		s3ObjectURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.publicAssetsBucketName, "us-west-1", key)
-		resp := struct {
-			*v4.PresignedHTTPRequest
-			S3ObjectURL string `json:"s3_object_url"`
-		}{
-			PresignedHTTPRequest: p,
-			S3ObjectURL:          s3ObjectURL,
-		}
-
-		result = resp
 	case fmt.Sprintf("/gym-series/%s", seriesID):
 		var gymSeries GymSeries
 		if err := json.Unmarshal([]byte(req.Body), &gymSeries); err != nil {
@@ -436,16 +410,21 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		}
 
 		key := fmt.Sprintf("gyms/%s/series/%s/%s/%d_%s", series.GymID.Hex(), series.ID.Hex(), fileType, time.Now().UnixNano(), file)
-		p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "upload", key)
+		presigned, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "upload", key)
 		if err != nil {
 			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
 		}
+
+		split := strings.Split(presigned.URL, "?")
+		if len(split) == 0 {
+			return lambda.ServerError(fmt.Errorf("presigned url not valid: %s", presigned.URL))
+		}
 		resp := struct {
 			*v4.PresignedHTTPRequest
-			S3ObjectKey string `json:"s3_object_key"`
+			S3ObjectURL string `json:"s3_object_url"`
 		}{
-			PresignedHTTPRequest: p,
-			S3ObjectKey:          key,
+			PresignedHTTPRequest: presigned,
+			S3ObjectURL:          split[0],
 		}
 
 		result = resp

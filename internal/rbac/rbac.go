@@ -7,6 +7,7 @@ import (
 
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/pkg/cognito"
+	"github.com/Grapple-2024/backend/pkg/utils"
 	cip "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
 	"github.com/rs/zerolog/log"
@@ -173,14 +174,14 @@ func (r *RBAC) CreateGymRBAC(ctx context.Context, gymID string) error {
 }
 
 // AssignUserToGymRole assigns a user to a specific gym's group (owner, coach, student, etc).
-func (r *RBAC) AssignUserToGymRole(ctx context.Context, username, groupName string) error {
+func (r *RBAC) AssignUserToGymRole(ctx context.Context, gymID, username, roleName string) error {
 	user, err := r.GetUser(ctx, username)
 	if err != nil {
 		return fmt.Errorf("failed to find user in RBAC system: %v", err)
 	}
 
+	groupName := fmt.Sprintf("%s::%s::%s", ResourceGym, gymID, utils.PluralGroupNameFromRole(roleName))
 	gymGroupPrefix := strings.Join(strings.Split(groupName, "::")[:2], "::")
-	log.Info().Msgf("Gym Group Prefix: %s", gymGroupPrefix)
 	for _, role := range user.Roles {
 		if !strings.HasPrefix(role, gymGroupPrefix) {
 			continue
@@ -193,7 +194,8 @@ func (r *RBAC) AssignUserToGymRole(ctx context.Context, username, groupName stri
 	if err := r.AddUserToGroup(ctx, username, groupName); err != nil {
 		return fmt.Errorf("failed to add user %s to group %s: %w", username, groupName, err)
 	}
-	// invalid the cache for this user so we force the next RBAC IsAuthorized check to pull from cognito
+
+	// invalidate the cache for this user so we force the next RBAC IsAuthorized check to pull from cognito
 	delete(r.users, username)
 	return nil
 }
@@ -216,18 +218,16 @@ func (r *RBAC) ListUsersInGroup(ctx context.Context, group string) ([]types.User
 	return users, nil
 }
 
-// converts singular role name to plural group
-// ie coach -> coaches, student -> students, or owner -> owners
-func PluralGroupNameFromRole(role string) string {
+func ValidateRole(role string) bool {
 	switch role {
-	case Owner:
-		return Owners
-	case Coach:
-		return Coaches
-
 	case Student:
-		return Students
+		return true
+	case Owner:
+		return true
+
+	case Coach:
+		return true
 	default:
-		return ""
+		return false
 	}
 }

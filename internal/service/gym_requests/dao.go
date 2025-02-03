@@ -22,7 +22,7 @@ const (
 // GymRequest represents the GymRequest document structure in MongoDB.
 type GymRequest struct {
 	ID      bson.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
-	Profile *dao.Profile  `json:"profile" bson:"-"`
+	Profile *dao.Profile  `json:"profile,omitempty" bson:"-"`
 	GymID   bson.ObjectID `json:"gym_id" bson:"gym_id,omitempty" validate:"required"`
 
 	RequestorID    string `json:"requestor_id" bson:"requestor_id,omitempty" validate:"required"`
@@ -33,6 +33,9 @@ type GymRequest struct {
 
 	// The status of the gym request either "Accepted", "Pending", or "Rejected"
 	Status string `json:"status" bson:"status,omitempty"`
+
+	// The role being requested in the gym, ie "coach" or "student".
+	Role string `json:"role" bson:"role,omitempty" validate:"required"`
 
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
 	UpdatedAt time.Time `json:"updated_at" bson:"updated_at,omitempty"`

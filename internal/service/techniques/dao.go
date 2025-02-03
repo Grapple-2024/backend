@@ -10,6 +10,7 @@ import (
 // Technique represents the "Technique" mongodb entity
 type Technique struct {
 	ID     bson.ObjectID         `json:"id,omitempty" bson:"_id,omitempty"`
+	GymID  bson.ObjectID         `json:"gym_id,omitempty" bson:"gym_id,omitempty"`
 	Series *gym_series.GymSeries `json:"series,omitempty" bson:"series,omitempty" validate:"-"`
 
 	Title       string `json:"title" bson:"title,omitempty" validate:"required"`

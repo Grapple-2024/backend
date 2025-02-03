@@ -352,22 +352,50 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 
 func (s *Service) assignRole(ctx context.Context, gym *dao.Gym, payload map[string]string) error {
 	username := payload["username"]
+
 	role := payload["role"]
 	if username == "" {
 		return fmt.Errorf("must specify username of user to assign roles to in the 'username' body field")
 	}
 	if role == "" {
 		return fmt.Errorf("must specify role to assign in the 'role' body field")
-	} else if role != rbac.Owner && role != rbac.Student && role != rbac.Coach {
+	} else if !rbac.ValidateRole(role) {
 		return fmt.Errorf("must specify a valid role name in the 'role' field: [owner, coach, student]")
 	}
 
-	groupName := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, gym.ID.Hex(), rbac.PluralGroupNameFromRole(role))
-	if err := s.RBAC.AssignUserToGymRole(ctx, username, groupName); err != nil {
-		return fmt.Errorf("failed to assign user %s to cognito group %s", username, groupName)
+	if err := s.RBAC.AssignUserToGymRole(ctx, gym.ID.Hex(), username, role); err != nil {
+		return fmt.Errorf("failed to assign user %s to role %s in gym %s", username, role, gym.ID.Hex())
 	}
-	if err := profiles.UpsertGymAssociation(ctx, s.Client, gym, groupName, username); err != nil {
+
+	requestFilter := bson.M{
+		"gym_id":          gym.ID,
+		"requestor_email": username,
+	}
+	request := gym_requests.GymRequest{}
+	if err := mongoext.FindOne(ctx, s.Database().Collection("gymRequests"), requestFilter, &request); err != nil {
+		return fmt.Errorf("failed to find gym request with requestor_email=%s and gym_id=%s: %v",
+			username,
+			gym.ID.Hex(),
+			err,
+		)
+	}
+
+	// Upsert the profile.gyms[i] gym association record on the user's profile
+	if err := profiles.UpsertGymAssociation(ctx, s.Client, gym, role, username, request.MembershipType); err != nil {
 		return fmt.Errorf("failed to upsert gym association to profile: %v", err)
+	}
+
+	// Upsert the GymRequest record
+	upsertPayload := &gym_requests.GymRequest{
+		Status:         gym_requests.RequestAccepted,
+		Role:           role,
+		MembershipType: request.MembershipType,
+		GymID:          request.GymID,
+		RequestorEmail: request.RequestorEmail,
+	}
+	_, err := gym_requests.UpsertGymRequest(ctx, s.Client, upsertPayload)
+	if err != nil {
+		return fmt.Errorf("failed to upsert gym request record: %v", err)
 	}
 
 	return nil
@@ -447,7 +475,7 @@ func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload
 		}
 		gymID := gym.ID.Hex()
 		groupName := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, gymID, rbac.Owners)
-		if err := profiles.UpsertGymAssociation(ctx, s.Client, gym, groupName, token.Email); err != nil {
+		if err := profiles.UpsertGymAssociation(ctx, s.Client, gym, groupName, token.Email, gym_requests.InPersonMembership); err != nil {
 			return nil, err
 		}
 
@@ -455,7 +483,7 @@ func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload
 		if err := s.RBAC.CreateGymRBAC(ctx, gymID); err != nil {
 			return lambda.ServerError(err)
 		}
-		if err := s.RBAC.AssignUserToGymRole(ctx, token.Username, groupName); err != nil {
+		if err := s.RBAC.AssignUserToGymRole(ctx, token.Username, gymID, rbac.Owner); err != nil {
 			return lambda.ServerError(err)
 		}
 
