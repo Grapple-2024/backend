@@ -177,7 +177,7 @@ func (r *RBAC) CreateGymRBAC(ctx context.Context, gymID string) error {
 func (r *RBAC) AssignUserToGymRole(ctx context.Context, gymID, username, roleName string) error {
 	user, err := r.GetUser(ctx, username)
 	if err != nil {
-		return fmt.Errorf("failed to find user in RBAC system: %v", err)
+		return fmt.Errorf("failed to find user %s in RBAC system: %+v\n%v", username, r.users, err)
 	}
 
 	groupName := fmt.Sprintf("%s::%s::%s", ResourceGym, gymID, utils.PluralGroupNameFromRole(roleName))

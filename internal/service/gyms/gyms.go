@@ -474,17 +474,16 @@ func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload
 			return nil, fmt.Errorf("failed to create gym: %v", err)
 		}
 		gymID := gym.ID.Hex()
-		groupName := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, gymID, rbac.Owners)
-		if err := profiles.UpsertGymAssociation(ctx, s.Client, gym, groupName, token.Email, gym_requests.InPersonMembership); err != nil {
+		if err := profiles.UpsertGymAssociation(ctx, s.Client, gym, rbac.Owner, token.Email, gym_requests.InPersonMembership); err != nil {
 			return nil, err
 		}
 
 		// Create the RBAC in-memory for future authorization checks
 		if err := s.RBAC.CreateGymRBAC(ctx, gymID); err != nil {
-			return lambda.ServerError(err)
+			return nil, err
 		}
-		if err := s.RBAC.AssignUserToGymRole(ctx, token.Username, gymID, rbac.Owner); err != nil {
-			return lambda.ServerError(err)
+		if err := s.RBAC.AssignUserToGymRole(ctx, gymID, token.Username, rbac.Owner); err != nil {
+			return nil, err
 		}
 
 		return *gym, nil
