@@ -53,6 +53,8 @@ func main() {
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envSendGridAPIKey)
 	}
+
+	// Cognito Env Vars
 	cognitoClientID, ok := os.LookupEnv(envCognitoClientID)
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envCognitoClientID)
@@ -61,14 +63,22 @@ func main() {
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envCognitoClientSecretID)
 	}
+	cognitoUserPoolID, ok := os.LookupEnv(envCognitoUserPoolID)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", envCognitoUserPoolID)
+	}
+
+	// S3 Buckets
 	gymVideosBucketName, ok := os.LookupEnv(envVideosBucketName)
 	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", envCognitoClientSecretID)
+		log.Fatal().Msgf("missing required env var: %s", envVideosBucketName)
 	}
 	publicAssetsBucketName, ok := os.LookupEnv(envPublicAssetsBucketName)
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envPublicAssetsBucketName)
 	}
+
+	// Miscellaneous
 	awsRegion, ok := os.LookupEnv(envAWSRegion)
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envAWSRegion)
@@ -77,18 +87,11 @@ func main() {
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envMapBoxAPIKey)
 	}
-	cognitoUserPoolID, ok := os.LookupEnv(envCognitoUserPoolID)
-	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", envCognitoUserPoolID)
-	}
 
-	// Create sendgrid client
+	/**** Create Clients for each external dependency *****/
 	sendGridClient := sendgrid.NewSendClient(sendGridAPIKey)
-
-	// Create mongo client
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-
 	mongoClient, err := mongo.New(ctx, mongoEndpoint)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to connect to mongo endpoint: %q", mongoEndpoint)

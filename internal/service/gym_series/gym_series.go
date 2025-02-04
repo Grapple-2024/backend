@@ -421,10 +421,10 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		}
 		resp := struct {
 			*v4.PresignedHTTPRequest
-			S3ObjectURL string `json:"s3_object_url"`
+			S3ObjectKey string `json:"s3_object_key"`
 		}{
 			PresignedHTTPRequest: presigned,
-			S3ObjectURL:          split[0],
+			S3ObjectKey:          key,
 		}
 
 		result = resp
