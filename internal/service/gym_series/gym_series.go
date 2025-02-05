@@ -187,7 +187,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	// check permission to read series on this gym
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymID, rbac.ResourceSeries) // gym:<gym_id>:series
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionRead)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -263,7 +263,7 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 
 	// check permission to read series on this gym
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymSeries.GymID.Hex(), rbac.ResourceSeries) // gym:<gym_id>:series
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionRead)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -297,7 +297,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	}
 
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, payload.GymID.Hex(), rbac.ResourceSeries) // gym:<gym_id>:series
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionCreate)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionCreate)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -357,7 +357,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	}
 
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, series.GymID.Hex(), rbac.ResourceSeries)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionUpdate)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionUpdate)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -549,7 +549,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, series.GymID.Hex(), rbac.ResourceSeries)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionDelete)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionDelete)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -656,11 +656,17 @@ func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSerie
 func (s *Service) generatePresignedURLs(ctx context.Context, records []GymSeries) error {
 	for i, series := range records {
 		for j, video := range series.Videos {
-			p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "download", video.S3ObjectKey)
+			videoPresigned, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "download", video.S3ObjectKey)
 			if err != nil {
-				return fmt.Errorf("failed to generate presigned url: %v", err)
+				return fmt.Errorf("failed to generate presigned series video url: %v", err)
 			}
-			records[i].Videos[j].PresignedURL = p.URL
+			thumbnailPresigned, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "download", video.ThumbnailS3ObjectKey)
+			if err != nil {
+				return fmt.Errorf("failed to generate presigned thumbnail url: %v", err)
+			}
+			records[i].Videos[j].PresignedURL = videoPresigned.URL
+			records[i].Videos[j].ThumbnailURL = thumbnailPresigned.URL
+
 		}
 	}
 	return nil

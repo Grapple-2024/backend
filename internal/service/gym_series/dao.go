@@ -41,9 +41,9 @@ type Video struct {
 	S3ObjectKey string   `json:"s3_object_key,omitempty" bson:"s3_object_key,omitempty" validate:"required"`
 
 	// Computed fields
-	PresignedURL string `json:"presigned_url,omitempty" bson:"presigned_url,omitempty"` // computed by requesting a presigned URL given the S3ObjectURI
-
-	ThumbnailURL string `json:"thumbnail_url,omitempty" bson:"thumbnail_url,omitempty"`
+	PresignedURL         string `json:"presigned_url,omitempty" bson:"presigned_url,omitempty"` // computed by requesting a presigned URL given the S3ObjectURI
+	ThumbnailURL         string `json:"thumbnail_url,omitempty" bson:"thumbnail_url,omitempty"`
+	ThumbnailS3ObjectKey string `json:"thumbnail_s3_object_key,omitempty" bson:"thumbnail_s3_object_key,omitempty"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`

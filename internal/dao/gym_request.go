@@ -1,9 +1,8 @@
-package gym_requests
+package dao
 
 import (
 	"time"
 
-	"github.com/Grapple-2024/backend/internal/dao"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
@@ -22,7 +21,7 @@ const (
 // GymRequest represents the GymRequest document structure in MongoDB.
 type GymRequest struct {
 	ID      bson.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
-	Profile *dao.Profile  `json:"profile,omitempty" bson:"-"`
+	Profile *Profile      `json:"profile,omitempty" bson:"-"`
 	GymID   bson.ObjectID `json:"gym_id" bson:"gym_id,omitempty" validate:"required"`
 
 	RequestorID    string `json:"requestor_id" bson:"requestor_id,omitempty" validate:"required"`
@@ -31,18 +30,18 @@ type GymRequest struct {
 	LastName       string `json:"last_name" bson:"last_name,omitempty" validate:"required"`
 	MembershipType string `json:"membership_type" bson:"membership_type,omitempty" validate:"required"`
 
-	// The status of the gym request either "Accepted", "Pending", or "Rejected"
-	Status string `json:"status" bson:"status,omitempty"`
-
 	// The role being requested in the gym, ie "coach" or "student".
 	Role string `json:"role" bson:"role,omitempty" validate:"required"`
+
+	// The status of the gym request either "Accepted", "Pending", or "Rejected"
+	Status string `json:"status" bson:"status,omitempty"`
 
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
 	UpdatedAt time.Time `json:"updated_at" bson:"updated_at,omitempty"`
 }
 
 // isValidStatus returns true if a status string is one of the three possible enums. It will return false if not.
-func isValidStatus(s string) bool {
+func IsValidStatus(s string) bool {
 	if s == RequestAccepted || s == RequestDenied || s == RequestPending {
 		return true
 	}

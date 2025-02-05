@@ -431,14 +431,14 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 
 // UpsertGymAssociation upserts (inserts or updates) a gym association to a user profile object.
 // It does not update any groups in Cognito or the RBAC framework.
-func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym, roleName, username, membershipType string) error {
+func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym, roleName string, request *dao.GymRequest) error {
 	groupName := fmt.Sprintf("gym::%s::%s", gym.ID.Hex(), utils.PluralGroupNameFromRole(roleName))
 	gymAssociation := dao.GymAssociation{
 		GymID: gym.ID,
 		// Gym:            gym,
-		Email:          username,
+		Email:          request.RequestorEmail,
+		MembershipType: request.MembershipType,
 		Group:          groupName,
-		MembershipType: membershipType,
 		EmailPreferences: &dao.EmailPreferences{
 			NotifyOnAnnouncements: true,
 			NotifyOnRequests:      true,
@@ -447,7 +447,7 @@ func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym
 
 	profiles := mc.Database("grapple").Collection("profiles")
 	filter := bson.M{
-		"email": username,
+		"cognito_id": request.RequestorID,
 	}
 
 	// remove the gym association first
@@ -469,7 +469,7 @@ func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym
 		},
 	}
 
-	log.Info().Msgf("Upserting gym association %v to user %q", gymAssociation, username)
+	log.Info().Msgf("Upserting gym association %v to user %q", gymAssociation, request.Profile.CognitoID)
 
 	// Update student profile with the new gym association
 	if err := mongoext.UpdateOne(ctx, profiles, update, filter, &result, nil); err != nil {

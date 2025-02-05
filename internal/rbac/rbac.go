@@ -126,8 +126,8 @@ func (r *RBAC) AddPermissions(permissions ...Permission) {
 }
 
 // IsAuthorized checks if a user is authorized to perform an action on a resource.
-func (r *RBAC) IsAuthorized(ctx context.Context, userID, resource, action string) (bool, error) {
-	user, err := r.GetUser(ctx, userID)
+func (r *RBAC) IsAuthorized(ctx context.Context, cognitoID, resource, action string) (bool, error) {
+	user, err := r.GetUser(ctx, cognitoID)
 	if err != nil {
 		return false, fmt.Errorf("failed to get user: %w", err)
 	}
@@ -174,10 +174,10 @@ func (r *RBAC) CreateGymRBAC(ctx context.Context, gymID string) error {
 }
 
 // AssignUserToGymRole assigns a user to a specific gym's group (owner, coach, student, etc).
-func (r *RBAC) AssignUserToGymRole(ctx context.Context, gymID, username, roleName string) error {
-	user, err := r.GetUser(ctx, username)
+func (r *RBAC) AssignUserToGymRole(ctx context.Context, gymID, cognitoID, roleName string) error {
+	user, err := r.GetUser(ctx, cognitoID)
 	if err != nil {
-		return fmt.Errorf("failed to find user %s in RBAC system: %+v\n%v", username, r.users, err)
+		return fmt.Errorf("failed to find user %s in RBAC system: %+v\n%v", cognitoID, r.users, err)
 	}
 
 	groupName := fmt.Sprintf("%s::%s::%s", ResourceGym, gymID, utils.PluralGroupNameFromRole(roleName))
@@ -186,17 +186,17 @@ func (r *RBAC) AssignUserToGymRole(ctx context.Context, gymID, username, roleNam
 		if !strings.HasPrefix(role, gymGroupPrefix) {
 			continue
 		}
-		if err := r.RemoveUserFromGroup(ctx, username, role); err != nil {
+		if err := r.RemoveUserFromGroup(ctx, cognitoID, role); err != nil {
 			return err
 		}
 	}
 
-	if err := r.AddUserToGroup(ctx, username, groupName); err != nil {
-		return fmt.Errorf("failed to add user %s to group %s: %w", username, groupName, err)
+	if err := r.AddUserToGroup(ctx, cognitoID, groupName); err != nil {
+		return fmt.Errorf("failed to add user %s to group %s: %w", cognitoID, groupName, err)
 	}
 
 	// invalidate the cache for this user so we force the next RBAC IsAuthorized check to pull from cognito
-	delete(r.users, username)
+	delete(r.users, cognitoID)
 	return nil
 }
 

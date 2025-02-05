@@ -143,9 +143,9 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 
 		filter := bson.M{
 			"gym_id": objID,
-			"status": gym_requests.RequestAccepted,
+			"status": dao.RequestAccepted,
 		}
-		var memberships []gym_requests.GymRequest
+		var memberships []dao.GymRequest
 		collection := s.Database().Collection("gymRequests")
 		if err := gym_requests.Find(ctx, collection, filter, &memberships); err != nil {
 			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gym requests: %v", err))
@@ -155,9 +155,9 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 		inPersonMembers := 0
 		for _, member := range memberships {
 			switch member.MembershipType {
-			case gym_requests.InPersonMembership:
+			case dao.InPersonMembership:
 				inPersonMembers++
-			case gym_requests.VirtualMembership:
+			case dao.VirtualMembership:
 				virtualMembers++
 			}
 		}
@@ -196,6 +196,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	if err := json.Unmarshal([]byte(req.Body), &gym); err != nil {
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 	}
+	log.Info().Msgf("Token: %+v", token)
 
 	result, err := s.createGymTX(ctx, token, &gym)
 	if err != nil {
@@ -222,7 +223,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 	id := req.PathParameters["id"]
 	gymResourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, gymResourceID, rbac.ActionUpdate)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, gymResourceID, rbac.ActionUpdate)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -246,7 +247,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		}
 
 		gymResourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
-		isAuthorized, err := s.IsAuthorized(ctx, token.Username, gymResourceID, rbac.ActionUpdate)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Sub, gymResourceID, rbac.ActionUpdate)
 		if err != nil {
 			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 		} else if !isAuthorized {
@@ -260,7 +261,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		}
 	case fmt.Sprintf("%s/assign-role", gymSubPath):
 		gymRolesResource := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, id, rbac.ResourceRoles)
-		isAuthorized, err := s.IsAuthorized(ctx, token.Username, gymRolesResource, rbac.ActionUpdate)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Sub, gymRolesResource, rbac.ActionUpdate)
 		if err != nil {
 			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 		} else if !isAuthorized {
@@ -334,7 +335,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	resourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionDelete)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionDelete)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -351,11 +352,10 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 }
 
 func (s *Service) assignRole(ctx context.Context, gym *dao.Gym, payload map[string]string) error {
-	username := payload["username"]
-
+	cognitoID := payload["cognito_id"]
 	role := payload["role"]
-	if username == "" {
-		return fmt.Errorf("must specify username of user to assign roles to in the 'username' body field")
+	if cognitoID == "" {
+		return fmt.Errorf("must specify cognito_id of user to assign roles to in the 'cognito_id' body field")
 	}
 	if role == "" {
 		return fmt.Errorf("must specify role to assign in the 'role' body field")
@@ -363,31 +363,31 @@ func (s *Service) assignRole(ctx context.Context, gym *dao.Gym, payload map[stri
 		return fmt.Errorf("must specify a valid role name in the 'role' field: [owner, coach, student]")
 	}
 
-	if err := s.RBAC.AssignUserToGymRole(ctx, gym.ID.Hex(), username, role); err != nil {
-		return fmt.Errorf("failed to assign user %s to role %s in gym %s", username, role, gym.ID.Hex())
+	if err := s.RBAC.AssignUserToGymRole(ctx, gym.ID.Hex(), cognitoID, role); err != nil {
+		return fmt.Errorf("failed to assign user %s to role %s in gym %s", cognitoID, role, gym.ID.Hex())
 	}
 
 	requestFilter := bson.M{
-		"gym_id":          gym.ID,
-		"requestor_email": username,
+		"gym_id":       gym.ID,
+		"requestor_id": cognitoID,
 	}
-	request := gym_requests.GymRequest{}
+	request := dao.GymRequest{}
 	if err := mongoext.FindOne(ctx, s.Database().Collection("gymRequests"), requestFilter, &request); err != nil {
 		return fmt.Errorf("failed to find gym request with requestor_email=%s and gym_id=%s: %v",
-			username,
+			cognitoID,
 			gym.ID.Hex(),
 			err,
 		)
 	}
 
 	// Upsert the profile.gyms[i] gym association record on the user's profile
-	if err := profiles.UpsertGymAssociation(ctx, s.Client, gym, role, username, request.MembershipType); err != nil {
+	if err := profiles.UpsertGymAssociation(ctx, s.Client, gym, role, &request); err != nil {
 		return fmt.Errorf("failed to upsert gym association to profile: %v", err)
 	}
 
 	// Upsert the GymRequest record
-	upsertPayload := &gym_requests.GymRequest{
-		Status:         gym_requests.RequestAccepted,
+	upsertPayload := &dao.GymRequest{
+		Status:         dao.RequestAccepted,
 		Role:           role,
 		MembershipType: request.MembershipType,
 		GymID:          request.GymID,
@@ -426,8 +426,6 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 }
 
 func (s *Service) createGym(ctx context.Context, gym *dao.Gym, token *service.Token) (*dao.Gym, error) {
-	gym.CoachFirstName = token.GivenName
-	gym.CoachLastName = token.FamilyName
 	gym.Creator = token.Sub
 
 	// Validate request body for required fields
@@ -474,7 +472,12 @@ func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload
 			return nil, fmt.Errorf("failed to create gym: %v", err)
 		}
 		gymID := gym.ID.Hex()
-		if err := profiles.UpsertGymAssociation(ctx, s.Client, gym, rbac.Owner, token.Email, gym_requests.InPersonMembership); err != nil {
+		if err := profiles.UpsertGymAssociation(ctx, s.Client, gym, rbac.Owner, &dao.GymRequest{
+			Profile: &dao.Profile{
+				CognitoID: token.Sub,
+				Email:     gym.CoachEmail,
+			},
+		}); err != nil {
 			return nil, err
 		}
 

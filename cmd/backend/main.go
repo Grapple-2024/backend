@@ -28,7 +28,6 @@ func init() {
 }
 
 const (
-	region = "us-west-1"
 
 	// env variable keys
 	envCognitoUserPoolID      = "COGNITO_USER_POOL_ID"
@@ -96,7 +95,6 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to connect to mongo endpoint: %q", mongoEndpoint)
 	}
-
 	defer func() {
 		if err = mongoClient.Disconnect(ctx); err != nil {
 			log.Fatal().Err(err).Msg("failed to disconnect from mongo")
@@ -104,7 +102,7 @@ func main() {
 	}()
 
 	cognitoClient, err := cognito.NewClient(
-		region,
+		awsRegion,
 		cognito.WithUserPool(cognitoUserPoolID),
 		cognito.WithClientID(cognitoClientID),
 		cognito.WithClientSecret(cognitoClientSecret),
@@ -137,7 +135,7 @@ func main() {
 
 	/**** HTTP Handlers ****/
 	// Gyms HTTP Handler
-	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, region, mongoClient, rbac)
+	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, awsRegion, mongoClient, rbac)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
 	}

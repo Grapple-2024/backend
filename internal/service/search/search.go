@@ -218,7 +218,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	seriesToReturn := []gym_series.GymSeries{}
 	for _, gymSeries := range series {
 		resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymSeries.GymID, rbac.ResourceSeries)
-		isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionCreate)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionCreate)
 		if err != nil {
 			continue
 		} else if !isAuthorized {
