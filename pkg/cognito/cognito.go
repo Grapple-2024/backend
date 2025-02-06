@@ -115,14 +115,6 @@ func (c *Client) ListGroupsForUser(ctx context.Context, username string) (*cip.A
 	})
 }
 
-// AddUserToGroup adds a user to a group in Cognito.
-func (c *Client) GetUser(ctx context.Context, username string) (*cip.AdminGetUserOutput, error) {
-	return c.Client.AdminGetUser(ctx, &cip.AdminGetUserInput{
-		UserPoolId: aws.String(c.userPoolID),
-		Username:   aws.String(username),
-	})
-}
-
 func (c *Client) newSecretHash(username string) string {
 	// create a new HMAC by defining the hash type and the key
 	data := []byte(fmt.Sprintf("%s%s", username, c.clientID))

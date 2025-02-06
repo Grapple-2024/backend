@@ -469,7 +469,7 @@ func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym
 		},
 	}
 
-	log.Info().Msgf("Upserting gym association %v to user %q", gymAssociation, request.Profile.CognitoID)
+	log.Info().Msgf("Upserting gym association %v to user %q", gymAssociation, request.RequestorID)
 
 	// Update student profile with the new gym association
 	if err := mongoext.UpdateOne(ctx, profiles, update, filter, &result, nil); err != nil {

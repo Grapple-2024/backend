@@ -473,10 +473,8 @@ func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload
 		}
 		gymID := gym.ID.Hex()
 		if err := profiles.UpsertGymAssociation(ctx, s.Client, gym, rbac.Owner, &dao.GymRequest{
-			Profile: &dao.Profile{
-				CognitoID: token.Sub,
-				Email:     gym.CoachEmail,
-			},
+			RequestorID:    token.Sub,
+			RequestorEmail: gym.CoachEmail,
 		}); err != nil {
 			return nil, err
 		}
@@ -485,7 +483,7 @@ func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload
 		if err := s.RBAC.CreateGymRBAC(ctx, gymID); err != nil {
 			return nil, err
 		}
-		if err := s.RBAC.AssignUserToGymRole(ctx, gymID, token.Username, rbac.Owner); err != nil {
+		if err := s.RBAC.AssignUserToGymRole(ctx, gymID, token.Sub, rbac.Owner); err != nil {
 			return nil, err
 		}
 
