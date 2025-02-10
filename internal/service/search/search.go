@@ -180,7 +180,7 @@ func buildSeriesFilter(params *queryParams) bson.M {
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	// parse query params

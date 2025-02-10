@@ -66,7 +66,7 @@ func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgr
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	// Parse filter query params
@@ -150,7 +150,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	// Get the announcement by ID
@@ -182,7 +182,7 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	var announcement Announcement
@@ -243,7 +243,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	var payload Announcement
@@ -291,7 +291,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	var announcement Announcement

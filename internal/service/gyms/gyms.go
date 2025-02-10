@@ -189,7 +189,7 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	var gym dao.Gym
@@ -218,7 +218,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	id := req.PathParameters["id"]
@@ -289,7 +289,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		file := req.QueryStringParameters["file"]
 		_, err := service.GetToken(req.Headers)
 		if err != nil {
-			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+			return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 		}
 		if file == "" {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("?file cannot be empty"))
@@ -331,7 +331,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	resourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)

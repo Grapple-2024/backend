@@ -89,7 +89,6 @@ func (r *RBAC) GetUser(ctx context.Context, userID string) (*User, error) {
 	if val, ok := r.users[userID]; ok {
 		return &val, nil
 	}
-
 	// send API request only if user is not in cache
 	resp, err := r.ListGroupsForUser(ctx, userID)
 	if err != nil {
@@ -140,6 +139,7 @@ func (r *RBAC) IsAuthorized(ctx context.Context, cognitoID, resource, action str
 			log.Warn().Msgf("could not find role '%s' in role cache: %v", roleName, r.roles)
 			continue
 		}
+		println("ROLES: ", role.Permissions)
 		totalPermissions = append(totalPermissions, role.Permissions...)
 
 		for _, userPermission := range role.Permissions {

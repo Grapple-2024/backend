@@ -177,7 +177,7 @@ func (s *Service) buildGetAllFilter(req *events.APIGatewayProxyRequest, gymID st
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authenticate:: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("failed to authenticate:: %v", err))
 	}
 
 	gymID := req.QueryStringParameters["gym_id"]
@@ -252,7 +252,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authenticate:: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("failed to authenticate:: %v", err))
 	}
 
 	// Get the gymSeries by ID
@@ -288,7 +288,7 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	var payload GymSeries
@@ -344,7 +344,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	seriesID := req.PathParameters["id"]
@@ -540,7 +540,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	var series GymSeries

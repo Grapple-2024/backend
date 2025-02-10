@@ -82,7 +82,7 @@ func NewService(ctx context.Context, mc *mongoext.Client, publicAssetsBucketName
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	// build query filter if current_user=true
@@ -184,7 +184,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	case "/profiles/avatar":
 		token, err := service.GetToken(req.Headers)
 		if err != nil {
-			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+			return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 		}
 
 		file := req.QueryStringParameters["file"]
@@ -209,7 +209,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		// Update user profile based on token (cognito ID)
 		token, err := service.GetToken(req.Headers)
 		if err != nil {
-			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authorize user: %v", err))
+			return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("failed to authorize user: %v", err))
 		}
 
 		var payload dao.Profile
@@ -254,7 +254,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authenticate: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("failed to authenticate: %v", err))
 	}
 
 	var profile dao.Profile

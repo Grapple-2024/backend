@@ -1,4 +1,4 @@
-ENV?=test
+ENV?=local
 
 build:
 	sam build --config-env=${ENV}

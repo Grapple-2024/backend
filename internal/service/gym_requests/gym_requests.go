@@ -214,7 +214,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	// get token and set Cognito ID and Email on the Request payload to the values tied to the token
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("authentication failure: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("authentication failure: %v", err))
 	}
 
 	var payload dao.GymRequest
@@ -285,7 +285,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	var payload dao.GymRequest
