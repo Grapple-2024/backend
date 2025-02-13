@@ -283,11 +283,16 @@ func (s *Service) generatePresignedURLs(ctx context.Context, records []Technique
 			continue
 		}
 		for j, video := range record.Series.Videos {
-			p, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "download", video.S3ObjectKey)
+			presignedVideo, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "download", video.S3ObjectKey)
 			if err != nil {
 				return fmt.Errorf("failed to generate presigned url: %v", err)
 			}
-			records[i].Series.Videos[j].PresignedURL = p.URL
+			presignedThumbnail, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "download", video.ThumbnailS3ObjectKey)
+			if err != nil {
+				return fmt.Errorf("failed to generate presigned url: %v", err)
+			}
+			records[i].Series.Videos[j].PresignedURL = presignedVideo.URL
+			records[i].Series.Videos[j].ThumbnailURL = presignedThumbnail.URL
 		}
 	}
 	return nil

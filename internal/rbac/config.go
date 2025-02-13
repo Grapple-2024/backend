@@ -9,6 +9,8 @@ import (
 	"path"
 	"strings"
 	"text/template"
+
+	"github.com/rs/zerolog/log"
 )
 
 type RBACConfig struct {
@@ -138,6 +140,8 @@ func (r *RBAC) SeedCache(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	log.Info().Msgf("Found a total of %d groups in Cognito", len(resp.Groups))
 
 	gymRBACs := map[string]RBACConfig{}
 	for _, g := range resp.Groups {

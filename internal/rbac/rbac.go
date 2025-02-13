@@ -139,7 +139,6 @@ func (r *RBAC) IsAuthorized(ctx context.Context, cognitoID, resource, action str
 			log.Warn().Msgf("could not find role '%s' in role cache: %v", roleName, r.roles)
 			continue
 		}
-		println("ROLES: ", role.Permissions)
 		totalPermissions = append(totalPermissions, role.Permissions...)
 
 		for _, userPermission := range role.Permissions {
@@ -149,7 +148,7 @@ func (r *RBAC) IsAuthorized(ctx context.Context, cognitoID, resource, action str
 		}
 	}
 
-	log.Warn().Msgf("User does not have permission for %s, user's permissions are: %v", permissionNeeded, totalPermissions)
+	log.Warn().Msgf("User %q does not have permission for %s, user's permissions are: %v", cognitoID, permissionNeeded, totalPermissions)
 
 	return false, nil
 }
