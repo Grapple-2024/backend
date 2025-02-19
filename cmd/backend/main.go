@@ -88,9 +88,13 @@ func main() {
 	}
 
 	/**** Create Clients for each external dependency *****/
+
+	// SendGrid Client
 	sendGridClient := sendgrid.NewSendClient(sendGridAPIKey)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+
+	// Mongo Client
 	mongoClient, err := mongo.New(ctx, mongoEndpoint)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to connect to mongo endpoint: %q", mongoEndpoint)
@@ -117,11 +121,6 @@ func main() {
 		log.Fatal().Err(err).Msgf("failed to initialize MapBox Service")
 	}
 
-	techniques, err := techniques.NewService(ctx, mongoClient, gymVideosBucketName, awsRegion)
-	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
-	}
-
 	profiles, err := profiles.NewService(ctx, mongoClient, publicAssetsBucketName, awsRegion, cognitoUserPoolID, cognitoClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Profiles Service")
@@ -134,6 +133,12 @@ func main() {
 	}
 
 	/**** HTTP Handlers ****/
+
+	techniques, err := techniques.NewService(ctx, mongoClient, gymVideosBucketName, awsRegion)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
+	}
+
 	// Gyms HTTP Handler
 	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, awsRegion, mongoClient, rbac)
 	if err != nil {

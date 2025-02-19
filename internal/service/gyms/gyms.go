@@ -223,7 +223,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 	id := req.PathParameters["id"]
 	gymResourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, gymResourceID, rbac.ActionUpdate)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, gymResourceID, rbac.ActionUpdate)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -247,7 +247,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		}
 
 		gymResourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
-		isAuthorized, err := s.IsAuthorized(ctx, token.Sub, gymResourceID, rbac.ActionUpdate)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Username, gymResourceID, rbac.ActionUpdate)
 		if err != nil {
 			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 		} else if !isAuthorized {
@@ -261,7 +261,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		}
 	case fmt.Sprintf("%s/assign-role", gymSubPath):
 		gymRolesResource := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, id, rbac.ResourceRoles)
-		isAuthorized, err := s.IsAuthorized(ctx, token.Sub, gymRolesResource, rbac.ActionUpdate)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Username, gymRolesResource, rbac.ActionUpdate)
 		if err != nil {
 			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 		} else if !isAuthorized {
@@ -335,7 +335,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	resourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionDelete)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionDelete)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {

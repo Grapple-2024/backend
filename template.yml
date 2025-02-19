@@ -434,6 +434,14 @@ Resources:
                   - cognito-idp:AdminDeleteUser
                   - cognito-idp:AdminAddUserToGroup
                 Resource: '*'
+        - PolicyName: CognitoUserPools
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-idp:*
+                Resource: '*'
 Outputs:
   API:
     Description: "API Gateway endpoint URL for the Lambda function"

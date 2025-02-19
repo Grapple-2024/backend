@@ -99,14 +99,13 @@ func IsState(fl validator.FieldLevel) bool {
 
 // Token represents the AWS Cognito user token
 type Token struct {
-	Username   string   `mapstructure:"cognito:username"`
+	Username   string   `mapstructure:"username"`
 	Email      string   `mapstructure:"email"`
 	Roles      []string `mapstructure:"cognito:roles"`
 	Groups     []string `mapstructure:"cognito:groups"`
 	GivenName  string   `mapstructure:"given_name"`
 	FamilyName string   `mapstructure:"family_name"`
-
-	Sub string `mapstructure:"sub"`
+	Sub        string   `mapstructure:"sub"`
 }
 
 func GetToken(hdrs map[string]string) (*Token, error) {
@@ -142,6 +141,7 @@ func GetToken(hdrs map[string]string) (*Token, error) {
 	if !token.Valid {
 		return nil, err
 	}
+	log.Info().Msgf("TOKEN: %+v", token)
 
 	var t *Token
 	if err := mapstructure.Decode(token.Claims.(jwt.MapClaims), &t); err != nil {

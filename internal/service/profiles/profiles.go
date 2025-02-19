@@ -429,13 +429,32 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 	return nil
 }
 
+func DeleteGymAssociation(ctx context.Context, mc *mongoext.Client, gymID bson.ObjectID, cognitoID string) error {
+	profiles := mc.Database("grapple").Collection("profiles")
+	filter := bson.M{
+		"cognito_id": cognitoID,
+	}
+
+	update := bson.M{
+		"$pull": bson.M{
+			"gyms": bson.M{"gym_id": gymID},
+		},
+	}
+
+	var result dao.Profile
+	if err := mongoext.UpdateOne(ctx, profiles, update, filter, &result, nil); err != nil {
+		return fmt.Errorf("failed to delete gym association on profile with filter %v: %v", filter, err)
+	}
+
+	return nil
+}
+
 // UpsertGymAssociation upserts (inserts or updates) a gym association to a user profile object.
 // It does not update any groups in Cognito or the RBAC framework.
 func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym, roleName string, request *dao.GymRequest) error {
 	groupName := fmt.Sprintf("gym::%s::%s", gym.ID.Hex(), utils.PluralGroupNameFromRole(roleName))
 	gymAssociation := dao.GymAssociation{
-		GymID: gym.ID,
-		// Gym:            gym,
+		GymID:          gym.ID,
 		Email:          request.RequestorEmail,
 		MembershipType: request.MembershipType,
 		Group:          groupName,
@@ -445,25 +464,11 @@ func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym
 		},
 	}
 
-	profiles := mc.Database("grapple").Collection("profiles")
-	filter := bson.M{
-		"cognito_id": request.RequestorID,
+	if err := DeleteGymAssociation(ctx, mc, gym.ID, request.RequestorID); err != nil {
+		return err
 	}
 
-	// remove the gym association first
 	update := bson.M{
-		"$pull": bson.M{
-			"gyms": bson.M{"gym_id": gym.ID},
-		},
-	}
-	var result dao.Profile
-	log.Info().Msgf("Pulling current gym association filter: %+v, %+v", update, filter)
-	if err := mongoext.UpdateOne(ctx, profiles, update, filter, &result, nil); err != nil {
-		return fmt.Errorf("failed to upsert profile with filter %v: %v", filter, err)
-	}
-
-	// re-add it to ensure no duplication
-	update = bson.M{
 		"$push": bson.M{
 			"gyms": gymAssociation,
 		},
@@ -471,7 +476,12 @@ func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym
 
 	log.Info().Msgf("Upserting gym association %v to user %q", gymAssociation, request.RequestorID)
 
-	// Update student profile with the new gym association
+	// Insert the Gym Association
+	profiles := mc.Database("grapple").Collection("profiles")
+	filter := bson.M{
+		"cognito_id": request.RequestorID,
+	}
+	var result dao.Profile
 	if err := mongoext.UpdateOne(ctx, profiles, update, filter, &result, nil); err != nil {
 		return fmt.Errorf("failed to upsert profile with filter %v: %v", filter, err)
 	}

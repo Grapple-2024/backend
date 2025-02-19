@@ -11,6 +11,7 @@ import (
 	cip "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -108,10 +109,21 @@ func (c *Client) ListGroups(ctx context.Context) (*cip.ListGroupsOutput, error) 
 	return out, nil
 }
 
-func (c *Client) ListGroupsForUser(ctx context.Context, username string) (*cip.AdminListGroupsForUserOutput, error) {
+func (c *Client) ListGroupsForUser(ctx context.Context, cognitoSubID string) (*cip.AdminListGroupsForUserOutput, error) {
+	log.Info().Msgf("Listing groups for user: %v, cognito pool id: %v", cognitoSubID, c.userPoolID)
+
+	resp, err := c.Client.AdminGetUser(ctx, &cip.AdminGetUserInput{
+		Username:   &cognitoSubID,
+		UserPoolId: &c.userPoolID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to find cognito user with Username %s in pool %s", cognitoSubID, c.userPoolID)
+	}
+
+	log.Info().Msgf("AdminGetUser output: %+v\n\n", resp)
 	return c.Client.AdminListGroupsForUser(ctx, &cip.AdminListGroupsForUserInput{
 		UserPoolId: aws.String(c.userPoolID),
-		Username:   aws.String(username),
+		Username:   resp.Username,
 	})
 }
 

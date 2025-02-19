@@ -79,6 +79,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	requestorID := req.QueryStringParameters["requestor_id"]
 	membershipType := req.QueryStringParameters["membership_type"]
 	search := req.QueryStringParameters["search"]
+	role := req.QueryStringParameters["role"]
 	sortColumn := req.QueryStringParameters["sort_column"]
 	if sortColumn == "" {
 		sortColumn = "first_name"
@@ -119,6 +120,9 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 	if membershipType != "" {
 		filter["membership_type"] = membershipType
+	}
+	if role != "" {
+		filter["role"] = role
 	}
 
 	if status != "" {
@@ -303,7 +307,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	}
 
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, request.GymID.Hex(), rbac.ResourceGymRequests) // gym:<gym_id>:requests
-	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionUpdate)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionUpdate)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -479,27 +483,38 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *dao.GymReques
 		SetWriteConcern(&writeconcern.WriteConcern{W: 1})
 
 	result, err := s.WithTransaction(ctx, func(sessCtx context.Context) (any, error) {
-		// update the gym request
 		var request dao.GymRequest
 		request.UpdatedAt = time.Now().Local().UTC()
 		if err := mongoext.UpdateByID(ctx, s.Collection, requestID, payload, &request, nil); err != nil {
 			return nil, fmt.Errorf("failed to update gym record: %v", err)
 		}
+
+		gymID := request.GymID.Hex()
+
+		// Handle request denied
+		if payload.Status == dao.RequestDenied {
+			if err := profiles.DeleteGymAssociation(ctx, s.Client, request.GymID, request.RequestorID); err != nil {
+				return nil, err
+			}
+		}
+
 		if payload.Status != dao.RequestAccepted {
 			return request, nil
 		}
+
+		// Handle request approved
 		log.Info().Msgf("a gym request was approved by coach for student %q (%s)", request.RequestorEmail, request.RequestorID)
 
 		// fetch the gym associated with this gym request, make sure it exists.
 		var gym dao.Gym
 		gymsColl := s.Database().Collection("gyms")
-		if err := mongoext.FindByID(ctx, gymsColl, request.GymID.Hex(), &gym); err != nil {
+		if err := mongoext.FindByID(ctx, gymsColl, gymID, &gym); err != nil {
 			return nil, fmt.Errorf("failed to find gym with id %v: %v", payload.GymID.Hex(), err)
 		}
 
 		// Assign user to the proper cognito group and update/insert their gym association as a student.
-		if err := s.RBAC.AssignUserToGymRole(ctx, gym.ID.Hex(), request.RequestorID, request.Role); err != nil {
-			return nil, fmt.Errorf("could not assign user to %s group of gym %s: %v", request.Role, gym.ID.Hex(), err)
+		if err := s.RBAC.AssignUserToGymRole(ctx, gymID, request.RequestorEmail, request.Role); err != nil {
+			return nil, fmt.Errorf("could not assign user to %s group of gym %s: %v", request.Role, gymID, err)
 		}
 		if err := profiles.UpsertGymAssociation(ctx, s.Client, &gym, request.Role, &request); err != nil {
 			return nil, fmt.Errorf("could not upsert gym association: %v", err)

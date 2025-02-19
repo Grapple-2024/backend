@@ -17,6 +17,7 @@ import (
 	"github.com/Grapple-2024/backend/pkg/lambda"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
+	"github.com/rs/zerolog/log"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -38,9 +39,13 @@ type (
 		Gyms   []dao.Gym              `json:"gyms"`
 		Series []gym_series.GymSeries `json:"series"`
 
-		TotalGyms   int64 `json:"total_gyms"`
-		TotalSeries int64 `json:"total_series"`
-		TotalCount  int64 `json:"total_count"`
+		// total counts across all pages
+		TotalGyms  int64 `json:"total_gyms"`
+		TotalCount int64 `json:"total_count"`
+
+		// Per page counts
+		SeriesCount int64 `json:"series_count"`
+		GymsCount   int64 `json:"gyms_count"`
 
 		// URL to the next page
 		NextPage *string `json:"next_page"`
@@ -67,6 +72,7 @@ func NewService(ctx context.Context, mc *mongoext.Client, rbac *rbac.RBAC) (*Ser
 		Client: mc,
 		Gyms:   gyms,
 		Series: series,
+		RBAC:   rbac,
 	}
 	if err := svc.ensureIndices(ctx); err != nil {
 		return nil, err
@@ -204,8 +210,8 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	seriesFilter := buildSeriesFilter(params)
 
 	// Fetch gyms
-	var gyms []dao.Gym
-	if err := mongoext.Paginate(ctx, s.Gyms, gymsFilter, params.Page, params.PageSize, true, options.Find(), &gyms); err != nil {
+	var gymsToReturn []dao.Gym
+	if err := mongoext.Paginate(ctx, s.Gyms, gymsFilter, params.Page, params.PageSize, true, options.Find(), &gymsToReturn); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 
@@ -214,14 +220,17 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	if err := mongoext.Paginate(ctx, s.Series, seriesFilter, params.Page, params.PageSize, true, options.Find(), &series); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
+	log.Info().Msgf("Found total of %d series that match filter %+v", len(series), seriesFilter)
 
+	// Filter only series that the user has permission to view
 	seriesToReturn := []gym_series.GymSeries{}
 	for _, gymSeries := range series {
-		resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymSeries.GymID, rbac.ResourceSeries)
-		isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionCreate)
-		if err != nil {
-			continue
-		} else if !isAuthorized {
+		resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymSeries.GymID.Hex(), rbac.ResourceSeries)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionCreate)
+		if err != nil || !isAuthorized {
+			if err != nil {
+				log.Error().Err(err).Msgf("Error determining authorization of user %s on resource %s", token.Sub, resourceID)
+			}
 			continue
 		}
 
@@ -234,31 +243,36 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
-	// Get the total count of series
-	totalSeries, err := s.Series.CountDocuments(ctx, seriesFilter, nil)
-	if err != nil {
-		return lambda.ServerError(fmt.Errorf("error counting documents: %v", err))
-	}
-
 	resp := searchResponse{
-		Gyms:        gyms,
+		Gyms:        gymsToReturn,
 		Series:      seriesToReturn,
 		TotalGyms:   totalGyms,
-		TotalSeries: totalSeries,
-		TotalCount:  totalGyms + totalSeries,
+		TotalCount:  totalGyms + int64(len(seriesToReturn)),
+		SeriesCount: int64(len(seriesToReturn)),
+		GymsCount:   int64(len(gymsToReturn)),
 	}
 	n := float64(resp.TotalCount) / float64(params.PageSize)
 	totalPages := int64(math.Ceil(n))
 	// if we're not on the last page, add the next page's URL to the response.
 	if totalPages > int64(params.Page) {
-		nextPageURL := fmt.Sprintf("%s/search/?pageSize=%d&page=%d", service.API_URL, params.PageSize, params.Page+1)
+		nextPageURL := fmt.Sprintf("%s/search/?page_size=%d&page=%d", service.API_URL, params.PageSize, params.Page+1)
 		resp.NextPage = &nextPageURL
 	}
 
 	// if we're not on the first page, add the previous page's URL to the response.
 	if params.Page > 1 && totalPages >= int64(params.Page) {
-		prevPageURL := fmt.Sprintf("%s/search/?pageSize=%d&page=%d", service.API_URL, params.PageSize, params.Page-1)
+		prevPageURL := fmt.Sprintf("%s/search/?page_size=%d&page=%d", service.API_URL, params.PageSize, params.Page-1)
 		resp.PreviousPage = &prevPageURL
+	}
+
+	if params.Query != "" {
+		if resp.NextPage != nil {
+			*resp.NextPage += fmt.Sprintf("&query=%s", params.Query)
+		}
+		if resp.PreviousPage != nil {
+			*resp.PreviousPage += fmt.Sprintf("&query=%s", params.Query)
+
+		}
 	}
 
 	respBytes, err := json.Marshal(resp)

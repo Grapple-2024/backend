@@ -53,8 +53,9 @@ type Permission struct {
 type User struct {
 	types.UserType
 
-	ID    string
-	Roles []string
+	ID       string
+	Username string
+	Roles    []string
 }
 
 // UserStore interface for fetching user data.
@@ -86,9 +87,12 @@ func New(profileSVC *profiles.Service, cognito *cognito.Client) (*RBAC, error) {
 }
 
 func (r *RBAC) GetUser(ctx context.Context, userID string) (*User, error) {
+	log.Info().Msgf("Fetching user from RBAC map: %v", userID)
+
 	if val, ok := r.users[userID]; ok {
 		return &val, nil
 	}
+
 	// send API request only if user is not in cache
 	resp, err := r.ListGroupsForUser(ctx, userID)
 	if err != nil {
@@ -101,7 +105,6 @@ func (r *RBAC) GetUser(ctx context.Context, userID string) (*User, error) {
 	for _, g := range resp.Groups {
 		u.Roles = append(u.Roles, *g.GroupName)
 	}
-	log.Info().Msgf("User %q has the following roles: %v", userID, u.Roles)
 
 	return u, nil
 }
@@ -128,7 +131,7 @@ func (r *RBAC) AddPermissions(permissions ...Permission) {
 func (r *RBAC) IsAuthorized(ctx context.Context, cognitoID, resource, action string) (bool, error) {
 	user, err := r.GetUser(ctx, cognitoID)
 	if err != nil {
-		return false, fmt.Errorf("failed to get user: %w", err)
+		return false, fmt.Errorf("failed to get user: %w, cognito ID: %v", err, cognitoID)
 	}
 
 	permissionNeeded := fmt.Sprintf("%s:%s", resource, action)
@@ -148,7 +151,7 @@ func (r *RBAC) IsAuthorized(ctx context.Context, cognitoID, resource, action str
 		}
 	}
 
-	log.Warn().Msgf("User %q does not have permission for %s, user's permissions are: %v", cognitoID, permissionNeeded, totalPermissions)
+	log.Warn().Msgf("User %q does not have permission for %s", cognitoID, permissionNeeded)
 
 	return false, nil
 }
@@ -172,15 +175,14 @@ func (r *RBAC) CreateGymRBAC(ctx context.Context, gymID string) error {
 	return nil
 }
 
-// AssignUserToGymRole assigns a user to a specific gym's group (owner, coach, student, etc).
-func (r *RBAC) AssignUserToGymRole(ctx context.Context, gymID, cognitoID, roleName string) error {
+func (r *RBAC) RemoveUserFromGymGroups(ctx context.Context, gymID, cognitoID string) error {
+	gymGroupPrefix := fmt.Sprintf("%s::%s", ResourceGym, gymID)
+
 	user, err := r.GetUser(ctx, cognitoID)
 	if err != nil {
-		return fmt.Errorf("failed to find user %s in RBAC system: %+v\n%v", cognitoID, r.users, err)
+		return err
 	}
 
-	groupName := fmt.Sprintf("%s::%s::%s", ResourceGym, gymID, utils.PluralGroupNameFromRole(roleName))
-	gymGroupPrefix := strings.Join(strings.Split(groupName, "::")[:2], "::")
 	for _, role := range user.Roles {
 		if !strings.HasPrefix(role, gymGroupPrefix) {
 			continue
@@ -188,6 +190,17 @@ func (r *RBAC) AssignUserToGymRole(ctx context.Context, gymID, cognitoID, roleNa
 		if err := r.RemoveUserFromGroup(ctx, cognitoID, role); err != nil {
 			return err
 		}
+	}
+
+	delete(r.users, cognitoID)
+	return nil
+}
+
+// AssignUserToGymRole assigns a user to a specific gym's group (owner, coach, student, etc).
+func (r *RBAC) AssignUserToGymRole(ctx context.Context, gymID, cognitoID, roleName string) error {
+	groupName := fmt.Sprintf("%s::%s::%s", ResourceGym, gymID, utils.PluralGroupNameFromRole(roleName))
+	if err := r.RemoveUserFromGymGroups(ctx, gymID, cognitoID); err != nil {
+
 	}
 
 	if err := r.AddUserToGroup(ctx, cognitoID, groupName); err != nil {

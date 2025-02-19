@@ -2,12 +2,9 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
-	"time"
 
 	"github.com/Grapple-2024/backend/pkg/cognito"
-	"github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/rs/zerolog/log"
 )
 
@@ -34,28 +31,9 @@ func main() {
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envCognitoUserPoolID)
 	}
-	mongoURL, ok := os.LookupEnv("MONGO_ENDPOINT")
-	if !ok {
-		log.Fatalf("required env var not set: MONGO_ENDPOINT")
-	}
-
-	// Create mongo context and client
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	mc, err := mongo.New(ctx, mongoURL)
-	if err != nil {
-		log.Fatalf("failed to create mongo client: %v", err)
-	}
-
-	defer func() {
-		if err = mc.Disconnect(ctx); err != nil {
-			log.Fatalf("failed to disconnect from mongo: %v", err)
-		}
-	}()
 
 	/** Create Cognito Client ***/
-	cognitoClient, err := cognito.NewClient(
+	cc, err := cognito.NewClient(
 		region,
 		cognito.WithUserPool(cognitoUserPoolID),
 		cognito.WithClientID(cognitoClientID),
@@ -65,6 +43,12 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to create cognito client")
 	}
 
-	gymsCollection := mc.Client.Database("grapple").Collection("gyms")
+	username := "8865a280-0ba2-4455-be19-a93d5813f269"
+	out, err := cc.ListGroupsForUser(context.Background(), username)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to list groups for cognito user %s", username)
+	}
+
+	log.Info().Msgf("output: %+v", out)
 
 }
