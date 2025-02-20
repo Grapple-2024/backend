@@ -352,29 +352,30 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 }
 
 func (s *Service) assignRole(ctx context.Context, gym *dao.Gym, payload map[string]string) error {
-	cognitoID := payload["cognito_id"]
-	role := payload["role"]
-	if cognitoID == "" {
-		return fmt.Errorf("must specify cognito_id of user to assign roles to in the 'cognito_id' body field")
+	cognitoUsername := payload["username"]
+	if cognitoUsername == "" {
+		return fmt.Errorf("must specify username of user to assign roles to in the 'username' body field")
 	}
+
+	role := payload["role"]
 	if role == "" {
 		return fmt.Errorf("must specify role to assign in the 'role' body field")
 	} else if !rbac.ValidateRole(role) {
 		return fmt.Errorf("must specify a valid role name in the 'role' field: [owner, coach, student]")
 	}
 
-	if err := s.RBAC.AssignUserToGymRole(ctx, gym.ID.Hex(), cognitoID, role); err != nil {
-		return fmt.Errorf("failed to assign user %s to role %s in gym %s", cognitoID, role, gym.ID.Hex())
+	if err := s.RBAC.AssignUserToGymRole(ctx, gym.ID.Hex(), cognitoUsername, role); err != nil {
+		return fmt.Errorf("failed to assign user %s to role %s in gym %s", cognitoUsername, role, gym.ID.Hex())
 	}
 
 	requestFilter := bson.M{
-		"gym_id":       gym.ID,
-		"requestor_id": cognitoID,
+		"gym_id":          gym.ID,
+		"requestor_email": cognitoUsername,
 	}
 	request := dao.GymRequest{}
 	if err := mongoext.FindOne(ctx, s.Database().Collection("gymRequests"), requestFilter, &request); err != nil {
 		return fmt.Errorf("failed to find gym request with requestor_email=%s and gym_id=%s: %v",
-			cognitoID,
+			cognitoUsername,
 			gym.ID.Hex(),
 			err,
 		)
@@ -483,7 +484,7 @@ func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload
 		if err := s.RBAC.CreateGymRBAC(ctx, gymID); err != nil {
 			return nil, err
 		}
-		if err := s.RBAC.AssignUserToGymRole(ctx, gymID, token.Sub, rbac.Owner); err != nil {
+		if err := s.RBAC.AssignUserToGymRole(ctx, gymID, token.Username, rbac.Owner); err != nil {
 			return nil, err
 		}
 

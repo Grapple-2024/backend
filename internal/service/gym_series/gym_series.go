@@ -662,7 +662,7 @@ func (s *Service) generatePresignedURLs(ctx context.Context, records []GymSeries
 			}
 			thumbnailPresigned, err := service.GeneratePresignedURL(ctx, s.PresignClient, s.videosBucketName, "download", video.ThumbnailS3ObjectKey)
 			if err != nil {
-				return fmt.Errorf("failed to generate presigned thumbnail url: %v", err)
+				return fmt.Errorf("failed to generate presigned thumbnail url for s3 key %q: %v", video.ThumbnailS3ObjectKey, err)
 			}
 			records[i].Videos[j].PresignedURL = videoPresigned.URL
 			records[i].Videos[j].ThumbnailURL = thumbnailPresigned.URL
