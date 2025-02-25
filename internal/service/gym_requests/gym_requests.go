@@ -171,7 +171,6 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	log.Info().Msgf("Requests Filter: %+v", filter)
-	// Fetch records with pagination
 	var requests []dao.GymRequest
 	opts := options.Find().SetSort(bson.M{sortColumn: sortDirectionInt}) // -1 = DESCENDING (newest at the top), 1 = ASCENDING (oldest at the top)
 	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, opts, &requests); err != nil {

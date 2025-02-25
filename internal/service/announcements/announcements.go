@@ -80,10 +80,10 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymID, rbac.ResourceAnnouncements)
 	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to verify authorization on user: %v", err))
 	} else if !isAuthorized {
 		return lambda.ClientError(http.StatusForbidden,
-			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s': %v", rbac.ActionRead, resourceID, err),
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionRead, resourceID),
 		)
 	}
 

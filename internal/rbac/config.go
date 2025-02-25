@@ -111,7 +111,7 @@ func GetRBACConfig() (*RBACConfig, error) {
 func (r *RBAC) StoreGymRBAC(gymID string) error {
 	rolesConfig, err := r.RenderRolesTemplate(gymID)
 	if err != nil {
-		return fmt.Errorf("faile to render roles template: %v", err)
+		return fmt.Errorf("failed to render roles template: %v", err)
 	}
 	permissionsConfig, err := r.RenderPermissionsTemplate(gymID)
 	if err != nil {
@@ -123,9 +123,9 @@ func (r *RBAC) StoreGymRBAC(gymID string) error {
 	return nil
 }
 
-// LoadCache loads the permissions and roles caches for the RBAC framework to use during runtime.
+// SeedCache loads the permissions and roles caches for the RBAC framework to use during runtime.
 // It dynamically determines each gym by reading the Cognito groups API and populates the roles and permissions for each gym.
-// It also populates any static roles/permissions, eg "gym-creator", and gym:create.
+// It also populates any static roles/permissions, eg "gym-creator" and gym:create.
 func (r *RBAC) SeedCache(ctx context.Context) error {
 	rbacConfig, err := GetRBACConfig()
 	if err != nil {

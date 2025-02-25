@@ -63,7 +63,7 @@ func FindByID(ctx context.Context, collection *mongo.Collection, id string, resu
 	// Find the document by ID
 	filter := bson.M{"_id": objID}
 	if err := collection.FindOne(ctx, filter).Decode(result); err != nil {
-		return fmt.Errorf("failed to FindOne with filter %v: %w", filter, err)
+		return fmt.Errorf("failed to FindOne with filter %v in collection %s: %w", filter, collection.Name(), err)
 	}
 
 	return nil

@@ -140,7 +140,7 @@ func main() {
 	}
 
 	// Gyms HTTP Handler
-	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, awsRegion, mongoClient, rbac)
+	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, awsRegion, mongoClient, rbac, cognitoClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
 	}

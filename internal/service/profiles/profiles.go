@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/dao"
@@ -21,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/rs/zerolog/log"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -132,7 +132,8 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		for j, membership := range profile.Gyms {
 			var gym dao.Gym
 			if err := mongoext.FindByID(ctx, s.gymsCollection, membership.GymID.Hex(), &gym); err != nil {
-				return lambda.ServerError(fmt.Errorf("failed to find gym for gym membership! DATA INCONSISTENCY ERROR: %v", err))
+				log.Error().Msgf("failed to find gym for gym membership! DATA INCONSISTENCY ERROR: %v", err)
+				continue
 			}
 
 			profiles[i].Gyms[j].Gym = &gym
@@ -282,13 +283,13 @@ func (s *Service) deleteAllDataForProfile(ctx context.Context, profileID string)
 	}
 
 	// Find all Gyms created by the user (if any)
-	var gyms []dao.Gym
+	var gymsCreated []dao.Gym
 	f := bson.M{
 		"creator": profile.CognitoID,
 	}
-	if err := mongoext.Paginate(ctx, s.gymsCollection, f, 1, 100, false, options.Find(), &gyms); err != nil {
+	// **** TODO: switch to cursor.All()
+	if err := mongoext.Paginate(ctx, s.gymsCollection, f, 1, 100000, false, options.Find(), &gymsCreated); err != nil {
 		log.Error().Msgf("failed to find gyms created by cognito ID %s: %v", profileID, err)
-		// return fmt.Errorf("failed to find gyms created by cognito ID %s: %v", profileID, err)
 	}
 
 	// Delete Gyms and GymRequest objects created by the user with this cognito ID
@@ -296,9 +297,9 @@ func (s *Service) deleteAllDataForProfile(ctx context.Context, profileID string)
 		return err
 	}
 
-	for _, gym := range gyms {
+	for _, gym := range gymsCreated {
 		// Delete all Cognito Groups for each Gym the user created
-		if err := s.deleteCognitoGroupsForGym(ctx, gym.ID.Hex()); err != nil {
+		if err := cognito.DeleteCognitoGroupsForGym(ctx, s.CognitoClient, gym.ID.Hex()); err != nil {
 			return err
 		}
 
@@ -314,31 +315,6 @@ func (s *Service) deleteAllDataForProfile(ctx context.Context, profileID string)
 	}
 
 	// Finally, delete
-
-	return nil
-}
-func (s *Service) deleteCognitoGroupsForGym(ctx context.Context, gymID string) error {
-	result, err := s.CognitoClient.ListGroups(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to list cognito groups: %v", err)
-	}
-
-	gymGroupPrefix := fmt.Sprintf("gym::%s", gymID)
-	for _, group := range result.Groups {
-		if !strings.HasPrefix(*group.GroupName, gymGroupPrefix) {
-			continue
-		}
-
-		res, err := s.CognitoClient.DeleteGroup(ctx, &cognitoidentityprovider.DeleteGroupInput{
-			GroupName:  group.GroupName,
-			UserPoolId: &s.userPoolID,
-		})
-		if err != nil {
-			return err
-		}
-		log.Info().Msgf("Deleted Cognito Group %s: %+v", *group.GroupName, res.ResultMetadata)
-
-	}
 
 	return nil
 }
@@ -426,6 +402,27 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 		return err
 	}
 
+	return nil
+}
+
+// DeleteGymAssociationsForGym removes all gym associations globally for all profiles for a given gym ID.
+// this function is called during gym deletion and is part of deleteGymTX.
+func DeleteGymAssociationsByGymID(ctx context.Context, collection *mongo.Collection, gymID string) error {
+	// Convert gymID to ObjectId
+	objectID, err := primitive.ObjectIDFromHex(gymID)
+	if err != nil {
+		return fmt.Errorf("invalid gymID: %v", err)
+	}
+
+	filter := bson.M{"gyms.gym_id": objectID}
+	update := bson.M{"$pull": bson.M{"gyms": bson.M{"gym_id": objectID}}}
+
+	// Update all matching documents
+	result, err := collection.UpdateMany(context.TODO(), filter, update)
+	if err != nil {
+		return err
+	}
+	log.Info().Msgf("DeleteMany gym association from profiles result: %+v", result)
 	return nil
 }
 

@@ -88,6 +88,13 @@ func (c *Client) RemoveUserFromGroup(ctx context.Context, username, groupName st
 	return err
 }
 
+func (c *Client) DeleteGroup(ctx context.Context, name string) (*cip.DeleteGroupOutput, error) {
+	return c.Client.DeleteGroup(ctx, &cip.DeleteGroupInput{
+		GroupName:  aws.String(name),
+		UserPoolId: aws.String(c.userPoolID),
+	}, nil)
+}
+
 func (c *Client) ListGroups(ctx context.Context) (*cip.ListGroupsOutput, error) {
 	input := &cip.ListGroupsInput{
 		UserPoolId: aws.String(c.userPoolID),
@@ -110,8 +117,6 @@ func (c *Client) ListGroups(ctx context.Context) (*cip.ListGroupsOutput, error) 
 }
 
 func (c *Client) ListGroupsForUser(ctx context.Context, cognitoSubID string) (*cip.AdminListGroupsForUserOutput, error) {
-	log.Info().Msgf("Listing groups for user: %v, cognito pool id: %v", cognitoSubID, c.userPoolID)
-
 	resp, err := c.Client.AdminGetUser(ctx, &cip.AdminGetUserInput{
 		Username:   &cognitoSubID,
 		UserPoolId: &c.userPoolID,
@@ -120,11 +125,15 @@ func (c *Client) ListGroupsForUser(ctx context.Context, cognitoSubID string) (*c
 		return nil, fmt.Errorf("failed to find cognito user with Username %s in pool %s", cognitoSubID, c.userPoolID)
 	}
 
-	log.Info().Msgf("AdminGetUser output: %+v\n\n", resp)
-	return c.Client.AdminListGroupsForUser(ctx, &cip.AdminListGroupsForUserInput{
+	listGroupsResp, err := c.Client.AdminListGroupsForUser(ctx, &cip.AdminListGroupsForUserInput{
 		UserPoolId: aws.String(c.userPoolID),
 		Username:   resp.Username,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	return listGroupsResp, nil
 }
 
 func (c *Client) newSecretHash(username string) string {
@@ -172,4 +181,22 @@ func (c *Client) Login(ctx context.Context, username, password, refresh, refresh
 	}
 
 	return nil, fmt.Errorf("error authenticating, response: %v", res)
+}
+
+func DeleteCognitoGroupsForGym(ctx context.Context, cc *Client, gymID string) error {
+	// Generate the three group names
+	groupTypes := []string{"owners", "coaches", "students"}
+
+	for _, groupType := range groupTypes {
+		groupName := fmt.Sprintf("gym::%s::%s", gymID, groupType)
+
+		// Delete the Cognito Group
+		_, err := cc.DeleteGroup(ctx, groupName)
+		if err != nil {
+			log.Warn().Msgf("Could not delete group %s: %v", groupName, err.Error())
+			return err
+		}
+	}
+
+	return nil
 }

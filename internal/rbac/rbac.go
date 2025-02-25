@@ -79,19 +79,15 @@ func New(profileSVC *profiles.Service, cognito *cognito.Client) (*RBAC, error) {
 		Client:      cognito,
 	}
 
-	if err := r.SeedCache(context.Background()); err != nil {
-		return nil, err
-	}
+	// if err := r.SeedCache(context.Background()); err != nil {
+	// 	return nil, err
+	// }
 
 	return r, nil
 }
 
 func (r *RBAC) GetUser(ctx context.Context, userID string) (*User, error) {
 	log.Info().Msgf("Fetching user from RBAC map: %v", userID)
-
-	if val, ok := r.users[userID]; ok {
-		return &val, nil
-	}
 
 	// send API request only if user is not in cache
 	resp, err := r.ListGroupsForUser(ctx, userID)
@@ -103,6 +99,7 @@ func (r *RBAC) GetUser(ctx context.Context, userID string) (*User, error) {
 		ID: userID,
 	}
 	for _, g := range resp.Groups {
+		log.Info().Msgf("User %s is in group %s", userID, *g.GroupName)
 		u.Roles = append(u.Roles, *g.GroupName)
 	}
 
@@ -129,20 +126,26 @@ func (r *RBAC) AddPermissions(permissions ...Permission) {
 
 // IsAuthorized checks if a user is authorized to perform an action on a resource.
 func (r *RBAC) IsAuthorized(ctx context.Context, cognitoID, resource, action string) (bool, error) {
+	// TODO: change this to only populate the RBAC for the groups that the cognito ID is in. Will save a lot of time
+	if err := r.SeedCache(context.Background()); err != nil {
+		return false, err
+	}
+
 	user, err := r.GetUser(ctx, cognitoID)
 	if err != nil {
 		return false, fmt.Errorf("failed to get user: %w, cognito ID: %v", err, cognitoID)
 	}
 
 	permissionNeeded := fmt.Sprintf("%s:%s", resource, action)
-	totalPermissions := []string{} // just used to output what permissions the user has for debugging
+	log.Info().Msgf("running isAuthorized(%s, %s)?", cognitoID, permissionNeeded)
+	totalRoles := []string{}
 	for _, roleName := range user.Roles {
 		role, ok := r.roles[roleName]
 		if !ok {
 			log.Warn().Msgf("could not find role '%s' in role cache: %v", roleName, r.roles)
 			continue
 		}
-		totalPermissions = append(totalPermissions, role.Permissions...)
+		totalRoles = append(totalRoles, role.Name)
 
 		for _, userPermission := range role.Permissions {
 			if userPermission == permissionNeeded {
@@ -151,7 +154,7 @@ func (r *RBAC) IsAuthorized(ctx context.Context, cognitoID, resource, action str
 		}
 	}
 
-	log.Warn().Msgf("User %q does not have permission for %s", cognitoID, permissionNeeded)
+	log.Warn().Msgf("User %q does not have permission for %s\ncurrent permissions: %+v", cognitoID, permissionNeeded, totalRoles)
 
 	return false, nil
 }
@@ -197,18 +200,18 @@ func (r *RBAC) RemoveUserFromGymGroups(ctx context.Context, gymID, cognitoID str
 }
 
 // AssignUserToGymRole assigns a user to a specific gym's group (owner, coach, student, etc).
-func (r *RBAC) AssignUserToGymRole(ctx context.Context, gymID, cognitoID, roleName string) error {
+func (r *RBAC) AssignUserToGymRole(ctx context.Context, gymID, username, roleName string) error {
 	groupName := fmt.Sprintf("%s::%s::%s", ResourceGym, gymID, utils.PluralGroupNameFromRole(roleName))
-	if err := r.RemoveUserFromGymGroups(ctx, gymID, cognitoID); err != nil {
-
+	if err := r.RemoveUserFromGymGroups(ctx, gymID, username); err != nil {
+		return err
 	}
 
-	if err := r.AddUserToGroup(ctx, cognitoID, groupName); err != nil {
-		return fmt.Errorf("failed to add user %s to group %s: %w", cognitoID, groupName, err)
+	if err := r.AddUserToGroup(ctx, username, groupName); err != nil {
+		return fmt.Errorf("failed to add user %s to group %s: %w", username, groupName, err)
 	}
 
 	// invalidate the cache for this user so we force the next RBAC IsAuthorized check to pull from cognito
-	delete(r.users, cognitoID)
+	delete(r.users, username)
 	return nil
 }
 
