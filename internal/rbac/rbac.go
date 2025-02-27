@@ -129,7 +129,7 @@ func (r *RBAC) IsAuthorized(ctx context.Context, cognitoID, resource, action str
 	if err := r.SeedCache(context.Background()); err != nil {
 		return false, err
 	}
-	log.Info().Msgf("RBAC cache: %+v", r.roles)
+
 	user, err := r.GetUser(ctx, cognitoID)
 	if err != nil {
 		return false, fmt.Errorf("failed to get user: %w, cognito ID: %v", err, cognitoID)
