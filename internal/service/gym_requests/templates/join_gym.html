@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grapple MMA: a student has requested to join {{ .GymName }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #fff;
+            color: #000;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background-color: #3E3E3E;
+            padding: 20px;
+            border-radius: 8px;
+        }
+        .header {
+            text-align: center;
+            color: white;
+        }
+        .content {
+            text-align: center;
+        }
+        .content p {
+            font-size: 18px;
+            color: #fff;
+            margin: 10px 0;
+        }
+        .footer {
+            margin-top: 20px;
+            font-size: 14px;
+            text-align: center;
+            color: #888;
+        }
+        .separator {
+            border-top: 1px solid #888;
+            margin: 20px 0;
+        }
+        .button-container {
+            text-align: center;
+            margin: 25px 0;
+        }
+        .button {
+            /* Email-compatible button styling */
+            background-color: #F24B4B;
+            color: #ffffff !important;
+            text-decoration: none;
+            padding: 12px 25px;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 16px;
+            display: inline-block;
+            margin: 0 auto;
+            text-align: center;
+            mso-padding-alt: 12px 25px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>You've Been Invited!</h2>
+        </div>
+        
+        <div class="content">
+            <p>Hello,</p>
+            <p>You've been invited to join <strong>{{.GymName}}</strong> on Grapple MMA - the platform designed for martial arts academies and their students.</p>
+            <p>As a member, you'll get access to class schedules, training resources, and can connect with coaches and fellow students.</p>
+        </div>
+        
+        <div class="button-container">
+            <!-- Table-based approach for better email client compatibility -->
+            <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center" style="margin: auto;">
+                <tr>
+                    <td style="border-radius: 5px; background: #F24B4B; text-align: center;" class="button-td">
+                        <a href="{{.JoinURL}}" style="background: #F24B4B; border: 15px solid #F24B4B; font-family: Arial, sans-serif; font-size: 16px; line-height: 1; text-align: center; text-decoration: none; display: block; border-radius: 5px; font-weight: bold; color: #ffffff !important;" class="button-a">
+                            Click here to join
+                        </a>
+                    </td>
+                </tr>
+            </table>
+        </div>
+        
+        <div class="content">
+            <p>If you have any questions about this invitation, please contact the gym directly.</p>
+            <p>We're excited to welcome you to the Grapple MMA community!</p>
+        </div>
+        
+        <div class="footer">
+            <p>© 2023 Grapple MMA. All rights reserved.</p>
+            <p>If you received this by mistake, please disregard this email.</p>
+        </div>
+    </div>
+</body>
+</html>
