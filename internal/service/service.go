@@ -13,7 +13,9 @@ import (
 
 	"github.com/MicahParks/keyfunc/v3"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/go-http-utils/headers"
 	"github.com/go-playground/validator/v10"
@@ -140,7 +142,6 @@ func GetToken(hdrs map[string]string) (*Token, error) {
 	if !token.Valid {
 		return nil, err
 	}
-	log.Info().Msgf("TOKEN: %+v", token)
 
 	var t *Token
 	if err := mapstructure.Decode(token.Claims.(jwt.MapClaims), &t); err != nil {
@@ -200,4 +201,76 @@ func NewValidator() (*validator.Validate, error) {
 	})
 
 	return validator, nil
+}
+
+func DeleteSeriesVideosFromS3(ctx context.Context, seriesID string) error {
+	region, ok := os.LookupEnv("AWS_REGION")
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", "AWS_REGION")
+	}
+
+	bucketName, ok := os.LookupEnv("PUBLIC_USER_ASSETS_BUCKET_NAME")
+
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", "PUBLIC_USER_ASSETS_BUCKET_NAME")
+	}
+
+	// Initialize AWS config
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return fmt.Errorf("failed to load AWS config: %w", err)
+	}
+
+	// Create S3 client
+	svc := s3.NewFromConfig(cfg)
+
+	// Define the correct bucket name and prefix
+	prefix := fmt.Sprintf("gym-series/%s/videos/", seriesID)
+
+	// List all objects in the folder
+	params := &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucketName),
+		Prefix: aws.String(prefix),
+	}
+
+	log.Info().Msgf("Deleting all objects in bucket %s/%s", bucketName, prefix)
+
+	// Use pagination to get all objects (S3 might truncate results)
+	paginator := s3.NewListObjectsV2Paginator(svc, params)
+	var objectsToDelete []types.ObjectIdentifier
+
+	for paginator.HasMorePages() {
+		resp, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list objects: %w", err)
+		}
+
+		// Collect all objects to delete
+		for _, obj := range resp.Contents {
+			objectsToDelete = append(objectsToDelete, types.ObjectIdentifier{
+				Key: obj.Key,
+			})
+		}
+	}
+
+	// If no objects found, we're done
+	if len(objectsToDelete) == 0 {
+		return nil
+	}
+
+	// Delete all objects in a single batch operation (more efficient)
+	deleteInput := &s3.DeleteObjectsInput{
+		Bucket: aws.String(bucketName),
+		Delete: &types.Delete{
+			Objects: objectsToDelete,
+			Quiet:   aws.Bool(false),
+		},
+	}
+
+	_, err = svc.DeleteObjects(ctx, deleteInput)
+	if err != nil {
+		return fmt.Errorf("failed to delete objects: %w", err)
+	}
+
+	return nil
 }

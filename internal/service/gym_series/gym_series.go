@@ -705,3 +705,39 @@ func (s *Service) calculateDifficulties(series *GymSeries) error {
 
 	return nil
 }
+
+func DeleteSeriesAssociationsByGymID(ctx context.Context, c *mongo.Collection, gymID string) error {
+	objID, err := bson.ObjectIDFromHex(gymID)
+	if err != nil {
+		return fmt.Errorf("invalid object ID specified for gym_id query param: %s", gymID)
+	}
+
+	filter := bson.M{
+		"gym_id": objID,
+	}
+	cur, err := c.Find(ctx, filter)
+
+	if err != nil {
+		return fmt.Errorf("failed to find series by gym_id: %v", err)
+	}
+
+	defer cur.Close(ctx)
+
+	for cur.Next(ctx) {
+		var series GymSeries
+		if err := cur.Decode(&series); err != nil {
+			return fmt.Errorf("failed to decode series: %v", err)
+		}
+		seriesId := series.ID.Hex()
+		// Delete all videos within the videos folder of s3
+		if err := service.DeleteSeriesVideosFromS3(ctx, seriesId); err != nil {
+			return fmt.Errorf("failed to delete s3 folder %q: %v", seriesId, err)
+		}
+	}
+
+	if _, err := c.DeleteMany(ctx, filter); err != nil {
+		return fmt.Errorf("failed to delete series by gym_id: %v", err)
+	}
+
+	return nil
+}

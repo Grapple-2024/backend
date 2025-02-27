@@ -634,3 +634,13 @@ func UpsertGymRequest(ctx context.Context, mc *mongoext.Client, payload *dao.Gym
 
 	return &result, nil
 }
+
+func DeleteGymRequestsByGymID(ctx context.Context, requestsCollection *mongo.Collection, gymId string) error {
+	filter := bson.M{"gym_id": gymId}
+	_, err := requestsCollection.DeleteMany(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("failed to delete gym requests for gym %v: %v", gymId, err)
+	}
+
+	return nil
+}

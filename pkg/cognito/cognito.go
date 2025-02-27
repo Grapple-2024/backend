@@ -93,7 +93,7 @@ func (c *Client) DeleteGroup(ctx context.Context, name string) (*cip.DeleteGroup
 	return c.Client.DeleteGroup(ctx, &cip.DeleteGroupInput{
 		GroupName:  aws.String(name),
 		UserPoolId: aws.String(c.userPoolID),
-	}, nil)
+	})
 }
 
 func (c *Client) ListGroups(ctx context.Context) (*cip.ListGroupsOutput, error) {

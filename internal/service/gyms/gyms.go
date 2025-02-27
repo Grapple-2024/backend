@@ -12,8 +12,11 @@ import (
 	"github.com/Grapple-2024/backend/internal/dao"
 	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service"
+	"github.com/Grapple-2024/backend/internal/service/announcements"
 	"github.com/Grapple-2024/backend/internal/service/gym_requests"
+	"github.com/Grapple-2024/backend/internal/service/gym_series"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
+	"github.com/Grapple-2024/backend/internal/service/techniques"
 	"github.com/Grapple-2024/backend/pkg/cognito"
 	"github.com/Grapple-2024/backend/pkg/lambda"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
@@ -200,7 +203,6 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	if err := json.Unmarshal([]byte(req.Body), &gym); err != nil {
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 	}
-	log.Info().Msgf("Token: %+v", token)
 
 	result, err := s.createGymTX(ctx, token, &gym)
 	if err != nil {
@@ -507,7 +509,13 @@ func deleteGymTX(ctx context.Context, ms *mongo.Session, cc *cognito.Client, gym
 
 	profilesColl := ms.Client().Database("grapple").Collection("profiles")
 	gymsColl := ms.Client().Database("grapple").Collection("gyms")
+	seriesColl := ms.Client().Database("grapple").Collection("series")
+	techniquesColl := ms.Client().Database("grapple").Collection("techniques")
+	announcementsColl := ms.Client().Database("grapple").Collection("announcements")
+	gymRequestsColl := ms.Client().Database("grapple").Collection("gymRequests")
 
+	// This works for now, but in the future we should probably use sqs + lambda to handle this
+	// asynchronously to avoid timeouts. This could take a while if there are a lot of profiles
 	result, err := ms.WithTransaction(ctx, func(sessCtx context.Context) (any, error) {
 		// 1. Delete the gym
 		if err := mongoext.DeleteOne(ctx, gymsColl, gymID); err != nil {
@@ -518,10 +526,31 @@ func deleteGymTX(ctx context.Context, ms *mongo.Session, cc *cognito.Client, gym
 		if err := profiles.DeleteGymAssociationsByGymID(ctx, profilesColl, gymID); err != nil {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete gym profile association(s) for gym %s: %v", gymID, err))
 		}
-		// // 3. Delete all Cognito Groups for a Gym
-		// if err := cognito.DeleteCognitoGroupsForGym(ctx, cc, gymID); err != nil {
-		// 	return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete cognito groups for gym: %v", err))
-		// }
+
+		// 3. Delete all techniques of the week
+		if err := techniques.DeleteAllTechniquesForGym(ctx, techniquesColl, gymID); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete techniques for gym %s: %v", gymID, err))
+		}
+
+		// 4. Delete all announcements for a gym
+		if err := announcements.DeleteAllAnnouncementsByGym(ctx, announcementsColl, gymID); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete announcements for gym %s: %v", gymID, err))
+		}
+
+		// 5. Delete all series associated with this gym
+		if err := gym_series.DeleteSeriesAssociationsByGymID(ctx, seriesColl, gymID); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete series for gym %s: %v", gymID, err))
+		}
+
+		// 6. Delete all gym requests for a gym
+		if err := gym_requests.DeleteGymRequestsByGymID(ctx, gymRequestsColl, gymID); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete gym requests for gym %s: %v", gymID, err))
+		}
+
+		// 7. Delete all Cognito Groups for a Gym
+		if err := cognito.DeleteCognitoGroupsForGym(ctx, cc, gymID); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete cognito groups for gym: %v", err))
+		}
 		return nil, nil
 	}, transactionOptions)
 

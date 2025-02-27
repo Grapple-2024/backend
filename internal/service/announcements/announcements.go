@@ -402,3 +402,16 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 
 	return nil
 }
+
+func DeleteAllAnnouncementsByGym(ctx context.Context, collection *mongo.Collection, gymId string) error {
+	gymObjID, err := bson.ObjectIDFromHex(gymId)
+	if err != nil {
+		return fmt.Errorf("invalid gym ID: %v", err)
+	}
+
+	filter := bson.M{"gym_id": gymObjID}
+	if _, err := collection.DeleteMany(ctx, filter); err != nil {
+		return fmt.Errorf("failed to delete announcements by gym ID %q: %v", gymId, err)
+	}
+	return nil
+}
