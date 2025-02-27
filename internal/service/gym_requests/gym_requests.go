@@ -696,7 +696,7 @@ func (s *Service) EmailBlastUsers(ctx context.Context, req events.APIGatewayProx
 	}
 
 	// Construct join URL with the gymId
-	joinURL := fmt.Sprintf("https://grapplemma.com/auth?gymId=%s", gymID)
+	joinURL := fmt.Sprintf("https://grapplemma.com/auth?gym_id=%s", gymID)
 
 	// Keep track of successful and failed emails
 	successCount := 0
