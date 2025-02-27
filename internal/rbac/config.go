@@ -131,6 +131,7 @@ func (r *RBAC) SeedCache(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
 	// add the static roles and permissions first
 	r.AddRoles(rbacConfig.Roles.Static...)
 	r.AddPermissions(rbacConfig.Permissions.Static...)
