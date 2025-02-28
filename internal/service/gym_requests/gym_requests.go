@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"text/template"
 	"time"
@@ -694,9 +695,9 @@ func (s *Service) EmailBlastUsers(ctx context.Context, req events.APIGatewayProx
 			Body:       fmt.Sprintf("Failed to parse template: %v", err),
 		}, nil
 	}
+	url := os.Getenv("JOIN_GYM_URL")
 
-	// Construct join URL with the gymId
-	joinURL := fmt.Sprintf("https://grapplemma.com/auth?gym_id=%s", gymID)
+	joinUrl := fmt.Sprintf("%s?gym_id=%s", url, gymID)
 
 	// Keep track of successful and failed emails
 	successCount := 0
@@ -763,7 +764,7 @@ func (s *Service) EmailBlastUsers(ctx context.Context, req events.APIGatewayProx
 			JoinURL string
 		}{
 			GymName: gym.Name,
-			JoinURL: joinURL,
+			JoinURL: joinUrl,
 		}
 
 		if err := tmpl.Execute(&tmplOut, tmplData); err != nil {
