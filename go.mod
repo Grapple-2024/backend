@@ -18,7 +18,6 @@ require (
 	github.com/sendgrid/sendgrid-go v3.14.0+incompatible
 	go.mongodb.org/mongo-driver v1.16.0
 	go.mongodb.org/mongo-driver/v2 v2.0.0
-	gopkg.in/mgo.v2 v2.0.0-20190816093944-a6b53ec6cb22
 )
 
 require (
@@ -57,6 +56,4 @@ require (
 	golang.org/x/sys v0.27.0 // indirect
 	golang.org/x/text v0.20.0 // indirect
 	golang.org/x/time v0.5.0 // indirect
-	gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 // indirect
-	gopkg.in/yaml.v2 v2.2.8 // indirect
 )

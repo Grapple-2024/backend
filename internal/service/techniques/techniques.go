@@ -297,3 +297,20 @@ func (s *Service) generatePresignedURLs(ctx context.Context, records []Technique
 	}
 	return nil
 }
+
+// Delete all associated techinques for a given gymId
+func DeleteAllTechniquesForGym(ctx context.Context, techniquesColl *mongo.Collection, gymID string) error {
+	id, err := bson.ObjectIDFromHex(gymID)
+
+	if err != nil {
+		return fmt.Errorf("failed to convert gymID to ObjectID: %v", err)
+	}
+
+	_, err = techniquesColl.DeleteMany(ctx, bson.M{"gym_id": id})
+
+	if err != nil {
+		return fmt.Errorf("failed to delete techniques for gym %s: %w", gymID, err)
+	}
+
+	return nil
+}

@@ -88,7 +88,6 @@ func New(profileSVC *profiles.Service, cognito *cognito.Client) (*RBAC, error) {
 
 func (r *RBAC) GetUser(ctx context.Context, userID string) (*User, error) {
 	log.Info().Msgf("Fetching user from RBAC map: %v", userID)
-
 	// send API request only if user is not in cache
 	resp, err := r.ListGroupsForUser(ctx, userID)
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	b64 "encoding/base64"
+	"errors"
 	"fmt"
 
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -92,30 +93,37 @@ func (c *Client) DeleteGroup(ctx context.Context, name string) (*cip.DeleteGroup
 	return c.Client.DeleteGroup(ctx, &cip.DeleteGroupInput{
 		GroupName:  aws.String(name),
 		UserPoolId: aws.String(c.userPoolID),
-	}, nil)
+	})
 }
 
 func (c *Client) ListGroups(ctx context.Context) (*cip.ListGroupsOutput, error) {
 	input := &cip.ListGroupsInput{
 		UserPoolId: aws.String(c.userPoolID),
 	}
-	out := &cip.ListGroupsOutput{}
 
+	out := &cip.ListGroupsOutput{}
 	paginator := cip.NewListGroupsPaginator(c.Client, input)
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
+			// Enhanced error logging
+			var notFoundErr *types.ResourceNotFoundException
+			if errors.As(err, &notFoundErr) {
+				log.Error().Str("userPoolId", c.userPoolID).Msg("User pool does not exist")
+			} else {
+				log.Error().Err(err).Str("userPoolId", c.userPoolID).Msg("Failed to list groups")
+			}
 			return nil, err
 		}
 
 		for _, group := range page.Groups {
+			// Log each group's details properly
 			out.Groups = append(out.Groups, group)
 		}
 	}
 
 	return out, nil
 }
-
 func (c *Client) ListGroupsForUser(ctx context.Context, cognitoSubID string) (*cip.AdminListGroupsForUserOutput, error) {
 	resp, err := c.Client.AdminGetUser(ctx, &cip.AdminGetUserInput{
 		Username:   &cognitoSubID,

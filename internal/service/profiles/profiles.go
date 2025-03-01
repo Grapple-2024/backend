@@ -20,7 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/rs/zerolog/log"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -409,7 +408,7 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 // this function is called during gym deletion and is part of deleteGymTX.
 func DeleteGymAssociationsByGymID(ctx context.Context, collection *mongo.Collection, gymID string) error {
 	// Convert gymID to ObjectId
-	objectID, err := primitive.ObjectIDFromHex(gymID)
+	objectID, err := bson.ObjectIDFromHex(gymID)
 	if err != nil {
 		return fmt.Errorf("invalid gymID: %v", err)
 	}
@@ -417,12 +416,14 @@ func DeleteGymAssociationsByGymID(ctx context.Context, collection *mongo.Collect
 	filter := bson.M{"gyms.gym_id": objectID}
 	update := bson.M{"$pull": bson.M{"gyms": bson.M{"gym_id": objectID}}}
 
-	// Update all matching documents
-	result, err := collection.UpdateMany(context.TODO(), filter, update)
+	// Execute the update
+	result, err := collection.UpdateMany(ctx, filter, update)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to update documents: %v", err)
 	}
-	log.Info().Msgf("DeleteMany gym association from profiles result: %+v", result)
+
+	log.Info().Int64("matched", result.MatchedCount).Int64("modified", result.ModifiedCount).Msg("Gym associations removed")
+
 	return nil
 }
 
