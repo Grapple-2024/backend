@@ -200,7 +200,6 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	if err := json.Unmarshal([]byte(req.Body), &gym); err != nil {
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 	}
-	log.Info().Msgf("Token: %+v", token)
 
 	result, err := s.createGymTX(ctx, token, &gym)
 	if err != nil {

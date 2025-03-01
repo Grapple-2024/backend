@@ -141,7 +141,6 @@ func GetToken(hdrs map[string]string) (*Token, error) {
 	if !token.Valid {
 		return nil, err
 	}
-	log.Info().Msgf("TOKEN: %+v", token)
 
 	var t *Token
 	if err := mapstructure.Decode(token.Claims.(jwt.MapClaims), &t); err != nil {
