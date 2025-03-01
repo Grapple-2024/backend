@@ -215,6 +215,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	}
 
 	return lambda.NewResponse(http.StatusCreated, string(resp), nil), nil
+	return lambda.NewResponse(http.StatusCreated, string(resp), nil), nil
 }
 
 // ProcessPut handles HTTP requests for
@@ -320,6 +321,29 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 }
+
+// ProcessPut handles HTTP requests for PUT /gyms/{id}
+// func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+// 	var gym Gym
+// 	if err := json.Unmarshal([]byte(req.Body), &gym); err != nil {
+// 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+// 	}
+
+// 	// update the record in mongo
+// 	id := req.PathParameters["id"]
+// 	var result Gym
+// 	if err := mongoext.UpdateByID(ctx, s.Collection, id, gym, &result, nil); err != nil {
+// 		return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
+// 	}
+
+// 	// Marshal result to JSON and return it in the response
+// 	resp, err := json.Marshal(result)
+// 	if err != nil {
+// 		return lambda.ServerError(fmt.Errorf("failed to marshal response: %v", err))
+// 	}
+
+// 	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
+// }
 
 // ProcessDelete handles HTTP requests for DELETE /gyms/{id}
 func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {

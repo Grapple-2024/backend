@@ -646,6 +646,7 @@ func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSerie
 		return nil, err
 	} else {
 		log.Info().Msgf("updateSeries transaction completed successfully!")
+		log.Info().Msgf("updateSeries transaction completed successfully!")
 	}
 
 	return result.(*GymSeries), nil
