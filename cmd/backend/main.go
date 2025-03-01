@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service/announcements"
 	"github.com/Grapple-2024/backend/internal/service/gym_requests"
 	"github.com/Grapple-2024/backend/internal/service/gym_series"
@@ -13,9 +14,10 @@ import (
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/internal/service/search"
 	"github.com/Grapple-2024/backend/internal/service/techniques"
-	"github.com/Grapple-2024/backend/pkg/lambda_v2"
+	"github.com/Grapple-2024/backend/pkg/cognito"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/Grapple-2024/backend/pkg/mongo"
-	"github.com/aws/aws-lambda-go/lambda"
+	lambda_aws "github.com/aws/aws-lambda-go/lambda"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/sendgrid/sendgrid-go"
@@ -26,114 +28,141 @@ func init() {
 }
 
 const (
-	region = "us-west-1"
 
 	// env variable keys
-	EnvCognitoClientID        = "COGNITO_CLIENT_ID"
-	EnvCognitoClientSecretID  = "COGNITO_CLIENT_SECRET"
-	EnvMongoEndpoint          = "MONGO_ENDPOINT"
-	EnvSendGridAPIKey         = "SENDGRID_API_KEY"
-	EnvVideosBucketName       = "GYM_VIDEOS_BUCKET_NAME"
-	EnvPublicAssetsBucketName = "PUBLIC_USER_ASSETS_BUCKET_NAME"
-	EnvAWSRegion              = "AWS_REGION"
-	EnvStripeAPIKey           = "STRIPE_API_KEY"
-	EnvMapBoxAPIKey           = "MAPBOX_API_KEY"
+	envCognitoUserPoolID      = "COGNITO_USER_POOL_ID"
+	envCognitoClientID        = "COGNITO_CLIENT_ID"
+	envCognitoClientSecretID  = "COGNITO_CLIENT_SECRET"
+	envMongoEndpoint          = "MONGO_ENDPOINT"
+	envSendGridAPIKey         = "SENDGRID_API_KEY"
+	envVideosBucketName       = "GYM_VIDEOS_BUCKET_NAME"
+	envPublicAssetsBucketName = "PUBLIC_USER_ASSETS_BUCKET_NAME"
+	envAWSRegion              = "AWS_REGION"
+	envStripeAPIKey           = "STRIPE_API_KEY"
+	envMapBoxAPIKey           = "MAPBOX_API_KEY"
 )
 
 func main() {
 	// read all environment variables
-	mongoEndpoint, ok := os.LookupEnv(EnvMongoEndpoint)
+	mongoEndpoint, ok := os.LookupEnv(envMongoEndpoint)
 	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", EnvMongoEndpoint)
+		log.Fatal().Msgf("missing required env var: %s", envMongoEndpoint)
 	}
-	sendGridAPIKey, ok := os.LookupEnv(EnvSendGridAPIKey)
+	sendGridAPIKey, ok := os.LookupEnv(envSendGridAPIKey)
 	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", EnvSendGridAPIKey)
+		log.Fatal().Msgf("missing required env var: %s", envSendGridAPIKey)
 	}
-	cognitoClientID, ok := os.LookupEnv(EnvCognitoClientID)
-	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", EnvCognitoClientID)
-	}
-	cognitoClientSecret, ok := os.LookupEnv(EnvCognitoClientSecretID)
-	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", EnvCognitoClientSecretID)
-	}
-	gymVideosBucketName, ok := os.LookupEnv(EnvVideosBucketName)
-	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", EnvCognitoClientSecretID)
-	}
-	publicAssetsBucketName, ok := os.LookupEnv(EnvPublicAssetsBucketName)
-	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", EnvPublicAssetsBucketName)
-	}
-	awsRegion, ok := os.LookupEnv(EnvAWSRegion)
-	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", EnvAWSRegion)
-	}
-	mapboxAPIKey, ok := os.LookupEnv(EnvMapBoxAPIKey)
-	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", EnvMapBoxAPIKey)
-	}
-	log.Debug().Msgf("AWS Region: %v", awsRegion)
-	log.Debug().Msgf("connected to mongo server: %s", mongoEndpoint)
 
-	// Create sendgrid client
+	// Cognito Env Vars
+	cognitoClientID, ok := os.LookupEnv(envCognitoClientID)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", envCognitoClientID)
+	}
+	cognitoClientSecret, ok := os.LookupEnv(envCognitoClientSecretID)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", envCognitoClientSecretID)
+	}
+	cognitoUserPoolID, ok := os.LookupEnv(envCognitoUserPoolID)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", envCognitoUserPoolID)
+	}
+
+	// S3 Buckets
+	gymVideosBucketName, ok := os.LookupEnv(envVideosBucketName)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", envVideosBucketName)
+	}
+	publicAssetsBucketName, ok := os.LookupEnv(envPublicAssetsBucketName)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", envPublicAssetsBucketName)
+	}
+
+	// Miscellaneous
+	awsRegion, ok := os.LookupEnv(envAWSRegion)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", envAWSRegion)
+	}
+	mapboxAPIKey, ok := os.LookupEnv(envMapBoxAPIKey)
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", envMapBoxAPIKey)
+	}
+
+	/**** Create Clients for each external dependency *****/
+
+	// SendGrid Client
 	sendGridClient := sendgrid.NewSendClient(sendGridAPIKey)
-
-	// Create mongo client
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
+	// Mongo Client
 	mongoClient, err := mongo.New(ctx, mongoEndpoint)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to connect to mongo endpoint: %q", mongoEndpoint)
 	}
-
 	defer func() {
 		if err = mongoClient.Disconnect(ctx); err != nil {
 			log.Fatal().Err(err).Msg("failed to disconnect from mongo")
 		}
 	}()
 
+	cognitoClient, err := cognito.NewClient(
+		awsRegion,
+		cognito.WithUserPool(cognitoUserPoolID),
+		cognito.WithClientID(cognitoClientID),
+		cognito.WithClientSecret(cognitoClientSecret),
+	)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create cognito client")
+	}
+
 	// Create services for each api controller/handler
 	mapbox, err := mapbox.NewService(ctx, mapboxAPIKey)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize MapBox Service")
 	}
-	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, region, mongoClient)
-	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
-	}
-	search, err := search.NewService(ctx, mongoClient)
-	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to initialize Search Service")
-	}
-	profiles, err := profiles.NewService(ctx, mongoClient, publicAssetsBucketName, awsRegion, cognitoClientID, cognitoClientSecret)
+
+	profiles, err := profiles.NewService(ctx, mongoClient, publicAssetsBucketName, awsRegion, cognitoUserPoolID, cognitoClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Profiles Service")
 	}
-	announcements, err := announcements.NewService(ctx, mongoClient, sendGridClient, profiles)
+
+	// RBAC Framework service is not an HTTP Handler, but it is injected inside of the HTTP Handlers so that they can manage RBAC
+	rbac, err := rbac.New(profiles, cognitoClient)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to initialize Announcements Service")
+		log.Fatal().Err(err).Msgf("failed to initialize RBAC Service")
 	}
+
+	/**** HTTP Handlers ****/
+
 	techniques, err := techniques.NewService(ctx, mongoClient, gymVideosBucketName, awsRegion)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
 	}
 
-	requests, err := gym_requests.NewService(ctx, mongoClient, sendGridClient)
+	// Gyms HTTP Handler
+	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, awsRegion, mongoClient, rbac, cognitoClient)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
+	}
+	announcements, err := announcements.NewService(ctx, mongoClient, sendGridClient, profiles, rbac)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Announcements Service")
+	}
+	requests, err := gym_requests.NewService(ctx, mongoClient, sendGridClient, rbac)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gym Requests Service")
 	}
-
-	series, err := gym_series.NewService(ctx, mongoClient, gymVideosBucketName, publicAssetsBucketName, awsRegion)
+	series, err := gym_series.NewService(ctx, mongoClient, gymVideosBucketName, publicAssetsBucketName, awsRegion, rbac)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gym Series Service")
 	}
+	search, err := search.NewService(ctx, mongoClient, rbac)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Search Service")
+	}
 
-	log.Info().Msgf("Grapple API URL: %v", os.Getenv("API_URL"))
-
-	lambdas := map[string]lambda_v2.Lambda{
+	// Register handlers to their base endpoints
+	lambdas := map[string]lambda.Lambda{
 		// v2 endpoints are using mongodb
 		"profiles":      profiles,
 		"gyms":          gyms,
@@ -145,6 +174,6 @@ func main() {
 		"mapbox":        mapbox,
 	}
 
-	router := lambda_v2.NewRouter(lambdas)
-	lambda.Start(router)
+	router := lambda.NewRouter(lambdas)
+	lambda_aws.Start(router)
 }

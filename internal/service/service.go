@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/MicahParks/keyfunc/v3"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/go-http-utils/headers"
 	"github.com/go-playground/validator/v10"
@@ -98,14 +101,13 @@ func IsState(fl validator.FieldLevel) bool {
 
 // Token represents the AWS Cognito user token
 type Token struct {
-	Username   string   `mapstructure:"cognito:username"`
+	Username   string   `mapstructure:"username"`
 	Email      string   `mapstructure:"email"`
 	Roles      []string `mapstructure:"cognito:roles"`
 	Groups     []string `mapstructure:"cognito:groups"`
 	GivenName  string   `mapstructure:"given_name"`
 	FamilyName string   `mapstructure:"family_name"`
-
-	Sub string `mapstructure:"sub"`
+	Sub        string   `mapstructure:"sub"`
 }
 
 func GetToken(hdrs map[string]string) (*Token, error) {
@@ -122,9 +124,8 @@ func GetToken(hdrs map[string]string) (*Token, error) {
 	tokenString := strings.TrimSpace(bearer[1])
 
 	regionID := "us-west-1"
-	userPoolID := "us-west-1_HT5oR6AwO"
+	userPoolID := os.Getenv("COGNITO_USER_POOL_ID")
 	jwksURL := fmt.Sprintf("https://cognito-idp.%s.amazonaws.com/%s/.well-known/jwks.json", regionID, userPoolID)
-
 	// Create the keyfunc.Keyfunc.
 	jwks, err := keyfunc.NewDefault([]string{jwksURL})
 	if err != nil {
@@ -146,7 +147,6 @@ func GetToken(hdrs map[string]string) (*Token, error) {
 	if err := mapstructure.Decode(token.Claims.(jwt.MapClaims), &t); err != nil {
 		return nil, err
 	}
-	// log.Info().Msgf("Token: %+v", t)
 
 	return t, nil
 }
@@ -159,11 +159,13 @@ func GeneratePresignedURL(ctx context.Context, psc *s3.PresignClient, bucketName
 		opts.Expires = time.Minute * 30
 	}
 
+	s3BucketName := aws.String(bucketName)
+	s3Key := aws.String(key)
 	switch operation {
 	case "upload":
 		params := &s3.PutObjectInput{
-			Bucket: aws.String(bucketName),
-			Key:    aws.String(key),
+			Bucket: s3BucketName,
+			Key:    s3Key,
 		}
 		r, err := psc.PresignPutObject(ctx, params, opts)
 		if err != nil {
@@ -173,8 +175,8 @@ func GeneratePresignedURL(ctx context.Context, psc *s3.PresignClient, bucketName
 		return r, nil
 	case "download":
 		params := &s3.GetObjectInput{
-			Bucket: aws.String(bucketName),
-			Key:    aws.String(key),
+			Bucket: s3BucketName,
+			Key:    s3Key,
 		}
 
 		r, err := psc.PresignGetObject(ctx, params, opts)
@@ -186,4 +188,89 @@ func GeneratePresignedURL(ctx context.Context, psc *s3.PresignClient, bucketName
 	default:
 		return nil, fmt.Errorf("urlType must be either 'upload' or 'download!'")
 	}
+}
+
+func NewValidator() (*validator.Validate, error) {
+	validator := validator.New()
+	validator.RegisterTagNameFunc(func(fld reflect.StructField) string {
+		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
+		if name == "-" {
+			return ""
+		}
+		return name
+	})
+
+	return validator, nil
+}
+
+func DeleteSeriesVideosFromS3(ctx context.Context, seriesID string) error {
+	region, ok := os.LookupEnv("AWS_REGION")
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", "AWS_REGION")
+	}
+
+	bucketName, ok := os.LookupEnv("PUBLIC_USER_ASSETS_BUCKET_NAME")
+
+	if !ok {
+		log.Fatal().Msgf("missing required env var: %s", "PUBLIC_USER_ASSETS_BUCKET_NAME")
+	}
+
+	// Initialize AWS config
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
+	if err != nil {
+		return fmt.Errorf("failed to load AWS config: %w", err)
+	}
+
+	// Create S3 client
+	svc := s3.NewFromConfig(cfg)
+
+	// Define the correct bucket name and prefix
+	prefix := fmt.Sprintf("gym-series/%s/videos/", seriesID)
+
+	// List all objects in the folder
+	params := &s3.ListObjectsV2Input{
+		Bucket: aws.String(bucketName),
+		Prefix: aws.String(prefix),
+	}
+
+	log.Info().Msgf("Deleting all objects in bucket %s/%s", bucketName, prefix)
+
+	// Use pagination to get all objects (S3 might truncate results)
+	paginator := s3.NewListObjectsV2Paginator(svc, params)
+	var objectsToDelete []types.ObjectIdentifier
+
+	for paginator.HasMorePages() {
+		resp, err := paginator.NextPage(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to list objects: %w", err)
+		}
+
+		// Collect all objects to delete
+		for _, obj := range resp.Contents {
+			objectsToDelete = append(objectsToDelete, types.ObjectIdentifier{
+				Key: obj.Key,
+			})
+		}
+	}
+
+	// If no objects found, we're done
+	if len(objectsToDelete) == 0 {
+		return nil
+	}
+
+	// Delete all objects in a single batch operation (more efficient)
+	deleteInput := &s3.DeleteObjectsInput{
+		Bucket: aws.String(bucketName),
+		Delete: &types.Delete{
+			Objects: objectsToDelete,
+			Quiet:   aws.Bool(false),
+		},
+	}
+
+	_, err = svc.DeleteObjects(ctx, deleteInput)
+	if err != nil {
+		return fmt.Errorf("failed to delete objects: %w", err)
+	}
+
+	return nil
 }

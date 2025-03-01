@@ -1,9 +1,9 @@
-package profiles
+package dao
 
 import (
 	"time"
 
-	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 // Role enum
@@ -15,7 +15,7 @@ var (
 
 // Profile represents the Profile mongodb entity
 type Profile struct {
-	ID primitive.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
+	ID bson.ObjectID `json:"id,omitempty" bson:"_id,omitempty"`
 
 	CognitoID string `json:"cognito_id,omitempty" bson:"cognito_id,omitempty" validate:"required"`
 
@@ -28,7 +28,7 @@ type Profile struct {
 	AvatarURL string `json:"avatar_url" bson:"avatar_url,omitempty"`
 	// AvatarS3ObjectKey string `json:"avatar_s3_object_key" bson:"avatar_s3_object_key,omitempty"`
 	NotifyOnRequestAccepted bool             `json:"notify_on_request_accepted" bson:"notify_on_request_accepted,omitempty"`
-	Gyms                    []GymAssociation `json:"gyms,omit" bson:"gyms,omitempty"`
+	Gyms                    []GymAssociation `json:"gyms" bson:"gyms,omitempty"`
 
 	// metadata
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
@@ -38,11 +38,12 @@ type Profile struct {
 // GymAssociation represents a user's association to a gym.
 // A GymAssociation can either be for a student or a coach.
 type GymAssociation struct {
-	GymID            primitive.ObjectID `json:"gym_id" bson:"gym_id,omitempty"`
-	Email            string             `json:"email" bson:"email,omitempty"`
-	CoachName        string             `json:"coach_name,omitempty" bson:"coach_name,omitempty"`
-	Role             string             `json:"role" bson:"role,omitempty"`
-	EmailPreferences *EmailPreferences  `json:"email_preferences" bson:"email_preferences,omitempty"`
+	Gym              *Gym              `json:"gym" bson:"-"`
+	GymID            bson.ObjectID     `json:"gym_id" bson:"gym_id"`
+	Email            string            `json:"email,omitempty" bson:"email"`
+	Group            string            `json:"group" bson:"group"`
+	MembershipType   string            `json:"membership_type" bson:"membership_type,omitempty"`
+	EmailPreferences *EmailPreferences `json:"email_preferences" bson:"email_preferences,omitempty"`
 }
 
 // EmailPreferences represent the email preferences for a specific Gym Association.

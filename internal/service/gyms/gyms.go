@@ -9,10 +9,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Grapple-2024/backend/internal/dao"
+	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service"
+	"github.com/Grapple-2024/backend/internal/service/announcements"
+	"github.com/Grapple-2024/backend/internal/service/gym_requests"
+	"github.com/Grapple-2024/backend/internal/service/gym_series"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
-	"github.com/Grapple-2024/backend/pkg/lambda_v2"
-	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
+	"github.com/Grapple-2024/backend/internal/service/techniques"
+	"github.com/Grapple-2024/backend/pkg/cognito"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
@@ -20,38 +26,42 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
-	"gopkg.in/mgo.v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 )
 
 // Service is the object that handles the business logic of all gym related operations.
 // Service talks to the underlying Mongo Client (Data access layer) to CRUD gym objects.
 type Service struct {
-	mongo.Session
+	*rbac.RBAC
+	*mongo.Session
 
 	*s3.PresignClient
 	*mongoext.Client
 	*mongo.Collection
+	CognitoClient *cognito.Client
+
 	publicAssetsBucketName string
 	region                 string
 }
 
-// NewService creates a new instance of a Gym Service given a mongo client
-func NewService(ctx context.Context, publicAssetsBucketName, region string, mc *mongoext.Client) (*Service, error) {
-	c := mc.Database("grapple").Collection("gyms")
-
-	// Create unique index for gyms collection
-	svc := &Service{Client: mc, Collection: c}
+// NewService creates a new instance of a dao.Gym Service given a mongo client
+func NewService(ctx context.Context, publicAssetsBucketName, region string, mc *mongoext.Client, rbac *rbac.RBAC, cognito *cognito.Client) (*Service, error) {
+	svc := &Service{
+		Client:                 mc,
+		Collection:             mc.Database("grapple").Collection("gyms"),
+		RBAC:                   rbac,
+		CognitoClient:          cognito,
+		publicAssetsBucketName: publicAssetsBucketName,
+		region:                 region,
+	}
 	if err := svc.ensureIndices(ctx); err != nil {
 		return nil, err
 	}
 
-	// Using the SDK's default configuration, loading additional config
-	// and credentials values from the environment variables, shared
-	// credentials, and shared configuration files
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {
 		return nil, err
@@ -61,32 +71,25 @@ func NewService(ctx context.Context, publicAssetsBucketName, region string, mc *
 	if err != nil {
 		return nil, err
 	}
+	svc.Session = session
+	svc.PresignClient = s3.NewPresignClient(s3.NewFromConfig(cfg))
 
-	return &Service{
-		Session:                session,
-		Client:                 mc,
-		Collection:             c,
-		PresignClient:          s3.NewPresignClient(s3.NewFromConfig(cfg)),
-		region:                 region,
-		publicAssetsBucketName: publicAssetsBucketName,
-	}, nil
+	return svc, nil
 }
 
 // ProcessGetAll handles HTTP requests for GET /gyms/
-// TODO: remove dynamodb map after switching off fully
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
-	// Parse query parameters
 	gymSlug := req.QueryStringParameters["slug"]
 	creatorID := req.QueryStringParameters["creator_id"]
 	name := req.QueryStringParameters["name"]
 
 	page := req.QueryStringParameters["page"]
 	if page == "" {
-		page = "1" // default to first page
+		page = "1"
 	}
 	pageSize := req.QueryStringParameters["page_size"]
 	if pageSize == "" {
-		pageSize = "10" // default to 10 records per page
+		pageSize = "10"
 	}
 	pageSizeInt, err := strconv.Atoi(pageSize)
 	if err != nil && pageSize != "" {
@@ -113,16 +116,14 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	// Fetch records with pagination
-	var records []Gym
-	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, &records); err != nil {
-		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
+	var records []dao.Gym
+	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, options.Find(), &records); err != nil {
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to paginate gym objects: %v", err))
 	}
-	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
 	if records == nil {
-		records = []Gym{}
+		records = []dao.Gym{}
 	}
 
-	// Get the total count of documents
 	totalCount, err := s.Collection.CountDocuments(ctx, filter, nil)
 	if err != nil {
 		return lambda.ServerError(fmt.Errorf("error counting documents: %v", err))
@@ -130,81 +131,161 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	resp, err := service.NewGetAllResponse("gyms", records, totalCount, len(records), pageInt, pageSizeInt)
 	if err != nil {
-		return lambda.ServerError(err)
+		return lambda.ServerError(fmt.Errorf("error counting records: %v", err))
 	}
 	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
 // ProcessGet handles HTTP requests for GET /gyms/{id}
 func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
-	// Get the gym by ID
-	var gym Gym
-	if err := mongoext.FindByID(ctx, s.Collection, id, &gym); err != nil {
-		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gym by ID: %v", err))
+	var resp any
+	switch req.Path {
+	case fmt.Sprintf("/gyms/%s/stats", id):
+		log.Info().Msgf("Calculating Gym statistics...")
+
+		objID, err := bson.ObjectIDFromHex(id)
+		if err != nil {
+			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("invalid object id %q: %v", id, err))
+		}
+
+		filter := bson.M{
+			"gym_id": objID,
+			"status": dao.RequestAccepted,
+		}
+		var memberships []dao.GymRequest
+		collection := s.Database().Collection("gymRequests")
+		if err := gym_requests.Find(ctx, collection, filter, &memberships); err != nil {
+			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gym requests: %v", err))
+		}
+
+		virtualMembers := 0
+		inPersonMembers := 0
+		for _, member := range memberships {
+			switch member.MembershipType {
+			case dao.InPersonMembership:
+				inPersonMembers++
+			case dao.VirtualMembership:
+				virtualMembers++
+			}
+		}
+		resp = map[string]any{
+			"members": map[string]int{
+				"in_person": inPersonMembers,
+				"virtual":   virtualMembers,
+				"total":     len(memberships),
+			},
+		}
+	default:
+		var gym dao.Gym
+		if err := mongoext.FindByID(ctx, s.Collection, id, &gym); err != nil {
+			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gym by ID: %v", err))
+		}
+		resp = gym
 	}
 
-	// Return record as JSON
-	json, err := json.Marshal(gym)
+	json, err := json.Marshal(resp)
 	if err != nil {
-		return lambda.ServerError(err)
+		return lambda.ServerError(fmt.Errorf("error marshaling json %v: %v", resp, err))
 	}
+
 	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
+
 }
 
-// ProcessPost handles HTTP requests for POST /gyms
+// ProcessPost handless the creation of a dao.Gym
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
-		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
-	var gym Gym
+	var gym dao.Gym
 	if err := json.Unmarshal([]byte(req.Body), &gym); err != nil {
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 	}
 
 	result, err := s.createGymTX(ctx, token, &gym)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to finish updateGymRequest transaction: %v", err))
+		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to finish createGymTX: %v", err))
 	}
 
-	log.Info().Msgf("Create gym result: %v", result)
 	resp, err := json.Marshal(result)
 	if err != nil {
-		return lambda.ServerError(err)
+		return lambda.ServerError(fmt.Errorf("error marshaling json %v: %v", result, err))
 	}
 
 	return lambda.NewResponse(http.StatusCreated, string(resp), nil), nil
 }
 
 // ProcessPut handles HTTP requests for
-// 1. PUT /gyms - insert/update a gym object
-// 2. PUT /gyms/presign - generate presigned upload url for gym logo/banner/hero
+// 1. PUT /gyms/{id} - insert/update a gym object
+// 2. PUT /gyms/{id}/presign - generate presigned upload url for gym logo/banner/hero
+// 3. PUT /gyms/{id}/assign-role - assign a user's group in the gym
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var result any
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
+	}
 
-	// update the record in mongo
 	id := req.PathParameters["id"]
+	gymResourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, gymResourceID, rbac.ActionUpdate)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user %q is not authorized for action '%s' on '%s'", token.Username, rbac.ActionUpdate, gymResourceID),
+		)
+	}
 
+	var gym dao.Gym
+	if err := mongoext.FindByID(ctx, s.Collection, id, &gym); err != nil {
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gym by ID: %v", err))
+	}
+
+	var result any
 	gymSubPath := fmt.Sprintf("/gyms/%s", id)
 	switch req.Path {
 	case gymSubPath:
-		var gym Gym
+		var gym dao.Gym
 		if err := json.Unmarshal([]byte(req.Body), &gym); err != nil {
 			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
 
-		// update the record in mongo
 		if err := mongoext.UpdateByID(ctx, s.Collection, id, gym, &result, nil); err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 		}
+	case fmt.Sprintf("%s/assign-role", gymSubPath):
+		gymRolesResource := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, id, rbac.ResourceRoles)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Username, gymRolesResource, rbac.ActionUpdate)
+		if err != nil {
+			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+		} else if !isAuthorized {
+			return lambda.ClientError(http.StatusForbidden,
+				fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionUpdate, gymRolesResource),
+			)
+		}
 
+		var payload map[string]string
+		if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
+			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+		}
+
+		// Assign role to a user currently in the gym.
+		// An error will be returned if the user is not in the gym already
+		if err := s.assignRole(ctx, &gym, payload); err != nil {
+			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to assign role: %v", err))
+		}
+
+		result = map[string]string{
+			"message": "role successfully assigned",
+		}
 	case fmt.Sprintf("%s/presign", gymSubPath):
 		fileType := req.QueryStringParameters["type"] // should be banner or logo or hero, but can be anything
 		file := req.QueryStringParameters["file"]
 		_, err := service.GetToken(req.Headers)
 		if err != nil {
-			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+			return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 		}
 		if file == "" {
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("?file cannot be empty"))
@@ -266,16 +347,86 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 // ProcessDelete handles HTTP requests for DELETE /gyms/{id}
 func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id := req.PathParameters["id"]
-	if err := mongoext.Delete(ctx, s.Collection, id); err != nil {
-		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete gym record: %v", err))
+
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
+	}
+
+	resourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionDelete)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionDelete, resourceID),
+		)
+	}
+
+	log.Info().Msgf("ProcessDelete called! %v", id)
+
+	// return lambda.NewResponse(http.StatusOK, ``, nil), nil
+
+	if err := deleteGymTX(ctx, s.Session, s.CognitoClient, id); err != nil {
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
 	return lambda.NewResponse(http.StatusOK, ``, nil), nil
 }
 
+func (s *Service) assignRole(ctx context.Context, gym *dao.Gym, payload map[string]string) error {
+	cognitoUsername := payload["username"]
+	if cognitoUsername == "" {
+		return fmt.Errorf("must specify username of user to assign roles to in the 'username' body field")
+	}
+
+	role := payload["role"]
+	if role == "" {
+		return fmt.Errorf("must specify role to assign in the 'role' body field")
+	} else if !rbac.ValidateRole(role) {
+		return fmt.Errorf("must specify a valid role name in the 'role' field: [owner, coach, student]")
+	}
+
+	if err := s.RBAC.AssignUserToGymRole(ctx, gym.ID.Hex(), cognitoUsername, role); err != nil {
+		return fmt.Errorf("failed to assign user %s to role %s in gym %s", cognitoUsername, role, gym.ID.Hex())
+	}
+
+	requestFilter := bson.M{
+		"gym_id":          gym.ID,
+		"requestor_email": cognitoUsername,
+	}
+	request := dao.GymRequest{}
+	if err := mongoext.FindOne(ctx, s.Database().Collection("gymRequests"), requestFilter, &request); err != nil {
+		return fmt.Errorf("failed to find gym request with requestor_email=%s and gym_id=%s: %v",
+			cognitoUsername,
+			gym.ID.Hex(),
+			err,
+		)
+	}
+
+	// Upsert the profile.gyms[i] gym association record on the user's profile
+	if err := profiles.UpsertGymAssociation(ctx, s.Client, gym, role, &request); err != nil {
+		return fmt.Errorf("failed to upsert gym association to profile: %v", err)
+	}
+
+	// Upsert the GymRequest record
+	upsertPayload := &dao.GymRequest{
+		Status:         dao.RequestAccepted,
+		Role:           role,
+		MembershipType: request.MembershipType,
+		GymID:          request.GymID,
+		RequestorEmail: request.RequestorEmail,
+	}
+	_, err := gym_requests.UpsertGymRequest(ctx, s.Client, upsertPayload)
+	if err != nil {
+		return fmt.Errorf("failed to upsert gym request record: %v", err)
+	}
+
+	return nil
+}
+
 // ensureIndices ensures the proper indices are creatd for the 'gyms' collection.
 func (s *Service) ensureIndices(ctx context.Context) error {
-	// Gym name index
 	_, err := s.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.M{
 			"name": 1,
@@ -286,7 +437,6 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 		return err
 	}
 
-	// Slug index
 	_, err = s.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.M{
 			"slug": 1,
@@ -299,13 +449,14 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) createGym(ctx context.Context, gym *Gym, token *service.Token) (*Gym, error) {
-	gym.CoachFirstName = token.GivenName
-	gym.CoachLastName = token.FamilyName
+func (s *Service) createGym(ctx context.Context, gym *dao.Gym, token *service.Token) (*dao.Gym, error) {
 	gym.Creator = token.Sub
 
 	// Validate request body for required fields
-	validate := validator.New()
+	validate, err := service.NewValidator()
+	if err != nil {
+		return nil, err
+	}
 	validate.RegisterValidation("alphanumeric_and_spaces", service.IsAlphaNumericAndSpaces)
 	validate.RegisterValidation("is_state", service.IsState)
 
@@ -328,7 +479,7 @@ func (s *Service) createGym(ctx context.Context, gym *Gym, token *service.Token)
 	gym.UpdatedAt = gym.CreatedAt
 
 	// insert the gym, store the resulting record in 'result' variable
-	var result Gym
+	var result dao.Gym
 	if err := mongoext.Insert(ctx, s.Collection, &gym, &result); err != nil {
 		return nil, err
 	}
@@ -336,48 +487,30 @@ func (s *Service) createGym(ctx context.Context, gym *Gym, token *service.Token)
 	return &result, nil
 }
 
-func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload *Gym) (*Gym, error) {
-	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
+func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload *dao.Gym) (*dao.Gym, error) {
+	transactionOptions := options.Transaction().SetReadConcern(&readconcern.ReadConcern{Level: "local"}).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
 
-	result, err := s.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
-		// create the gym
+	result, err := s.WithTransaction(ctx, func(sessCtx context.Context) (any, error) {
 		gym, err := s.createGym(ctx, payload, token)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create gym: %v", err)
 		}
-
-		// create new gym association for this Gym Owner
-		gymAssociation := profiles.GymAssociation{
-			CoachName: fmt.Sprintf("%s %s", gym.CoachFirstName, gym.CoachLastName),
-			Email:     gym.CoachEmail,
-			GymID:     gym.ID,
-			Role:      profiles.OwnerRole,
-			EmailPreferences: &profiles.EmailPreferences{
-				NotifyOnAnnouncements: false,
-				NotifyOnRequests:      true,
-			},
+		gymID := gym.ID.Hex()
+		if err := profiles.UpsertGymAssociation(ctx, s.Client, gym, rbac.Owner, &dao.GymRequest{
+			RequestorID:    token.Sub,
+			RequestorEmail: gym.CoachEmail,
+		}); err != nil {
+			return nil, err
 		}
 
-		log.Info().Msgf("Adding owner gym association to profile: %v", gymAssociation)
-
-		// create filter & update statements, send to mongodb to update the student's profile.
-		filter := bson.M{
-			"cognito_id": gym.Creator, // find the profile with cognito_id equal to the creator of the Gym.
+		// Create the RBAC in-memory for future authorization checks
+		if err := s.RBAC.CreateGymRBAC(ctx, gymID); err != nil {
+			return nil, err
 		}
-		update := bson.M{
-			"$push": bson.M{
-				"gyms": gymAssociation,
-			},
+		if err := s.RBAC.AssignUserToGymRole(ctx, gymID, token.Username, rbac.Owner); err != nil {
+			return nil, err
 		}
 
-		// Update student profile with the new gym association
-		var upsertResult profiles.Profile
-		coll := s.Client.Database("grapple").Collection("profiles")
-		if err := mongoext.Update(ctx, coll, update, filter, &upsertResult, nil); err != nil {
-			return nil, fmt.Errorf("failed to upsert student's profile with filter %v: %v", filter, err)
-		}
-
-		log.Info().Msgf("Successfully added gym association to user profile: %s", payload.Creator)
 		return *gym, nil
 	}, transactionOptions)
 
@@ -387,9 +520,69 @@ func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload
 	}
 	log.Info().Msgf("createGym transaction completed successfully: %v", result)
 
-	if request, ok := result.(Gym); ok {
+	if request, ok := result.(dao.Gym); ok {
 		return &request, nil
 	}
 
 	return nil, err
+}
+
+func deleteGymTX(ctx context.Context, ms *mongo.Session, cc *cognito.Client, gymID string) error {
+	transactionOptions := options.Transaction().SetReadConcern(&readconcern.ReadConcern{Level: "local"}).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
+
+	db := ms.Client().Database("grapple")
+	profilesColl := db.Collection("profiles")
+	gymsColl := db.Collection("gyms")
+	seriesColl := db.Collection("series")
+	techniquesColl := db.Collection("techniques")
+	announcementsColl := db.Collection("announcements")
+	gymRequestsColl := db.Collection("gymRequests")
+
+	// This works for now, but in the future we should probably use sqs + lambda to handle this
+	// asynchronously to avoid timeouts. This could take a while if there are a lot of profiles
+	result, err := ms.WithTransaction(ctx, func(sessCtx context.Context) (any, error) {
+		// 1. Delete the gym
+		if err := mongoext.DeleteOne(ctx, gymsColl, gymID); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete gym record: %v", err))
+		}
+
+		// 2. Delete all gym associations in all profiles associated with this gym
+		if err := profiles.DeleteGymAssociationsByGymID(ctx, profilesColl, gymID); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete gym profile association(s) for gym %s: %v", gymID, err))
+		}
+
+		// 3. Delete all techniques of the week
+		if err := techniques.DeleteAllTechniquesForGym(ctx, techniquesColl, gymID); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete techniques for gym %s: %v", gymID, err))
+		}
+
+		// 4. Delete all announcements for a gym
+		if err := announcements.DeleteAllAnnouncementsByGym(ctx, announcementsColl, gymID); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete announcements for gym %s: %v", gymID, err))
+		}
+
+		// 5. Delete all series associated with this gym
+		if err := gym_series.DeleteSeriesAssociationsByGymID(ctx, seriesColl, gymID); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete series for gym %s: %v", gymID, err))
+		}
+
+		// 6. Delete all gym requests for a gym
+		if err := gym_requests.DeleteGymRequestsByGymID(ctx, gymRequestsColl, gymID); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete gym requests for gym %s: %v", gymID, err))
+		}
+
+		// 7. Delete all Cognito Groups for a Gym
+		if err := cognito.DeleteCognitoGroupsForGym(ctx, cc, gymID); err != nil {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete cognito groups for gym: %v", err))
+		}
+		return nil, nil
+	}, transactionOptions)
+
+	if err != nil {
+		log.Warn().Err(err).Msgf("failed to run mongo transaction for gym creation")
+		return fmt.Errorf("mongo transaction failed: %v", err)
+	}
+	log.Info().Msgf("createGym transaction completed successfully: %v", result)
+
+	return nil
 }

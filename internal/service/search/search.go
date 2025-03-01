@@ -9,22 +9,26 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/Grapple-2024/backend/internal/dao"
+	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service"
 	"github.com/Grapple-2024/backend/internal/service/gym_series"
-	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
-	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"gopkg.in/mgo.v2/bson"
+	"github.com/rs/zerolog/log"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type (
 	// Service is the object that handles the business logic of all /search operations.
 	// Service talks to the underlying Mongo Client (Data access layer) to CRUD announcement objects.
 	Service struct {
+		*rbac.RBAC
 		*mongoext.Client
 		Gyms            *mongo.Collection
 		Series          *mongo.Collection
@@ -32,12 +36,16 @@ type (
 	}
 
 	searchResponse struct {
-		Gyms   []gyms.Gym             `json:"gyms"`
+		Gyms   []dao.Gym              `json:"gyms"`
 		Series []gym_series.GymSeries `json:"series"`
 
-		TotalGyms   int64 `json:"total_gyms"`
-		TotalSeries int64 `json:"total_series"`
-		TotalCount  int64 `json:"total_count"`
+		// total counts across all pages
+		TotalGyms  int64 `json:"total_gyms"`
+		TotalCount int64 `json:"total_count"`
+
+		// Per page counts
+		SeriesCount int64 `json:"series_count"`
+		GymsCount   int64 `json:"gyms_count"`
 
 		// URL to the next page
 		NextPage *string `json:"next_page"`
@@ -49,13 +57,13 @@ type (
 	queryParams struct {
 		Page     int
 		PageSize int
-		GymID    primitive.ObjectID
+		GymID    bson.ObjectID
 		Query    string
 	}
 )
 
 // NewService creates a new instance of a Announcement Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, rbac *rbac.RBAC) (*Service, error) {
 	series := mc.Database("grapple").Collection("series")
 	gyms := mc.Database("grapple").Collection("gyms")
 
@@ -64,6 +72,7 @@ func NewService(ctx context.Context, mc *mongoext.Client) (*Service, error) {
 		Client: mc,
 		Gyms:   gyms,
 		Series: series,
+		RBAC:   rbac,
 	}
 	if err := svc.ensureIndices(ctx); err != nil {
 		return nil, err
@@ -101,7 +110,7 @@ func parseQueryParams(params map[string]string) (*queryParams, error) {
 	}
 
 	if gymID != "" {
-		gymObjID, err := primitive.ObjectIDFromHex(gymID)
+		gymObjID, err := bson.ObjectIDFromHex(gymID)
 		if err != nil {
 			return nil, err
 		}
@@ -122,7 +131,7 @@ func buildSeriesFilter(params *queryParams) bson.M {
 	var or []bson.M
 
 	// Gym ID filter
-	if gymID != primitive.NilObjectID {
+	if gymID != bson.NilObjectID {
 		and = append(and, bson.M{
 			"gym_id": params.GymID,
 		})
@@ -175,6 +184,11 @@ func buildSeriesFilter(params *queryParams) bson.M {
 
 // ProcessGetAll handles HTTP requests for GET /search/
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
+	}
+
 	// parse query params
 	params, err := parseQueryParams(req.QueryStringParameters)
 	if err != nil {
@@ -190,21 +204,37 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 			"$options": "i",
 		}
 	}
-	if params.GymID != primitive.NilObjectID {
+	if params.GymID != bson.NilObjectID {
 		gymsFilter["gym_id"] = params.GymID
 	}
 	seriesFilter := buildSeriesFilter(params)
 
 	// Fetch gyms
-	var gyms []gyms.Gym
-	if err := mongoext.Paginate(ctx, s.Gyms, gymsFilter, params.Page, params.PageSize, true, &gyms); err != nil {
+	var gymsToReturn []dao.Gym
+	if err := mongoext.Paginate(ctx, s.Gyms, gymsFilter, params.Page, params.PageSize, true, options.Find(), &gymsToReturn); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 
 	// Fetch Series
 	var series []gym_series.GymSeries
-	if err := mongoext.Paginate(ctx, s.Series, seriesFilter, params.Page, params.PageSize, true, &series); err != nil {
+	if err := mongoext.Paginate(ctx, s.Series, seriesFilter, params.Page, params.PageSize, true, options.Find(), &series); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
+	}
+	log.Info().Msgf("Found total of %d series that match filter %+v", len(series), seriesFilter)
+
+	// Filter only series that the user has permission to view
+	seriesToReturn := []gym_series.GymSeries{}
+	for _, gymSeries := range series {
+		resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymSeries.GymID.Hex(), rbac.ResourceSeries)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionCreate)
+		if err != nil || !isAuthorized {
+			if err != nil {
+				log.Error().Err(err).Msgf("Error determining authorization of user %s on resource %s", token.Sub, resourceID)
+			}
+			continue
+		}
+
+		seriesToReturn = append(seriesToReturn, gymSeries)
 	}
 
 	// Get the total count of gyms
@@ -213,31 +243,36 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
-	// Get the total count of series
-	totalSeries, err := s.Series.CountDocuments(ctx, seriesFilter, nil)
-	if err != nil {
-		return lambda.ServerError(fmt.Errorf("error counting documents: %v", err))
-	}
-
 	resp := searchResponse{
-		Gyms:        gyms,
-		Series:      series,
+		Gyms:        gymsToReturn,
+		Series:      seriesToReturn,
 		TotalGyms:   totalGyms,
-		TotalSeries: totalSeries,
-		TotalCount:  totalGyms + totalSeries,
+		TotalCount:  totalGyms + int64(len(seriesToReturn)),
+		SeriesCount: int64(len(seriesToReturn)),
+		GymsCount:   int64(len(gymsToReturn)),
 	}
 	n := float64(resp.TotalCount) / float64(params.PageSize)
 	totalPages := int64(math.Ceil(n))
 	// if we're not on the last page, add the next page's URL to the response.
 	if totalPages > int64(params.Page) {
-		nextPageURL := fmt.Sprintf("%s/search/?pageSize=%d&page=%d", service.API_URL, params.PageSize, params.Page+1)
+		nextPageURL := fmt.Sprintf("%s/search/?page_size=%d&page=%d", service.API_URL, params.PageSize, params.Page+1)
 		resp.NextPage = &nextPageURL
 	}
 
 	// if we're not on the first page, add the previous page's URL to the response.
 	if params.Page > 1 && totalPages >= int64(params.Page) {
-		prevPageURL := fmt.Sprintf("%s/search/?pageSize=%d&page=%d", service.API_URL, params.PageSize, params.Page-1)
+		prevPageURL := fmt.Sprintf("%s/search/?page_size=%d&page=%d", service.API_URL, params.PageSize, params.Page-1)
 		resp.PreviousPage = &prevPageURL
+	}
+
+	if params.Query != "" {
+		if resp.NextPage != nil {
+			*resp.NextPage += fmt.Sprintf("&query=%s", params.Query)
+		}
+		if resp.PreviousPage != nil {
+			*resp.PreviousPage += fmt.Sprintf("&query=%s", params.Query)
+
+		}
 	}
 
 	respBytes, err := json.Marshal(resp)

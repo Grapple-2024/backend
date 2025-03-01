@@ -1,0 +1,45 @@
+{
+    "static": [],
+    "dynamic_gym_id": [
+        {
+            "name": "gym::{{.GymID}}::owners",
+            "permissions": [
+                
+                "gym:{{.GymID}}:update",
+                "gym:{{.GymID}}:delete",
+                "gym:{{.GymID}}:requests:update",
+                "gym:{{.GymID}}:roles:update",
+                "gym:{{.GymID}}:series:read",
+                "gym:{{.GymID}}:series:create",
+                "gym:{{.GymID}}:series:update",
+                "gym:{{.GymID}}:series:delete",
+                "gym:{{.GymID}}:announcements:read",
+                "gym:{{.GymID}}:announcements:create",
+                "gym:{{.GymID}}:announcements:update",
+                "gym:{{.GymID}}:announcements:delete"
+            ]
+        },
+        {
+            "name": "gym::{{.GymID}}::coaches",
+            "permissions": [
+                "gym:{{.GymID}}:update",
+                "gym:{{.GymID}}:requests:update",
+                "gym:{{.GymID}}:series:read",
+                "gym:{{.GymID}}:series:create",
+                "gym:{{.GymID}}:series:update",
+                "gym:{{.GymID}}:announcements:read",
+                "gym:{{.GymID}}:announcements:create",
+                "gym:{{.GymID}}:announcements:update",
+                "gym:{{.GymID}}:announcements:delete"
+            ]
+        },
+        {
+            "name": "gym::{{.GymID}}::students",
+            "permissions": [
+                "gym:{{.GymID}}:read",
+                "gym:{{.GymID}}:series:read",
+                "gym:{{.GymID}}:announcements:read"
+            ]
+        }
+    ]
+}

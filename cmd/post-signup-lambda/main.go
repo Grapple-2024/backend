@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Grapple-2024/backend/internal/service/profiles"
+	"github.com/Grapple-2024/backend/internal/dao"
 	"github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -46,19 +46,19 @@ func Handler(ctx context.Context, e events.CognitoEventUserPoolsPostConfirmation
 	c := mongoClient.Database("grapple").Collection("profiles")
 	attrs := e.Request.UserAttributes
 
-	profile := profiles.Profile{
+	profile := dao.Profile{
 		CognitoID:               attrs["sub"],
 		Email:                   attrs["email"],
 		FirstName:               attrs["given_name"],
 		LastName:                attrs["family_name"],
 		PhoneNumber:             attrs["phone_number"],
 		NotifyOnRequestAccepted: true,
-		Gyms:                    []profiles.GymAssociation{},
+		Gyms:                    []dao.GymAssociation{},
 		CreatedAt:               time.Now().Local().UTC(),
 		UpdatedAt:               time.Now().Local().UTC(),
 	}
 
-	var result profiles.Profile
+	var result dao.Profile
 	if err := mongo.Insert(ctx, c, profile, &result); err != nil {
 		return e, fmt.Errorf("failed to insert profile: %v", err)
 	}

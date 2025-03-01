@@ -1,0 +1,54 @@
+{
+    "static": [
+        {
+            "resource": "gym",
+            "action": "create"
+        }
+    ],
+    "dynamic_gym_id": [
+        {
+            "resource": "gym:{{.GymID}}",
+            "action": "update"
+        },
+        {
+            "resource": "gym:{{.GymID}}",
+            "action": "delete"
+        },
+        {
+            "resource": "gym:{{.GymID}}:roles",
+            "action": "update"
+        },
+        {
+            "resource": "gym:{{.GymID}}:series",
+            "action": "read"
+        },
+        {
+            "resource": "gym:{{.GymID}}:series",
+            "action": "create"
+        },
+        {
+            "resource": "gym:{{.GymID}}:series",
+            "action": "update"
+        },
+        {
+            "resource": "gym:{{.GymID}}:series",
+            "action": "delete"
+        },
+        {
+            "resource": "gym:{{.GymID}}:announcements",
+            "action": "read"
+        },
+        {
+            "resource": "gym:{{.GymID}}:announcements",
+            "action": "create"
+        },
+        {
+            "resource": "gym:{{.GymID}}:announcements",
+            "action": "update"
+        },
+        {
+            "resource": "gym:{{.GymID}}:announcements",
+            "action": "delete"
+        }
+    ]
+}

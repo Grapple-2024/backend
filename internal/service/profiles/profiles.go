@@ -8,23 +8,21 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Grapple-2024/backend/internal/dao"
 	"github.com/Grapple-2024/backend/internal/service"
 	"github.com/Grapple-2024/backend/pkg/cognito"
-	"github.com/Grapple-2024/backend/pkg/lambda_v2"
-	lambda "github.com/Grapple-2024/backend/pkg/lambda_v2"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
+	"github.com/Grapple-2024/backend/pkg/utils"
 	"github.com/aws/aws-lambda-go/events"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/aws-sdk-go/service/cognitoidentityprovider"
 	"github.com/rs/zerolog/log"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
-	"gopkg.in/mgo.v2/bson"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // Service is the object that handles the business logic of all Profile related operations.
@@ -32,27 +30,20 @@ import (
 type Service struct {
 	*mongoext.Client
 	*mongo.Collection
-	mongo.Session
+	*mongo.Session
 	*s3.PresignClient
 
 	publicAssetsBucketName string
-
-	CognitoClient *cognito.Client
-	awsRegion     string
+	gymsCollection         *mongo.Collection
+	CognitoClient          *cognito.Client
+	awsRegion              string
+	userPoolID             string
 }
 
 // NewService creates a new instance of a Profile Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client, publicAssetsBucketName, region, cognitoClientID, cognitoClientSecret string) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, publicAssetsBucketName, region, userPoolID string, cognitoClient *cognito.Client) (*Service, error) {
 	c := mc.Database("grapple").Collection("profiles")
 
-	cc, err := cognito.NewClient(
-		region,
-		cognito.WithClientID(cognitoClientID),
-		cognito.WithClientSecret(cognitoClientSecret),
-	)
-	if err != nil {
-		return nil, err
-	}
 	// Using the SDK's default configuration, loading additional config
 	// and credentials values from the environment variables, shared
 	// credentials, and shared configuration files
@@ -64,10 +55,11 @@ func NewService(ctx context.Context, mc *mongoext.Client, publicAssetsBucketName
 	svc := &Service{
 		Client:                 mc,
 		Collection:             c,
-		CognitoClient:          cc,
+		CognitoClient:          cognitoClient,
 		PresignClient:          s3.NewPresignClient(s3.NewFromConfig(cfg)),
 		publicAssetsBucketName: publicAssetsBucketName,
 		awsRegion:              region,
+		gymsCollection:         c.Database().Collection("gyms"),
 	}
 
 	// Create Mongo Session (needed for transactions)
@@ -87,14 +79,15 @@ func NewService(ctx context.Context, mc *mongoext.Client, publicAssetsBucketName
 // ProcessGetAll handles HTTP requests for GET /profiles/
 // TODO: remove dynamodb map after switching off fully
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
+	}
+
 	// build query filter if current_user=true
 	var filter bson.M
 	currentUser := req.QueryStringParameters["current_user"]
 	if currentUser == "true" {
-		token, err := service.GetToken(req.Headers)
-		if err != nil {
-			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
-		}
 		// create the filter based on query parameters in the request
 		filter = bson.M{
 			"cognito_id": token.Sub,
@@ -120,21 +113,30 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	// Fetch records with pagination
-	log.Info().Msgf("Filter: %v", filter)
-
-	var records []Profile
-	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, &records); err != nil {
+	var profiles []dao.Profile
+	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, options.Find(), &profiles); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
-	if records == nil {
-		records = []Profile{}
-		resp, err := json.Marshal(records)
+	if profiles == nil {
+		resp, err := json.Marshal([]dao.Profile{})
 		if err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to marshal current user profiles to json: %v", err))
 		}
 		return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
+	}
+
+	for i, profile := range profiles {
+		for j, membership := range profile.Gyms {
+			var gym dao.Gym
+			if err := mongoext.FindByID(ctx, s.gymsCollection, membership.GymID.Hex(), &gym); err != nil {
+				log.Error().Msgf("failed to find gym for gym membership! DATA INCONSISTENCY ERROR: %v", err)
+				continue
+			}
+
+			profiles[i].Gyms[j].Gym = &gym
+		}
 	}
 
 	// Get the total count of documents
@@ -143,19 +145,19 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		return lambda.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
-	log.Info().Msgf("Got records: %v", records)
-
 	var result []byte
 	if req.QueryStringParameters["current_user"] == "true" {
+		profile := profiles[0]
+
 		// marshal response as single profile object for easier frontend consumption
-		resp, err := json.Marshal(records[0])
+		resp, err := json.Marshal(profile)
 		if err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to marshal current user profile to json! %v", err))
 		}
 		result = resp
 	} else {
 		// marshal response as array
-		result, err = service.NewGetAllResponse("profiles", records, totalCount, len(records), pageInt, pageSizeInt)
+		result, err = service.NewGetAllResponse("profiles", profiles, totalCount, len(profiles), pageInt, pageSizeInt)
 		if err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to create response: %v", err))
 		}
@@ -165,17 +167,6 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 // ProcessGet handles HTTP requests for GET /profiles/{id}
 func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
-	// Get the profile by ID
-	// var profile Profile
-	// if err := mongoext.FindByID(ctx, s.Collection, id, &profile); err != nil {
-	// 	return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find profile by ID: %v", err))
-	// }
-
-	// // Return record as JSON
-	// json, err := json.Marshal(profile)
-	// if err != nil {
-	// 	return lambda.ServerError(err)
-	// }
 	return lambda.NewResponse(http.StatusOK, string(``), nil), nil
 }
 
@@ -193,7 +184,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	case "/profiles/avatar":
 		token, err := service.GetToken(req.Headers)
 		if err != nil {
-			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+			return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 		}
 
 		file := req.QueryStringParameters["file"]
@@ -218,10 +209,10 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		// Update user profile based on token (cognito ID)
 		token, err := service.GetToken(req.Headers)
 		if err != nil {
-			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to authorize user: %v", err))
+			return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("failed to authorize user: %v", err))
 		}
 
-		var payload Profile
+		var payload dao.Profile
 		if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 			return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
 		}
@@ -236,8 +227,8 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			"$set": payload,
 		}
 
-		var p Profile
-		if err := mongoext.Update(ctx, s.Collection, update, filter, &p, nil); err != nil {
+		var p dao.Profile
+		if err := mongoext.UpdateOne(ctx, s.Collection, update, filter, &p, nil); err != nil {
 			return lambda.ServerError(fmt.Errorf("failed to update gym record: %v", err))
 		}
 
@@ -259,170 +250,142 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 // ProcessDelete handles HTTP requests for DELETE /profiles/{id}.
 // This endpoint will delete data in multiple collections to ensure full cleanup of a user's data. Use with caution.
 func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	id := req.PathParameters["id"]
+	profileID := req.PathParameters["id"]
 
-	if err := s.deleteUser(ctx, id); err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete profile with ID %q: %v", id, err))
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("failed to authenticate: %v", err))
+	}
+
+	var profile dao.Profile
+	if err := mongoext.FindByID(ctx, s.Collection, profileID, &profile); err != nil {
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("profile with ID %s not found: %v", profileID, err))
+	}
+
+	// Safeguard authorization check
+	if token.Sub != profile.CognitoID {
+		return lambda.ClientError(http.StatusForbidden,
+			fmt.Sprintf("authorization failure: you must be logged in as the same user you wish to delete %v", err),
+		)
+	}
+
+	if err := s.deleteAllDataForProfile(ctx, profileID); err != nil {
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete profile with ID %q: %v", profileID, err))
 	}
 	return lambda.NewResponse(http.StatusOK, ``, nil), nil
 }
 
-func (s *Service) deleteUser(ctx context.Context, profileID string) error {
-
-	// get the profile
-	var profile Profile
+func (s *Service) deleteAllDataForProfile(ctx context.Context, profileID string) error {
+	var profile dao.Profile
 	if err := mongoext.FindByID(ctx, s.Collection, profileID, &profile); err != nil {
 		return fmt.Errorf("failed to find profile with id %s: %v", profileID, err)
 	}
 
-	// find all gym requests for this profile and delete them
-	filter := bson.M{
-		"requestor_id": profile.CognitoID,
+	// Find all Gyms created by the user (if any)
+	var gymsCreated []dao.Gym
+	f := bson.M{
+		"creator": profile.CognitoID,
 	}
-	gymRequestsColl := s.Database().Collection("gymRequests")
-	res, err := gymRequestsColl.DeleteMany(ctx, filter, nil)
-	if err != nil {
-		return fmt.Errorf("failed to delete gym requests for cognito user %q: %v", profile.CognitoID, err)
+	// **** TODO: switch to cursor.All()
+	if err := mongoext.Paginate(ctx, s.gymsCollection, f, 1, 100000, false, options.Find(), &gymsCreated); err != nil {
+		log.Error().Msgf("failed to find gyms created by cognito ID %s: %v", profileID, err)
 	}
-	log.Info().Msgf("Delete gym requests count: %v", res.DeletedCount)
 
-	out, err := s.CognitoClient.AdminDeleteUser(&cognitoidentityprovider.AdminDeleteUserInput{
-		Username: &profile.Email,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete user %q in cognito: %v", profile.Email, err)
+	// Delete Gyms and GymRequest objects created by the user with this cognito ID
+	if err := s.deleteRecordsByCognitoID(ctx, profile.CognitoID); err != nil {
+		return err
 	}
-	log.Info().Msgf("Delete Cognito User Result: %v", out.String())
+
+	for _, gym := range gymsCreated {
+		// Delete all Cognito Groups for each Gym the user created
+		if err := cognito.DeleteCognitoGroupsForGym(ctx, s.CognitoClient, gym.ID.Hex()); err != nil {
+			return err
+		}
+
+		// Delete announcements, techniques, and series for each gym the user created
+		if err := s.deleteRecordsByGymID(ctx, gym.ID); err != nil {
+			return err
+		}
+	}
+
+	// Delete the user from Cognito
+	if err := s.deleteCognitoUser(ctx, profile.CognitoID); err != nil {
+		return err
+	}
+
+	// Finally, delete
 
 	return nil
 }
 
-// GetGymAssociationsBy returns all gym associations with the specified Gym ID and role (Student or Coach).
-func (s *Service) GetGymAssociationsBy(ctx context.Context, gymID string, role string) ([]GymAssociation, error) {
-	gymObjID, err := primitive.ObjectIDFromHex(gymID)
+func (s *Service) deleteCognitoUser(ctx context.Context, username string) error {
+	result, err := s.CognitoClient.AdminDeleteUser(ctx, &cognitoidentityprovider.AdminDeleteUserInput{
+		Username:   &username,
+		UserPoolId: &s.userPoolID,
+	})
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("failed to delete user %q in cognito: %v", username, err)
 	}
+	log.Info().Msgf("Delete Cognito User Result: %v", result.ResultMetadata)
 
-	// get all coaches for this gym
+	return nil
+}
+
+// deleteRecordsByGymID deletes any record in announcements, techniques, or gym-series table associated with the specified gym ID
+func (s *Service) deleteRecordsByGymID(ctx context.Context, gymID bson.ObjectID) error {
+	collections := []string{"announcements", "series", "techniques"}
+
 	filter := bson.M{
-		"gyms": bson.M{
-			"$elemMatch": bson.M{
-				"gym_id": gymObjID,
-				"role":   role,
-			},
-		},
+		"gym_id": gymID,
 	}
-	var profiles []Profile
-	if err := mongoext.Paginate(ctx, s.Collection, filter, 1, 1000, true, &profiles); err != nil {
-		return nil, fmt.Errorf("could not find any profiles that have a %s role with gym id %q %v", role, gymID, err)
-	}
-
-	var gymAssociations []GymAssociation
-	for _, p := range profiles {
-		for _, g := range p.Gyms {
-			if g.GymID != gymObjID || g.Role != role {
-				continue
-			}
-
-			gymAssociations = append(gymAssociations, g)
+	for _, c := range collections {
+		res, err := s.Database().Collection(c).DeleteMany(ctx, filter, nil)
+		if err != nil {
+			return fmt.Errorf("failed to delete records in collection %s associated with gym ID %s: %v", c, gymID, err)
 		}
+
+		log.Info().Msgf("Deleted %d records in collection %s associated with gym id %s", res.DeletedCount, c, gymID)
 	}
 
-	return gymAssociations, nil
+	return nil
 }
 
-// GetAllStudents returns a slice of gym IDs associated with the cognito token. The associations can either be Student or Coach.
-func GetGymsOf(ctx context.Context, collection *mongo.Collection, cognitoID string) ([]primitive.ObjectID, error) {
-	filter := bson.M{
-		"cognito_id": cognitoID,
+// deleteRecordsByCognitoID deletes any record in gymRequests or gyms table created by the specified cognito ID
+func (s *Service) deleteRecordsByCognitoID(ctx context.Context, cognitoID string) error {
+	queries := map[string]string{
+		"gymRequests": "requestor_id",
+		"gyms":        "creator",
+		"profiles":    "cognito_id",
 	}
 
-	var profile Profile
-	if err := mongoext.Find(ctx, collection, filter, &profile); err != nil {
-		return nil, fmt.Errorf("could not find any profiles with cognito ID %q: %v", cognitoID, err)
-	}
-	log.Info().Msgf("Found profile, fetching gyms: %v", profile)
-
-	var gymIDs []primitive.ObjectID
-	for _, g := range profile.Gyms {
-		gymIDs = append(gymIDs, g.GymID)
-	}
-	return gymIDs, nil
-}
-
-// GetAllStudents returns true if the Cognito ID is a student of the specified Gym ID.
-func (s *Service) IsStudentOf(ctx context.Context, cognitoID, gymID string) (bool, error) {
-	gymObjID, err := primitive.ObjectIDFromHex(gymID)
-	if err != nil {
-		return false, err
-	}
-
-	// find the profile if it exists
-	filter := bson.M{
-		"cognito_id": cognitoID,
-		"gyms": bson.M{
-			"$elemMatch": bson.M{
-				"gym_id": gymObjID,
-				"role":   StudentRole,
-			},
-		},
-	}
-	var profile Profile
-	if err := mongoext.Find(ctx, s.Collection, filter, &profile); err != nil {
-		return false, fmt.Errorf("could not find any profiles that have a student role with gym id %q %v", gymID, err)
-	}
-
-	if profile.CognitoID == cognitoID {
-		return true, nil
-	}
-	return false, nil
-}
-
-// GetAllStudents returns all student profiles associated with a specific gym.
-func (s *Service) GetStudentsOf(ctx context.Context, gymID string) ([]Profile, error) {
-	gymObjID, err := primitive.ObjectIDFromHex(gymID)
-	if err != nil {
-		return nil, err
-	}
-
-	// get all coaches for this gym
-	filter := bson.M{
-		"gyms": bson.M{
-			"$elemMatch": bson.M{
-				"gym_id": gymObjID,
-				"role":   StudentRole,
-			},
-		},
-	}
-	var profiles []Profile
-	if err := mongoext.Paginate(ctx, s.Collection, filter, 1, 1000, true, &profiles); err != nil {
-		return nil, fmt.Errorf("could not find any profiles that have a student role in gym id %q %v", gymID, err)
-	}
-
-	return profiles, nil
-}
-
-func (s *Service) createProfile(ctx context.Context, p *Profile) (*Profile, error) {
-	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
-
-	result, err := s.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (interface{}, error) {
-		var result Profile
-		if err := mongoext.Insert(sessCtx, s.Collection, p, &result); err != nil {
-			return nil, err
+	for collection, column := range queries {
+		filter := bson.M{
+			column: cognitoID,
 		}
-		log.Info().Msgf("Insert result: %v", result)
+		c := s.Database().Collection(collection)
+		res, err := c.DeleteMany(ctx, filter, nil)
+		if err != nil {
+			return fmt.Errorf("failed to delete records for cognito user %s: %v", cognitoID, err)
+		}
 
-		return result, nil
-	}, transactionOptions)
-
-	if err != nil {
-		log.Warn().Err(err).Msgf("Failed to run mongo transaction for profile creation")
-		return nil, err
+		log.Info().Msgf("Deleted %d records in collection %s associated with cognito id %s", res.DeletedCount, collection, cognitoID)
 	}
-	log.Info().Msgf("createProfile transaction completed successfully!")
 
-	return result.(*Profile), nil
+	return nil
+}
+func (s *Service) deleteGymByCognitoID(ctx context.Context, cognitoID string) error {
+	filter := bson.M{
+		"requestor_id": cognitoID,
+	}
+	gymRequestsColl := s.Database().Collection("gymRequests")
+	res, err := gymRequestsColl.DeleteMany(ctx, filter, nil)
+	if err != nil {
+		return fmt.Errorf("failed to delete gym requests for cognito user %q: %v", cognitoID, err)
+	}
+
+	log.Info().Msgf("Delete gym requests count: %v", res.DeletedCount)
+
+	return nil
 }
 
 // ensureIndices ensures the proper indices are creatd for the 'gyms' collection.
@@ -437,5 +400,89 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	return nil
+}
+
+// DeleteGymAssociationsForGym removes all gym associations globally for all profiles for a given gym ID.
+// this function is called during gym deletion and is part of deleteGymTX.
+func DeleteGymAssociationsByGymID(ctx context.Context, collection *mongo.Collection, gymID string) error {
+	// Convert gymID to ObjectId
+	objectID, err := bson.ObjectIDFromHex(gymID)
+	if err != nil {
+		return fmt.Errorf("invalid gymID: %v", err)
+	}
+
+	filter := bson.M{"gyms.gym_id": objectID}
+	update := bson.M{"$pull": bson.M{"gyms": bson.M{"gym_id": objectID}}}
+
+	// Execute the update
+	result, err := collection.UpdateMany(ctx, filter, update)
+	if err != nil {
+		return fmt.Errorf("failed to update documents: %v", err)
+	}
+
+	log.Info().Int64("matched", result.MatchedCount).Int64("modified", result.ModifiedCount).Msg("Gym associations removed")
+
+	return nil
+}
+
+func DeleteGymAssociation(ctx context.Context, mc *mongoext.Client, gymID bson.ObjectID, cognitoID string) error {
+	profiles := mc.Database("grapple").Collection("profiles")
+	filter := bson.M{
+		"cognito_id": cognitoID,
+	}
+
+	update := bson.M{
+		"$pull": bson.M{
+			"gyms": bson.M{"gym_id": gymID},
+		},
+	}
+
+	var result dao.Profile
+	if err := mongoext.UpdateOne(ctx, profiles, update, filter, &result, nil); err != nil {
+		return fmt.Errorf("failed to delete gym association on profile with filter %v: %v", filter, err)
+	}
+
+	return nil
+}
+
+// UpsertGymAssociation upserts (inserts or updates) a gym association to a user profile object.
+// It does not update any groups in Cognito or the RBAC framework.
+func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym, roleName string, request *dao.GymRequest) error {
+	groupName := fmt.Sprintf("gym::%s::%s", gym.ID.Hex(), utils.PluralGroupNameFromRole(roleName))
+	gymAssociation := dao.GymAssociation{
+		GymID:          gym.ID,
+		Email:          request.RequestorEmail,
+		MembershipType: request.MembershipType,
+		Group:          groupName,
+		EmailPreferences: &dao.EmailPreferences{
+			NotifyOnAnnouncements: true,
+			NotifyOnRequests:      true,
+		},
+	}
+
+	if err := DeleteGymAssociation(ctx, mc, gym.ID, request.RequestorID); err != nil {
+		return err
+	}
+
+	update := bson.M{
+		"$push": bson.M{
+			"gyms": gymAssociation,
+		},
+	}
+
+	log.Info().Msgf("Upserting gym association %v to user %q", gymAssociation, request.RequestorID)
+
+	// Insert the Gym Association
+	profiles := mc.Database("grapple").Collection("profiles")
+	filter := bson.M{
+		"cognito_id": request.RequestorID,
+	}
+	var result dao.Profile
+	if err := mongoext.UpdateOne(ctx, profiles, update, filter, &result, nil); err != nil {
+		return fmt.Errorf("failed to upsert profile with filter %v: %v", filter, err)
+	}
+
 	return nil
 }

@@ -32,10 +32,18 @@ Parameters:
       Description: "The endpoint for dynamodb"
       Type: 'String'
       Default: ""
+    UserPoolARN:
+      Description: "full ARN of Cognito user pool"
+      Type: 'String'
+      Default: ""
     CognitoClientSecret:
       Description: "The cognito client secret"
       Type: 'String'
       Default: ""
+    CognitoUserPoolID:
+      Description: "ID of Cognito User Pool"
+      Type: 'String'
+      Default: "us-west-1_HT5oR6AwO"
     StripeAPIKey:
       Description: "The Stripe API secret key"
       Type: 'String'
@@ -44,6 +52,7 @@ Parameters:
       Description: "The Mapbox API secret key"
       Type: 'String'
       Default: ""
+    
 
 Resources:
   Gateway:
@@ -69,12 +78,6 @@ Resources:
         AllowHeaders: "'*'"
       Auth:
         AddDefaultAuthorizerToCorsPreflight: false
-        DefaultAuthorizer: MyCognitoAuth # OPTIONAL
-        Authorizers:
-          MyCognitoAuth:
-            UserPoolArn: arn:aws:cognito-idp:us-west-1:381491926210:userpool/us-west-1_HT5oR6AwO # Can also accept an array
-            Identity: # OPTIONAL
-              Header: Authorization # OPTIONAL; Default: 'Authorization'
 
   CreateProfileOnSignupLambda:
     Type: AWS::Serverless::Function
@@ -114,6 +117,7 @@ Resources:
           PUBLIC_USER_ASSETS_BUCKET_NAME: !Sub grapple-${Environment}-public-user-assets
           GYM_VIDEOS_BUCKET_NAME: !Sub grapple-${Environment}-gym-videos
           SENDGRID_API_KEY: !Ref SendGridAPIKey
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolID
           COGNITO_CLIENT_ID: !Ref CognitoClientID
           COGNITO_CLIENT_SECRET: !Ref CognitoClientSecret
           STRIPE_API_KEY: !Ref StripeAPIKey
@@ -130,8 +134,15 @@ Resources:
             Path: /gyms/{id}
             Method: GET
             RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
+
+
+        GetGymStats:
+          Type: Api
+          Properties:
+            Path: /gyms/{id}/stats
+            Method: GET
+            RestApiId: !Ref Gateway
+
 
         GetGyms:
           Type: Api
@@ -139,8 +150,7 @@ Resources:
             Path: /gyms
             Method: GET
             RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
+
 
         CreateGym:
           Type: Api
@@ -160,6 +170,13 @@ Resources:
           Type: Api
           Properties:
             Path: /gyms/{id}/presign
+            Method: PUT
+            RestApiId: !Ref Gateway
+
+        AssignGymRole:
+          Type: Api
+          Properties:
+            Path: /gyms/{id}/assign-role
             Method: PUT
             RestApiId: !Ref Gateway
 
@@ -264,7 +281,7 @@ Resources:
             Method: POST
             RestApiId: !Ref Gateway
 
-        GenerateUploadURL:
+        PresignSeriesObject:
           Type: Api
           Properties:
             Path: /gym-series/{id}/presign
@@ -306,8 +323,7 @@ Resources:
             Path: /techniques/{id}
             Method: GET
             RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
+
 
         GetTechnique:
           Type: Api
@@ -315,8 +331,7 @@ Resources:
             Path: /techniques
             Method: GET
             RestApiId: !Ref Gateway
-            Auth:
-              Authorizer: NONE # Turn off Authorization for this event
+
 
         CreateTechnique:
           Type: Api
@@ -418,6 +433,14 @@ Resources:
                   - cognito-idp:AdminListGroupsForUser
                   - cognito-idp:AdminDeleteUser
                   - cognito-idp:AdminAddUserToGroup
+                Resource: '*'
+        - PolicyName: CognitoUserPools
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-idp:*
                 Resource: '*'
 Outputs:
   API:

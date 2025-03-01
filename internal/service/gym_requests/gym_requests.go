@@ -11,22 +11,23 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/Grapple-2024/backend/internal/dao"
+	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service"
-	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
-	"github.com/Grapple-2024/backend/pkg/lambda_v2"
+	"github.com/Grapple-2024/backend/pkg/lambda"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/go-playground/validator/v10"
 	"github.com/rs/zerolog/log"
 	"github.com/sendgrid/sendgrid-go"
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
-	"go.mongodb.org/mongo-driver/mongo/readconcern"
-	"go.mongodb.org/mongo-driver/mongo/writeconcern"
-	"gopkg.in/mgo.v2/bson"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
+	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 )
 
 //go:embed templates/new_request.html
@@ -38,7 +39,8 @@ var requestAcceptedEmailTmpl string
 // Service is the object that handles the business logic of all gymRequest related operations.
 // Service talks to the underlying Mongo Client (Data access layer) to CRUD gymRequest objects.
 type Service struct {
-	mongo.Session
+	*rbac.RBAC
+	*mongo.Session
 
 	*mongoext.Client
 	*mongo.Collection
@@ -46,12 +48,13 @@ type Service struct {
 	sendGridClient *sendgrid.Client
 }
 
-// NewService creates a new instance of a GymRequest Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgrid.Client) (*Service, error) {
+// NewService creates a new instance of a dao.GymRequest Service given a mongo client
+func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgrid.Client, rbac *rbac.RBAC) (*Service, error) {
 	c := mc.Database("grapple").Collection("gymRequests")
 
 	// Create Mongo Session (needed for transactions)
 	svc := &Service{
+		RBAC:           rbac,
 		Client:         mc,
 		Collection:     c,
 		sendGridClient: sendGridClient,
@@ -62,55 +65,74 @@ func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgr
 		return nil, err
 	}
 	svc.Session = session
+	if err := svc.ensureIndices(ctx); err != nil {
+		return nil, err
+	}
 
 	return svc, nil
 }
 
-// ProcessGetAll handles HTTP requests for GET /gym-requests/
-// TODO: remove dynamodb map after switching off fully
 func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyRequest, limit int32) (events.APIGatewayProxyResponse, error) {
-	// Parse filter query params
 	showByWeek := req.QueryStringParameters["show_by_week"]
 	gymID := req.QueryStringParameters["gym_id"]
-	gymStatus := req.QueryStringParameters["status"]
-	requestorID := req.QueryStringParameters["requestor"]
+	status := req.QueryStringParameters["status"]
+	requestorID := req.QueryStringParameters["requestor_id"]
+	membershipType := req.QueryStringParameters["membership_type"]
+	search := req.QueryStringParameters["search"]
+	role := req.QueryStringParameters["role"]
+	sortColumn := req.QueryStringParameters["sort_column"]
+	if sortColumn == "" {
+		sortColumn = "first_name"
+	}
+	sortDirection := req.QueryStringParameters["sort_direction"]
+	if sortDirection == "" {
+		sortDirection = "-1"
+	}
+	sortDirectionInt, err := strconv.Atoi(sortDirection)
+	if err != nil {
+		return lambda.ClientError(http.StatusBadRequest, "invalid &sort_direction query parameter: must be one of [1 or -1]")
+	}
 
-	// parse pagination query params
 	page := req.QueryStringParameters["page"]
 	if page == "" {
-		page = "1" // default to first page
+		page = "1"
 	}
 	pageSize := req.QueryStringParameters["page_size"]
 	if pageSize == "" {
-		pageSize = "10" // default to 10 records per page
+		pageSize = "10"
 	}
 	pageSizeInt, err := strconv.Atoi(pageSize)
 	if err != nil && pageSize != "" {
-		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &page_size query parameter: "+pageSize)
+		return lambda.ClientError(http.StatusBadRequest, "invalid &page_size query parameter: "+pageSize)
 	}
 	pageInt, err := strconv.Atoi(page)
 	if err != nil && page != "" {
-		return lambda_v2.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
+		return lambda.ClientError(http.StatusBadRequest, "invalid &page query parameter: "+page)
 	}
 
-	// create the filter based on query parameters in the request
 	filter := bson.M{}
 	if gymID != "" {
-		gymObjID, err := primitive.ObjectIDFromHex(gymID)
+		gymObjID, err := bson.ObjectIDFromHex(gymID)
 		if err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object ID specified for gym_id query param: %s", gymID))
 		}
 		filter["gym_id"] = gymObjID
 	}
+	if membershipType != "" {
+		filter["membership_type"] = membershipType
+	}
+	if role != "" {
+		filter["role"] = role
+	}
 
-	if gymStatus != "" {
-		filter["status"] = gymStatus
+	if status != "" {
+		filter["status"] = status
 	}
 
 	if showByWeek != "" {
 		time, err := time.Parse(time.RFC3339, showByWeek)
 		if err != nil {
-			return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err))
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid value for &show_by_week query param %q: must conform to RFC3339 standards: %v", showByWeek, err))
 		}
 		year, week := time.ISOWeek()
 		filter["created_at_year"] = year
@@ -121,168 +143,232 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		filter["requestor_id"] = requestorID
 	}
 
-	// Fetch records with pagination
-	var records []GymRequest
-	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, true, &records); err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
+	searchFilter := []bson.M{}
+	if search != "" {
+		searchFilter = append(searchFilter,
+			bson.M{
+				"first_name": bson.M{
+					"$regex":   search,
+					"$options": "i",
+				},
+			},
+			bson.M{
+				"last_name": bson.M{
+					"$regex":   search,
+					"$options": "i",
+				},
+			},
+			bson.M{
+				"status": bson.M{
+					"$regex":   search,
+					"$options": "i",
+				},
+			},
+		)
+	}
+	if len(searchFilter) > 0 {
+		filter["$or"] = searchFilter
+	}
+
+	log.Info().Msgf("Requests Filter: %+v", filter)
+	var requests []dao.GymRequest
+	opts := options.Find().SetSort(bson.M{sortColumn: sortDirectionInt}) // -1 = DESCENDING (newest at the top), 1 = ASCENDING (oldest at the top)
+	if err := mongoext.Paginate(ctx, s.Collection, filter, pageInt, pageSizeInt, false, opts, &requests); err != nil {
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
 	// if no records are found, initialize empty slice so we can return [] instead of nil in JSON :)
-	if records == nil {
-		records = []GymRequest{}
+	if requests == nil {
+		requests = []dao.GymRequest{}
 	}
 
-	// Get the total count of documents
+	// join the profiles collection on each gym request
+	requests = s.joinProfileOnRequests(ctx, requests)
+
 	totalCount, err := s.Collection.CountDocuments(ctx, filter, nil)
 	if err != nil {
-		return lambda_v2.ServerError(fmt.Errorf("error counting documents: %v", err))
+		return lambda.ServerError(fmt.Errorf("error counting documents: %v", err))
 	}
 
-	resp, err := service.NewGetAllResponse("gymRequests", records, totalCount, len(records), pageInt, pageSizeInt)
+	resp, err := service.NewGetAllResponse("gymRequests", requests, totalCount, len(requests), pageInt, pageSizeInt)
 	if err != nil {
-		return lambda_v2.ServerError(err)
+		return lambda.ServerError(err)
 	}
-	return lambda_v2.NewResponse(http.StatusOK, string(resp), nil), nil
+	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
 // ProcessGet handles HTTP requests for GET /gymRequests/{id}
 func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxyRequest, id string) (events.APIGatewayProxyResponse, error) {
 	// Get the gymRequest by ID
-	var gymRequest GymRequest
+	var gymRequest dao.GymRequest
 	if err := mongoext.FindByID(ctx, s.Collection, id, &gymRequest); err != nil {
-		return lambda_v2.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gymRequest by ID: %v", err))
+		return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gymRequest by ID: %v", err))
 	}
 
 	// Return record as JSON
 	json, err := json.Marshal(gymRequest)
 	if err != nil {
-		return lambda_v2.ServerError(err)
+		return lambda.ServerError(err)
 	}
-	return lambda_v2.NewResponse(http.StatusOK, string(json), nil), nil
+	return lambda.NewResponse(http.StatusOK, string(json), nil), nil
 }
 
-// ProcessPost handles HTTP requests for POST /gymRequests
+// ProcessPost handles HTTP requests for POST /gym-requests
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var payload GymRequest
-	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
-		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+	// get token and set Cognito ID and Email on the Request payload to the values tied to the token
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("authentication failure: %v", err))
 	}
-	payload.Status = RequestPending
 
-	// Validate request body for required fields
-	validate := validator.New()
+	var payload dao.GymRequest
+	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
+		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+	}
+	payload.Status = dao.RequestPending
+	payload.RequestorID = token.Sub
+	// payload.RequestorEmail = token.Email
+	// payload.FirstName = token.GivenName
+	// payload.LastName = token.FamilyName
+
+	if !rbac.ValidateRole(payload.Role) {
+		return lambda.ClientError(http.StatusBadRequest, "invalid role name, valid values: [coach, owner, student]")
+	}
+
+	// Validate the payload struct
+	validate, err := service.NewValidator()
+	if err != nil {
+		return lambda.ServerError(err)
+	}
 	if err := validate.Struct(payload); err != nil {
 		var errMsgs []string
 		for _, err := range err.(validator.ValidationErrors) {
 			errMsgs = append(errMsgs, fmt.Sprintf("Field '%s' failed validation with tag '%s'", err.Field(), err.Tag()))
 		}
-		return lambda_v2.ClientError(http.StatusUnprocessableEntity, errMsgs...)
+		return lambda.ClientError(http.StatusBadRequest, errMsgs...)
+	}
+	if err := validateMembershipType(payload.MembershipType); err != nil {
+		return lambda.ClientError(http.StatusBadRequest, err.Error())
 	}
 
 	gymsColl := s.Database().Collection("gyms")
-	var gym *gyms.Gym
+	var gym *dao.Gym
 	if err := mongoext.FindByID(ctx, gymsColl, payload.GymID.Hex(), &gym); err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("could not find gym with id %q: %v", payload.GymID, err))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("could not find gym with id %q: %v", payload.GymID, err))
 	}
 
-	// insert the GymRequest, store the resulting record in 'result' variable
+	// insert the dao.GymRequest, store the resulting record in 'result' variable
 	payload.CreatedAt = time.Now().Local().UTC()
 	payload.UpdatedAt = payload.CreatedAt
 
-	var result GymRequest
+	var result dao.GymRequest
 	if err := mongoext.Insert(ctx, s.Collection, &payload, &result); err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to insert gym request ooc: %v", err))
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to insert gym request ooc: %v", err))
 	}
+
+	requests := s.joinProfileOnRequests(ctx, []dao.GymRequest{result})
+	if len(requests) == 0 {
+		return lambda.ServerError(fmt.Errorf("data inconsistency on joining profile with request: %v", requests))
+	}
+	request := requests[0]
 
 	// notify the coach by email that a new request was submitted for their gym
-	if err := s.notifyCoachesOnNewRequest(ctx, &result); err != nil {
-		log.Warn().Msgf("Failed to notify coach of new gym request - FAILING SILENTLY! %v", err)
+	if err := s.notifyCoachesOnNewRequest(ctx, &request); err != nil {
+		log.Warn().Msgf("Failed to notify coach of new gym request - FAILING SILENTLY: %v", err)
 	}
 
-	resp, err := json.Marshal(result)
+	resp, err := json.Marshal(request)
 	if err != nil {
-		return lambda_v2.ServerError(err)
+		return lambda.ServerError(err)
 	}
 
-	return lambda_v2.NewResponse(http.StatusCreated, string(resp), nil), nil
+	return lambda.NewResponse(http.StatusCreated, string(resp), nil), nil
 }
 
-// ProcessPut handles HTTP requests for PUT /gymRequests/{id}
+// ProcessPut handles HTTP requests for PUT /gym-requests/{id}
 func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var gymRequest GymRequest
-	if err := json.Unmarshal([]byte(req.Body), &gymRequest); err != nil {
-		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+	token, err := service.GetToken(req.Headers)
+	if err != nil {
+		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
-	if !isValidStatus(gymRequest.Status) {
-		return lambda_v2.ClientError(http.StatusBadRequest, "invalid value for status field, must be one of [Pending, Accepted, Denied]")
+	var payload dao.GymRequest
+	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
+		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
+	}
+	if !dao.IsValidStatus(payload.Status) {
+		return lambda.ClientError(http.StatusBadRequest, "invalid value for status field, must be one of [Pending, Accepted, Denied]")
+	}
+
+	id := req.PathParameters["id"]
+	var request dao.GymRequest
+	if err := mongoext.FindByID(ctx, s.Collection, id, &request); err != nil {
+		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find gym request with ID %s: %v", id, err))
+	}
+
+	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, request.GymID.Hex(), rbac.ResourceGymRequests) // gym:<gym_id>:requests
+	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionUpdate)
+	if err != nil {
+		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
+	} else if !isAuthorized {
+		return lambda.ClientError(http.StatusForbidden,
+			fmt.Sprintf("permission denied: user is not authorized for action '%s' on '%s'", rbac.ActionUpdate, resourceID),
+		)
 	}
 
 	// update the record in mongo
-	id := req.PathParameters["id"]
-	result, err := s.updateGymRequestTX(ctx, &gymRequest, id)
+	result, err := s.updateGymRequestTX(ctx, &payload, id)
 	if err != nil {
-		return lambda_v2.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to finish updateGymRequest transaction: %v", err))
+		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to finish updateGymRequest transaction: %v", err))
 	}
 
 	// Marshal result to JSON and return it in the response
 	resp, err := json.Marshal(result)
 	if err != nil {
-		return lambda_v2.ServerError(fmt.Errorf("failed to marshal response: %v", err))
+		return lambda.ServerError(fmt.Errorf("failed to marshal response: %v", err))
 	}
 
-	return lambda_v2.NewResponse(http.StatusOK, string(resp), nil), nil
+	return lambda.NewResponse(http.StatusOK, string(resp), nil), nil
 }
 
 // ProcessDelete handles HTTP requests for DELETE /gymRequests/{id}
 func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	id := req.PathParameters["id"]
-	objID, err := primitive.ObjectIDFromHex(id)
-	if err != nil {
-		return lambda_v2.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid object id specified in url %q: %v", id, err))
+	if err := mongoext.DeleteOne(ctx, s.Collection, id); err != nil {
+		return lambda.NewResponse(http.StatusBadRequest, fmt.Sprintf("failed to delete record: %v", err), nil), nil
 	}
 
-	// create filter and options
-	filter := bson.M{"_id": objID}
-	opts := options.Delete().SetHint(bson.M{"_id": 1}) // use _id index to find object
-
-	result, err := s.Collection.DeleteOne(context.TODO(), filter, opts)
-	if err != nil {
-		return lambda_v2.ServerError(err)
-	}
-
-	if result.DeletedCount == 0 {
-		return lambda_v2.NewResponse(http.StatusNotFound, ``, nil), nil
-	}
-
-	return lambda_v2.NewResponse(http.StatusOK, ``, nil), nil
+	return lambda.NewResponse(http.StatusOK, ``, nil), nil
 }
 
-func (s *Service) notifyStudent(ctx context.Context, request *GymRequest) error {
-
-	// get the profile for this student
-	profilesColl := s.Client.Database("grapple").Collection("profiles")
-	filter := bson.M{
-		"cognito_id": request.RequestorID,
-	}
-	var profile profiles.Profile
-	if err := mongoext.Find(ctx, profilesColl, filter, &profile); err != nil {
-		return fmt.Errorf("could not find any profile with cognito id %q: %v", request.RequestorID, err)
+func (s *Service) getProfileByCognitoID(ctx context.Context, cognitoSubID string) (*dao.Profile, error) {
+	c := s.Client.Database("grapple").Collection("profiles")
+	filter := bson.M{"cognito_id": cognitoSubID}
+	var profile dao.Profile
+	if err := mongoext.FindOne(ctx, c, filter, &profile); err != nil {
+		return nil, fmt.Errorf("could not find any profile with cognito id %q: %v", cognitoSubID, err)
 	}
 
-	log.Info().Msgf("Got profile for student: %v", profile)
+	return &profile, nil
+}
+
+func (s *Service) notifyUserOnRequestAccepted(ctx context.Context, request *dao.GymRequest) error {
+	profile, err := s.getProfileByCognitoID(ctx, request.RequestorID)
+	if err != nil {
+		return err
+	}
+
 	if !profile.NotifyOnRequestAccepted {
-		log.Warn().Msgf("Student has disabled notifications for new requests, nothing will be sent")
+		log.Warn().Msgf("User has disabled notifications for new requests, nothing will be sent")
 		return nil
 	}
 
-	// execute the template for the email
 	tmpl, err := template.New("").Parse(requestAcceptedEmailTmpl)
 	if err != nil {
 		return fmt.Errorf("failed to parse template: %v", err)
 	}
 
 	gymsColl := s.Database().Collection("gyms")
-	var gym *gyms.Gym
+	var gym *dao.Gym
 	if err := mongoext.FindByID(ctx, gymsColl, request.GymID.Hex(), &gym); err != nil {
 		return fmt.Errorf("could not find gym with ID %v: %v", request.GymID, err)
 	}
@@ -290,8 +376,10 @@ func (s *Service) notifyStudent(ctx context.Context, request *GymRequest) error 
 	var tmplOut bytes.Buffer
 	tmplData := struct {
 		GymName string
+		Role    string
 	}{
 		GymName: gym.Name,
+		Role:    request.Role,
 	}
 	if err := tmpl.Execute(&tmplOut, tmplData); err != nil {
 		return fmt.Errorf("error executing template with data %v:\n %v", tmplData, err)
@@ -299,26 +387,27 @@ func (s *Service) notifyStudent(ctx context.Context, request *GymRequest) error 
 
 	subject := fmt.Sprintf("Grapple MMA: your request to join %s was accepted!", gym.Name)
 	from := mail.NewEmail("Grapple Notifications", "support@grapplemma.com")
-	to := mail.NewEmail("Grapple Student", request.RequestorEmail)
+	to := mail.NewEmail("Grapple User", request.RequestorEmail)
 	message := mail.NewSingleEmail(from, subject, to, "", tmplOut.String())
 
 	_, err = s.sendGridClient.Send(message)
 	if err != nil {
-		return fmt.Errorf("failed to send email to student: %v", err)
+		return fmt.Errorf("failed to send email to user: %v", err)
 	}
 
 	return nil
 }
 
-func (s *Service) notifyCoachesOnNewRequest(ctx context.Context, request *GymRequest) error {
+func (s *Service) notifyCoachesOnNewRequest(ctx context.Context, request *dao.GymRequest) error {
 	tmpl, err := template.New("").Parse(newRequestEmailTmpl)
 	if err != nil {
 		return fmt.Errorf("failed to parse template: %v", err)
 	}
 
+	gymID := request.GymID.Hex()
 	gymsColl := s.Database().Collection("gyms")
-	var gym *gyms.Gym
-	if err := mongoext.FindByID(ctx, gymsColl, request.GymID.Hex(), &gym); err != nil {
+	var gym *dao.Gym
+	if err := mongoext.FindByID(ctx, gymsColl, gymID, &gym); err != nil {
 		return fmt.Errorf("could not find gym with ID %v: %v", request.GymID, err)
 	}
 
@@ -334,33 +423,27 @@ func (s *Service) notifyCoachesOnNewRequest(ctx context.Context, request *GymReq
 		return fmt.Errorf("error executing template with data %v:\n %v", tmplData, err)
 	}
 
-	// get all coaches for this gym
-	profilesColl := s.Client.Database("grapple").Collection("profiles")
-	filter := bson.M{
-		"gyms": bson.M{
-			"$elemMatch": bson.M{
-				"gym_id": request.GymID,
-				"role":   "Coach",
-			},
-		},
-	}
-	var profiles []profiles.Profile
-	if err := mongoext.Paginate(ctx, profilesColl, filter, 1, 1000, true, &profiles); err != nil {
-		return fmt.Errorf("could not find any profiles that have a coach association to gym id %q %v", request.GymID, err)
+	// get all coaches and owners for this gym
+	coachesGroup := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, gymID, rbac.Coaches)
+	coaches, err := s.RBAC.ListUsersInGroup(ctx, coachesGroup)
+	if err != nil {
+		return err
 	}
 
-	log.Info().Msgf("Found profiles with coach association to gym: %v", profiles)
+	ownersGroup := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, gymID, rbac.Owners)
+	owners, err := s.RBAC.ListUsersInGroup(ctx, ownersGroup)
+	if err != nil {
+		return err
+	}
+
+	allCoaches := append(owners, coaches...)
 
 	var tos []*mail.Email
-	for _, p := range profiles {
-		for _, g := range p.Gyms {
-			if g.GymID != request.GymID || !g.EmailPreferences.NotifyOnRequests {
-				continue
-			}
-			tos = append(tos, mail.NewEmail("Grapple Coach", p.Email))
-		}
+	for _, u := range allCoaches {
+		tos = append(tos, mail.NewEmail("Grapple Coach", *u.Username))
 	}
 	if len(tos) == 0 {
+		log.Info().Msgf("No coaches or owners found for gym %v", gymID)
 		return nil
 	}
 	log.Info().Msgf("Notifying coaches of new gym request: %v", tos)
@@ -371,93 +454,76 @@ func (s *Service) notifyCoachesOnNewRequest(ctx context.Context, request *GymReq
 	// Just for debugging, all mail will be BCC'd to Jordan
 	email.AddBCCs([]*mail.Email{
 		mail.NewEmail("Jordan", "jordan@dionysustechnologygroup.com"),
+		mail.NewEmail("Stephen", "stephen@dionysustechnologygroup.com"),
 	}...)
 
 	payload := mail.NewV3Mail().
 		AddPersonalizations(email).
 		AddContent(mail.NewContent("text/html", tmplOut.String()))
 
-	log.Info().Msgf("Email tos: %v %v", tos[0].Address, tos[1].Address)
 	payload.SetFrom(mail.NewEmail("Grapple Notifications", "support@grapplemma.com"))
 	payload.Subject = fmt.Sprintf("Grapple MMA: a student has requested to join %s", gym.Name)
 
 	resp, err := s.sendGridClient.Send(payload)
 	if err != nil {
-		log.Warn().Msgf("Failed to send email: %v", err)
+		log.Warn().Msgf("failed to send email: %v", err)
 		return fmt.Errorf("failed to send email to coach: %v", err)
 	}
 	if resp.StatusCode != http.StatusAccepted {
-		log.Warn().Msgf("Mail failed to send: %+v", resp)
+		log.Warn().Msgf("mail failed to send: %+v", resp.StatusCode)
 	}
 
 	return nil
 }
 
-func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, id string) (*GymRequest, error) {
-	transactionOptions := options.Transaction().SetReadConcern(readconcern.Local()).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
+func (s *Service) updateGymRequestTX(ctx context.Context, payload *dao.GymRequest, requestID string) (*dao.GymRequest, error) {
+	transactionOptions := options.Transaction().
+		SetReadConcern(&readconcern.ReadConcern{Level: "local"}).
+		SetWriteConcern(&writeconcern.WriteConcern{W: 1})
 
-	result, err := s.WithTransaction(ctx, func(sessCtx mongo.SessionContext) (any, error) {
-
-		// update the gym request
-		var request GymRequest
+	result, err := s.WithTransaction(ctx, func(sessCtx context.Context) (any, error) {
+		var request dao.GymRequest
 		request.UpdatedAt = time.Now().Local().UTC()
-		if err := mongoext.UpdateByID(ctx, s.Collection, id, payload, &request, nil); err != nil {
+		if err := mongoext.UpdateByID(ctx, s.Collection, requestID, payload, &request, nil); err != nil {
 			return nil, fmt.Errorf("failed to update gym record: %v", err)
 		}
 
-		// return early if the request was not approved
-		if payload.Status != RequestAccepted {
+		gymID := request.GymID.Hex()
+
+		// Handle request denied
+		if payload.Status == dao.RequestDenied {
+			if err := profiles.DeleteGymAssociation(ctx, s.Client, request.GymID, request.RequestorID); err != nil {
+				return nil, err
+			}
+		}
+
+		if payload.Status != dao.RequestAccepted {
 			return request, nil
 		}
 
-		// send notification to the student that their request was approved
-		// TODO: implement this
-		if err := s.notifyStudent(ctx, &request); err != nil {
-			return nil, err
-		}
-
-		// The request was approved by the coach: update the student profile's gym_associations field.
-		log.Debug().Msgf("a gym request was approved by coach for student %q (%s)", request.RequestorEmail, request.RequestorID)
+		// Handle request approved
+		log.Info().Msgf("a gym request was approved by coach for student %q (%s)", request.RequestorEmail, request.RequestorID)
 
 		// fetch the gym associated with this gym request, make sure it exists.
-		var gym gyms.Gym
+		var gym dao.Gym
 		gymsColl := s.Database().Collection("gyms")
-		if err := mongoext.FindByID(ctx, gymsColl, request.GymID.Hex(), &gym); err != nil {
+		if err := mongoext.FindByID(ctx, gymsColl, gymID, &gym); err != nil {
 			return nil, fmt.Errorf("failed to find gym with id %v: %v", payload.GymID.Hex(), err)
 		}
 
-		// create new gym association for this student profile
-		gymAssociation := profiles.GymAssociation{
-			CoachName: fmt.Sprintf("%s %s", gym.CoachFirstName, gym.CoachLastName),
-			Email:     request.RequestorEmail,
-			GymID:     request.GymID,
-			Role:      profiles.StudentRole,
-			EmailPreferences: &profiles.EmailPreferences{
-				NotifyOnAnnouncements: true,
-				NotifyOnRequests:      true, // only used if this is a coach profile
-			},
+		// Assign user to the proper cognito group and update/insert their gym association as a student.
+		if err := s.RBAC.AssignUserToGymRole(ctx, gymID, request.RequestorEmail, request.Role); err != nil {
+			return nil, fmt.Errorf("could not assign user to %s group of gym %s: %v", request.Role, gymID, err)
+		}
+		if err := profiles.UpsertGymAssociation(ctx, s.Client, &gym, request.Role, &request); err != nil {
+			return nil, fmt.Errorf("could not upsert gym association: %v", err)
 		}
 
-		log.Info().Msgf("Adding gym association to profile: %v", gymAssociation)
-
-		// create filter & update statements, send to mongodb to update the student's profile.
-		filter := bson.M{
-			"cognito_id": request.RequestorID,
-		}
-		update := bson.M{
-			"$push": bson.M{
-				"gyms": gymAssociation,
-			},
+		// Notify user that their request was accepted
+		if err := s.notifyUserOnRequestAccepted(ctx, &request); err != nil {
+			return nil, err
 		}
 
-		// Update student profile with the new gym association
-		var upsertResult profiles.Profile
-		coll := s.Client.Database("grapple").Collection("profiles")
-		if err := mongoext.Update(ctx, coll, update, filter, &upsertResult, nil); err != nil {
-			return nil, fmt.Errorf("failed to upsert student's profile with filter %v after creating a gym request: %v", filter, err)
-		}
-
-		log.Info().Msgf("Successfully added gym association to user profile: %s", request.RequestorID)
 		return request, nil
 	}, transactionOptions)
 
@@ -468,9 +534,113 @@ func (s *Service) updateGymRequestTX(ctx context.Context, payload *GymRequest, i
 		log.Info().Msgf("updateGymRequest transaction completed successfully!")
 	}
 
-	if request, ok := result.(GymRequest); ok {
+	if request, ok := result.(dao.GymRequest); ok {
 		return &request, nil
 	}
 
 	return nil, err
+}
+
+func Find(ctx context.Context, collection *mongo.Collection, filter bson.M, result *[]dao.GymRequest) error {
+	cursor, err := collection.Find(ctx, filter, nil)
+	if err != nil {
+		return err
+	}
+
+	for cursor.Next(ctx) {
+		var request dao.GymRequest
+		if err := cursor.Decode(&request); err != nil {
+			return err
+		}
+		log.Info().Msgf("Cursor decoded %v", request)
+
+		*result = append(*result, request)
+	}
+
+	if err := cursor.Err(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Service) ensureIndices(ctx context.Context) error {
+	indexModel := mongo.IndexModel{
+		Keys:    bson.D{{"gym_id", 1}, {"requestor_id", -1}},
+		Options: options.Index().SetUnique(true),
+	}
+
+	_, err := s.Indexes().CreateOne(ctx, indexModel)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateMembershipType(membershipType string) error {
+	switch membershipType {
+	case dao.VirtualMembership:
+		return nil
+	case dao.InPersonMembership:
+		return nil
+
+	default:
+		return fmt.Errorf("invalid membership type: %v, must be one of [%s, %s]",
+			membershipType,
+			dao.VirtualMembership,
+			dao.InPersonMembership,
+		)
+	}
+}
+
+// joinProfileOnRequests joins the profile record onto each gym request in the requests slice.
+func (s *Service) joinProfileOnRequests(ctx context.Context, requests []dao.GymRequest) []dao.GymRequest {
+	result := make([]dao.GymRequest, len(requests))
+
+	for i, req := range requests {
+		profile, err := s.getProfileByCognitoID(ctx, req.RequestorID)
+		if err != nil {
+			log.Warn().Msgf("Could not find profile by gym request! Highly likely this is a data consistency issue: %v", err)
+			continue
+		}
+
+		joined := req
+		joined.Profile = profile
+		result[i] = joined
+	}
+
+	return result
+}
+
+// UpsertGymRequest upserts (inserts or updates) a gym request.
+func UpsertGymRequest(ctx context.Context, mc *mongoext.Client, payload *dao.GymRequest) (*dao.GymRequest, error) {
+	collection := mc.Database("grapple").Collection("gymRequests")
+	filter := bson.M{
+		"requestor_email": payload.RequestorEmail,
+		"gym_id":          payload.GymID,
+	}
+
+	updateQuery := bson.M{
+		"$set": payload,
+	}
+	upsert := true // Example option: enable upsert
+	opts := options.UpdateOne().SetUpsert(upsert)
+
+	var result dao.GymRequest
+	if err := mongoext.UpdateOne(ctx, collection, updateQuery, filter, &result, opts); err != nil {
+		return nil, fmt.Errorf("failed to upsert profile with filter %v: %v", filter, err)
+	}
+
+	return &result, nil
+}
+
+func DeleteGymRequestsByGymID(ctx context.Context, requestsCollection *mongo.Collection, gymId string) error {
+	filter := bson.M{"gym_id": gymId}
+	_, err := requestsCollection.DeleteMany(ctx, filter)
+	if err != nil {
+		return fmt.Errorf("failed to delete gym requests for gym %v: %v", gymId, err)
+	}
+
+	return nil
 }
