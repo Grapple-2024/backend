@@ -507,12 +507,13 @@ func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload
 func deleteGymTX(ctx context.Context, ms *mongo.Session, cc *cognito.Client, gymID string) error {
 	transactionOptions := options.Transaction().SetReadConcern(&readconcern.ReadConcern{Level: "local"}).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
 
-	profilesColl := ms.Client().Database("grapple").Collection("profiles")
-	gymsColl := ms.Client().Database("grapple").Collection("gyms")
-	seriesColl := ms.Client().Database("grapple").Collection("series")
-	techniquesColl := ms.Client().Database("grapple").Collection("techniques")
-	announcementsColl := ms.Client().Database("grapple").Collection("announcements")
-	gymRequestsColl := ms.Client().Database("grapple").Collection("gymRequests")
+	db := ms.Client().Database("grapple")
+	profilesColl := db.Collection("profiles")
+	gymsColl := db.Collection("gyms")
+	seriesColl := db.Collection("series")
+	techniquesColl := db.Collection("techniques")
+	announcementsColl := db.Collection("announcements")
+	gymRequestsColl := db.Collection("gymRequests")
 
 	// This works for now, but in the future we should probably use sqs + lambda to handle this
 	// asynchronously to avoid timeouts. This could take a while if there are a lot of profiles
