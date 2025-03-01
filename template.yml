@@ -36,6 +36,10 @@ Parameters:
       Description: "full ARN of Cognito user pool"
       Type: 'String'
       Default: ""
+    UserPoolARN:
+      Description: "full ARN of Cognito user pool"
+      Type: 'String'
+      Default: ""
     CognitoClientSecret:
       Description: "The cognito client secret"
       Type: 'String'
