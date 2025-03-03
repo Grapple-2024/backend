@@ -833,11 +833,5 @@ func (s *Service) EmailBlastUsers(ctx context.Context, req events.APIGatewayProx
 		"total": len(emails),
 	})
 
-	return events.APIGatewayProxyResponse{
-		StatusCode: http.StatusOK,
-		Headers: map[string]string{
-			"Content-Type": "application/json",
-		},
-		Body: string(responseBody),
-	}, nil
+	return lambda.NewResponse(http.StatusCreated, string(responseBody), nil), nil
 }
