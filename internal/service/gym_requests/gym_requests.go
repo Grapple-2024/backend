@@ -224,6 +224,12 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("authentication failure: %v", err))
 	}
 
+	gymId := req.PathParameters["id"]
+
+	if gymId != "" {
+		return s.EmailBlastUsers(ctx, req)
+	}
+
 	var payload dao.GymRequest
 	if err := json.Unmarshal([]byte(req.Body), &payload); err != nil {
 		return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("invalid request body: %v", err))
@@ -236,12 +242,6 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 
 	if !rbac.ValidateRole(payload.Role) {
 		return lambda.ClientError(http.StatusBadRequest, "invalid role name, valid values: [coach, owner, student]")
-	}
-
-	gymId := req.PathParameters["id"]
-
-	if gymId != "" {
-		return s.EmailBlastUsers(ctx, req)
 	}
 
 	// Validate the payload struct
