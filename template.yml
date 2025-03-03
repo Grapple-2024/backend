@@ -36,6 +36,10 @@ Parameters:
       Description: "full ARN of Cognito user pool"
       Type: 'String'
       Default: ""
+    UserPoolARN:
+      Description: "full ARN of Cognito user pool"
+      Type: 'String'
+      Default: ""
     CognitoClientSecret:
       Description: "The cognito client secret"
       Type: 'String'
@@ -52,6 +56,10 @@ Parameters:
       Description: "The Mapbox API secret key"
       Type: 'String'
       Default: ""
+    JoinGymUrl:
+      Description: "The URL to redirect to after joining a gym"
+      Type: 'String'
+      Default: "http://localhost:3000/auth"
     
 
 Resources:
@@ -122,6 +130,7 @@ Resources:
           COGNITO_CLIENT_SECRET: !Ref CognitoClientSecret
           STRIPE_API_KEY: !Ref StripeAPIKey
           MAPBOX_API_KEY: !Ref MapBoxAPIKey
+          JOIN_GYM_URL: !Ref JoinGymUrl
 
       Tracing: Active
       Role: !GetAtt FunctionRole.Arn
@@ -206,6 +215,13 @@ Resources:
           Type: Api
           Properties:
             Path: /gym-requests
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        EmailBlastUsers:
+          Type: Api
+          Properties:
+            Path: /gym-requests/{id}
             Method: POST
             RestApiId: !Ref Gateway
 
