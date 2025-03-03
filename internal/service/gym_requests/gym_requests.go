@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"text/template"
 	"time"
@@ -35,6 +36,9 @@ var newRequestEmailTmpl string
 
 //go:embed templates/request_accepted.html
 var requestAcceptedEmailTmpl string
+
+//go:embed templates/join_gym.html
+var gymInviteEmailTmpl string
 
 // Service is the object that handles the business logic of all gymRequest related operations.
 // Service talks to the underlying Mongo Client (Data access layer) to CRUD gymRequest objects.
@@ -218,6 +222,12 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 	token, err := service.GetToken(req.Headers)
 	if err != nil {
 		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("authentication failure: %v", err))
+	}
+
+	gymId := req.PathParameters["id"]
+
+	if gymId != "" {
+		return s.EmailBlastUsers(ctx, req)
 	}
 
 	var payload dao.GymRequest
@@ -643,4 +653,191 @@ func DeleteGymRequestsByGymID(ctx context.Context, requestsCollection *mongo.Col
 	}
 
 	return nil
+}
+
+func (s *Service) EmailBlastUsers(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	// Extract gymId from the URL parameters
+	gymID, ok := req.PathParameters["id"]
+	if !ok || gymID == "" {
+		return events.APIGatewayProxyResponse{
+			StatusCode: http.StatusBadRequest,
+			Body:       "Missing gymId parameter",
+		}, nil
+	}
+
+	// Extract emails from the request body
+	var requestBody struct {
+		Emails []string `json:"emails"`
+	}
+	if err := json.Unmarshal([]byte(req.Body), &requestBody); err != nil {
+		return events.APIGatewayProxyResponse{
+			StatusCode: http.StatusBadRequest,
+			Body:       "Invalid request body format: " + err.Error(),
+		}, nil
+	}
+
+	if len(requestBody.Emails) == 0 {
+		return events.APIGatewayProxyResponse{
+			StatusCode: http.StatusBadRequest,
+			Body:       "No emails provided in request",
+		}, nil
+	}
+
+	// Limit the number of emails if needed
+	emails := requestBody.Emails
+
+	// Find the gym information
+	gymsColl := s.Database().Collection("gyms")
+
+	var gym *dao.Gym
+	if err := mongoext.FindByID(ctx, gymsColl, gymID, &gym); err != nil {
+		return events.APIGatewayProxyResponse{
+			StatusCode: http.StatusNotFound,
+			Body:       fmt.Sprintf("Could not find gym with ID %v: %v", gymID, err),
+		}, nil
+	}
+
+	// Parse the email template
+	tmpl, err := template.New("").Parse(gymInviteEmailTmpl)
+	if err != nil {
+		return events.APIGatewayProxyResponse{
+			StatusCode: http.StatusInternalServerError,
+			Body:       fmt.Sprintf("Failed to parse template: %v", err),
+		}, nil
+	}
+	url, ok := os.LookupEnv("JOIN_GYM_URL")
+
+	if !ok {
+		return events.APIGatewayProxyResponse{
+			StatusCode: http.StatusInternalServerError,
+			Body:       fmt.Sprintf("Failed to find gym URL: %v", err),
+		}, nil
+	}
+	joinUrl := fmt.Sprintf("%s?gym_id=%s", url, gymID)
+
+	// Keep track of successful and failed emails
+	successCount := 0
+	failedEmails := make([]string, 0)
+
+	// Fetch all requests from the requests collection that already have a request
+	filter := bson.M{
+		"gym_id": gymID,
+		"status": dao.RequestAccepted,
+		"requestor_email": bson.M{
+			"$in": emails,
+		},
+	}
+
+	// Create a map to track which emails are already in the database
+	existingEmailMap := make(map[string]bool)
+
+	// Execute the query and get a cursor
+	cursor, err := s.Collection.Find(ctx, filter)
+	if err != nil {
+		return events.APIGatewayProxyResponse{
+			StatusCode: http.StatusInternalServerError,
+			Body:       fmt.Sprintf("Failed to find existing requests: %v", err),
+		}, nil
+	}
+	defer cursor.Close(ctx)
+
+	// Iterate through all results and add emails to the map
+	for cursor.Next(ctx) {
+		var request dao.GymRequest
+		if err := cursor.Decode(&request); err != nil {
+			return events.APIGatewayProxyResponse{
+				StatusCode: http.StatusInternalServerError,
+				Body:       fmt.Sprintf("Failed to decode request: %v", err),
+			}, nil
+		}
+		existingEmailMap[request.RequestorEmail] = true
+	}
+
+	// Check if the cursor encountered any errors during iteration
+	if err := cursor.Err(); err != nil {
+		return events.APIGatewayProxyResponse{
+			StatusCode: http.StatusInternalServerError,
+			Body:       fmt.Sprintf("Cursor error: %v", err),
+		}, nil
+	}
+
+	// Create a new array with only emails that don't exist in the database
+	newEmails := make([]string, 0, len(emails))
+	for _, email := range emails {
+		if !existingEmailMap[email] {
+			newEmails = append(newEmails, email)
+		}
+	}
+
+	// newEmails now contains only the emails that weren't found in the database
+	log.Info().Msgf("Found %d new emails out of %d total emails", len(newEmails), len(emails))
+
+	// Create emails for each recipient
+	for _, userEmail := range newEmails {
+		var tmplOut bytes.Buffer
+		tmplData := struct {
+			GymName string
+			JoinURL string
+		}{
+			GymName: gym.Name,
+			JoinURL: joinUrl,
+		}
+
+		if err := tmpl.Execute(&tmplOut, tmplData); err != nil {
+			log.Warn().Msgf("Error executing template for email %s: %v", userEmail, err)
+			failedEmails = append(failedEmails, userEmail)
+			continue
+		}
+
+		// Create personalization for this recipient
+		email := mail.NewPersonalization()
+		email.AddTos([]*mail.Email{
+			mail.NewEmail("Grapple User", userEmail),
+		}...)
+
+		// Create the email payload
+		payload := mail.NewV3Mail().
+			AddPersonalizations(email).
+			AddContent(mail.NewContent("text/html", tmplOut.String()))
+
+		payload.SetFrom(mail.NewEmail("Grapple Notifications", "support@grapplemma.com"))
+		payload.Subject = fmt.Sprintf("You've been invited to join %s on Grapple MMA", gym.Name)
+
+		// Send the email
+		resp, err := s.sendGridClient.Send(payload)
+		if err != nil {
+			log.Warn().Msgf("Failed to send email to %s: %v", userEmail, err)
+			failedEmails = append(failedEmails, userEmail)
+			continue
+		}
+		if resp.StatusCode != http.StatusAccepted {
+			log.Warn().Msgf("Mail failed to send to %s: status code %d, response body: %s",
+				userEmail, resp.StatusCode, resp.Body)
+			failedEmails = append(failedEmails, userEmail)
+		} else {
+			log.Info().Msgf("Successfully sent invitation to %s for gym %s", userEmail, gym.Name)
+			successCount++
+		}
+	}
+
+	// Prepare response
+	responseBody, _ := json.Marshal(map[string]interface{}{
+		"success": map[string]interface{}{
+			"count": successCount,
+			"gym":   gym.Name,
+		},
+		"failed": map[string]interface{}{
+			"count":  len(failedEmails),
+			"emails": failedEmails,
+		},
+		"total": len(emails),
+	})
+
+	return events.APIGatewayProxyResponse{
+		StatusCode: http.StatusOK,
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		Body: string(responseBody),
+	}, nil
 }
