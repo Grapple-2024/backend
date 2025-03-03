@@ -76,7 +76,7 @@ func NewGetAllResponse(subpath string, data any, totalCount int64, count, currPa
 }
 
 func IsAlphaNumericAndSpaces(fl validator.FieldLevel) bool {
-	pattern := "^[A-Za-z0-9 ]*$"
+	pattern := "^[A-Za-z0-9 '']*$"
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		log.Warn().Err(err).Msgf("failed to compile validation regexp: %v", pattern)

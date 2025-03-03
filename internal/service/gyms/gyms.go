@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -471,7 +472,8 @@ func (s *Service) createGym(ctx context.Context, gym *dao.Gym, token *service.To
 	// Remove all special characters from the gym name (paranthesis mainly)
 	citySlug := strings.ToLower(strings.ReplaceAll(gym.City, " ", "-"))
 	stateSlug := strings.ToLower(strings.ReplaceAll(gym.State, " ", "-"))
-	gymNameSlug := strings.ToLower(strings.ReplaceAll(gym.Name, " ", "-"))
+	reg := regexp.MustCompile(`[^a-zA-Z0-9 -]`)
+	gymNameSlug := strings.ToLower(strings.ReplaceAll(reg.ReplaceAllString(gym.Name, ""), " ", "-"))
 
 	// Set computed fields for slug, created_at, and updated_at
 	gym.Slug = fmt.Sprintf("state/%s/city/%s/gym/%s", stateSlug, citySlug, gymNameSlug)
