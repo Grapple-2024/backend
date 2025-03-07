@@ -13,6 +13,7 @@ import (
 	"github.com/Grapple-2024/backend/internal/service/mapbox"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/internal/service/search"
+	"github.com/Grapple-2024/backend/internal/service/subscriptions"
 	"github.com/Grapple-2024/backend/internal/service/techniques"
 	"github.com/Grapple-2024/backend/pkg/cognito"
 	"github.com/Grapple-2024/backend/pkg/lambda"
@@ -160,6 +161,10 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Search Service")
 	}
+	subscriptions, err := subscriptions.NewService(ctx, mongoClient)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Subscriptions Service")
+	}
 
 	// Register handlers to their base endpoints
 	lambdas := map[string]lambda.Lambda{
@@ -172,6 +177,7 @@ func main() {
 		"gym-series":    series,
 		"search":        search,
 		"mapbox":        mapbox,
+		"subscriptions": subscriptions,
 	}
 
 	router := lambda.NewRouter(lambdas)

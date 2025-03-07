@@ -124,6 +124,10 @@ func (r *RBAC) AddPermissions(permissions ...Permission) {
 }
 
 // IsAuthorized checks if a user is authorized to perform an action on a resource.
+/**
+* @Todo Stephen Simone
+* Update this function to check if the user or users gym has an active subscription
+**/
 func (r *RBAC) IsAuthorized(ctx context.Context, cognitoID, resource, action string) (bool, error) {
 	// TODO: change this to only populate the RBAC for the groups that the cognito ID is in. Will save a lot of time
 	if err := r.SeedCache(context.Background()); err != nil {
@@ -148,6 +152,13 @@ func (r *RBAC) IsAuthorized(ctx context.Context, cognitoID, resource, action str
 
 		for _, userPermission := range role.Permissions {
 			if userPermission == permissionNeeded {
+				/**
+				* @Todo Stephen Simone
+				* Check if the user has an active subscription here
+				* Grab the gym id off of the resource and check if the user has an active subscription
+				* If the user has an active subscription, return true
+				* If the user does not have an active subscription, return false
+				**/
 				return true, nil
 			}
 		}

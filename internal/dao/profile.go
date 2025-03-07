@@ -24,6 +24,7 @@ type Profile struct {
 	FirstName   string `json:"first_name" bson:"first_name,omitempty" validate:"required"`
 	LastName    string `json:"last_name" bson:"last_name,omitempty" validate:"required"`
 	PhoneNumber string `json:"phone_number" bson:"phone_number,omitempty" validate:"required"`
+	CustomerId  string `json:"customer_id" bson:"customer_id,omitempty"`
 
 	AvatarURL string `json:"avatar_url" bson:"avatar_url,omitempty"`
 	// AvatarS3ObjectKey string `json:"avatar_s3_object_key" bson:"avatar_s3_object_key,omitempty"`

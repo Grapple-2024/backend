@@ -29,7 +29,7 @@ import (
 // Service talks to the underlying Mongo Client (Data access layer) to CRUD Profile objects.
 type Service struct {
 	*mongoext.Client
-	*mongo.Collection
+	Collection *mongo.Collection
 	*mongo.Session
 	*s3.PresignClient
 
@@ -339,7 +339,7 @@ func (s *Service) deleteRecordsByGymID(ctx context.Context, gymID bson.ObjectID)
 		"gym_id": gymID,
 	}
 	for _, c := range collections {
-		res, err := s.Database().Collection(c).DeleteMany(ctx, filter, nil)
+		res, err := s.Collection.Database().Collection(c).DeleteMany(ctx, filter, nil)
 		if err != nil {
 			return fmt.Errorf("failed to delete records in collection %s associated with gym ID %s: %v", c, gymID, err)
 		}
@@ -362,7 +362,7 @@ func (s *Service) deleteRecordsByCognitoID(ctx context.Context, cognitoID string
 		filter := bson.M{
 			column: cognitoID,
 		}
-		c := s.Database().Collection(collection)
+		c := s.Collection.Database().Collection(collection)
 		res, err := c.DeleteMany(ctx, filter, nil)
 		if err != nil {
 			return fmt.Errorf("failed to delete records for cognito user %s: %v", cognitoID, err)
@@ -377,7 +377,7 @@ func (s *Service) deleteGymByCognitoID(ctx context.Context, cognitoID string) er
 	filter := bson.M{
 		"requestor_id": cognitoID,
 	}
-	gymRequestsColl := s.Database().Collection("gymRequests")
+	gymRequestsColl := s.Collection.Database().Collection("gymRequests")
 	res, err := gymRequestsColl.DeleteMany(ctx, filter, nil)
 	if err != nil {
 		return fmt.Errorf("failed to delete gym requests for cognito user %q: %v", cognitoID, err)
@@ -391,9 +391,10 @@ func (s *Service) deleteGymByCognitoID(ctx context.Context, cognitoID string) er
 // ensureIndices ensures the proper indices are creatd for the 'gyms' collection.
 func (s *Service) ensureIndices(ctx context.Context) error {
 	// Cognito ID index
-	_, err := s.Indexes().CreateOne(ctx, mongo.IndexModel{
+	_, err := s.Collection.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.M{
 			"cognito_id": 1,
+			// "customer_id": 1,
 		},
 		Options: options.Index().SetUnique(true),
 	})
@@ -485,4 +486,17 @@ func UpsertGymAssociation(ctx context.Context, mc *mongoext.Client, gym *dao.Gym
 	}
 
 	return nil
+}
+
+func GetProfileByCognitoID(ctx context.Context, mc *mongoext.Client, cognitoID string) (*dao.Profile, error) {
+	collection := mc.Database("grapple").Collection("profiles")
+	filter := bson.M{
+		"cognito_id": cognitoID,
+	}
+	var profile dao.Profile
+	if err := collection.FindOne(ctx, filter).Decode(&profile); err != nil {
+		return nil, fmt.Errorf("failed to find profile by cognito ID %q: %v", cognitoID, err)
+	}
+
+	return &profile, nil
 }
