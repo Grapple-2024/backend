@@ -137,6 +137,30 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 		matchStage["gym_id"] = gymIdObj
 	}
 
+	// Add subscription_status filter if provided
+	if status, ok := queryParams["subscription_status"]; ok && status != "" {
+		// Validate status if necessary (optional)
+		validStatuses := map[string]bool{
+			"active":            true,
+			"active_cancelling": true,
+			"past_due":          true,
+			"unpaid":            true,
+			"canceled":          true,
+			"cancelled":         true, // Alternative spelling
+			"trial":             true,
+			"inactive":          true,
+		}
+
+		// Check if the provided status is valid
+		if !validStatuses[status] {
+			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("invalid subscription_status: %s", status))
+		}
+
+		matchStage["subscription_status"] = status
+	}
+	// If no subscription_status is provided, we don't add any filter,
+	// which means all subscriptions will be returned regardless of status
+
 	// Set a reasonable default limit if not specified
 	if limit <= 0 {
 		limit = 100
