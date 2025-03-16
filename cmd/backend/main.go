@@ -15,6 +15,7 @@ import (
 	"github.com/Grapple-2024/backend/internal/service/search"
 	"github.com/Grapple-2024/backend/internal/service/subscriptions"
 	"github.com/Grapple-2024/backend/internal/service/techniques"
+	"github.com/Grapple-2024/backend/pkg/aws/s3"
 	"github.com/Grapple-2024/backend/pkg/cognito"
 	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/Grapple-2024/backend/pkg/mongo"
@@ -133,6 +134,13 @@ func main() {
 		log.Fatal().Err(err).Msgf("failed to initialize RBAC Service")
 	}
 
+	// S3 Client with mutlipart uploads
+	// RBAC Framework service is not an HTTP Handler, but it is injected inside of the HTTP Handlers so that they can manage RBAC
+	s3Client, err := s3.New(awsRegion)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize S3 Client")
+	}
+
 	/**** HTTP Handlers ****/
 
 	techniques, err := techniques.NewService(ctx, mongoClient, gymVideosBucketName, awsRegion)
@@ -153,7 +161,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gym Requests Service")
 	}
-	series, err := gym_series.NewService(ctx, mongoClient, gymVideosBucketName, publicAssetsBucketName, awsRegion, rbac)
+	series, err := gym_series.NewService(ctx, mongoClient, s3Client, rbac, gymVideosBucketName, publicAssetsBucketName)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gym Series Service")
 	}
