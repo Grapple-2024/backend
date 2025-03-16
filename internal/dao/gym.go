@@ -46,8 +46,9 @@ type Gym struct {
 	HeroURL   string `json:"hero_url" bson:"hero_url,omitempty"`
 
 	// Disciplines
-	Disciplines []string           `json:"disciplines" bson:"disciplines,omitempty"`
-	Schedule    map[string][]Event `json:"schedule" bson:"schedule,omitempty"`
+	Disciplines  []string           `json:"disciplines" bson:"disciplines,omitempty"`
+	Schedule     map[string][]Event `json:"schedule" bson:"schedule,omitempty"`
+	IsSubscribed bool               `json:"is_subscribed" bson:"is_subscribed,omitempty"`
 
 	CreatedAt time.Time `json:"created_at" bson:"created_at,omitempty"`
 	UpdatedAt time.Time `json:"updated_at" bson:"updated_at,omitempty"`

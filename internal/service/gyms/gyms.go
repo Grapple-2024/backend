@@ -42,8 +42,9 @@ type Service struct {
 
 	*s3.PresignClient
 	*mongoext.Client
-	*mongo.Collection
-	CognitoClient *cognito.Client
+	Collection             *mongo.Collection
+	SubscriptionCollection *mongo.Collection
+	CognitoClient          *cognito.Client
 
 	publicAssetsBucketName string
 	region                 string
@@ -54,6 +55,7 @@ func NewService(ctx context.Context, publicAssetsBucketName, region string, mc *
 	svc := &Service{
 		Client:                 mc,
 		Collection:             mc.Database("grapple").Collection("gyms"),
+		SubscriptionCollection: mc.Database("grapple").Collection("subscriptions"),
 		RBAC:                   rbac,
 		CognitoClient:          cognito,
 		publicAssetsBucketName: publicAssetsBucketName,
@@ -154,7 +156,7 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 			"status": dao.RequestAccepted,
 		}
 		var memberships []dao.GymRequest
-		collection := s.Database().Collection("gymRequests")
+		collection := s.Collection.Database().Collection("gymRequests")
 		if err := gym_requests.Find(ctx, collection, filter, &memberships); err != nil {
 			return lambda.ClientError(http.StatusNotFound, fmt.Sprintf("failed to find gym requests: %v", err))
 		}
@@ -196,6 +198,7 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 // ProcessPost handless the creation of a dao.Gym
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	token, err := service.GetToken(req.Headers)
+
 	if err != nil {
 		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
@@ -397,7 +400,7 @@ func (s *Service) assignRole(ctx context.Context, gym *dao.Gym, payload map[stri
 		"requestor_email": cognitoUsername,
 	}
 	request := dao.GymRequest{}
-	if err := mongoext.FindOne(ctx, s.Database().Collection("gymRequests"), requestFilter, &request); err != nil {
+	if err := mongoext.FindOne(ctx, s.Collection.Database().Collection("gymRequests"), requestFilter, &request); err != nil {
 		return fmt.Errorf("failed to find gym request with requestor_email=%s and gym_id=%s: %v",
 			cognitoUsername,
 			gym.ID.Hex(),
@@ -428,7 +431,7 @@ func (s *Service) assignRole(ctx context.Context, gym *dao.Gym, payload map[stri
 
 // ensureIndices ensures the proper indices are creatd for the 'gyms' collection.
 func (s *Service) ensureIndices(ctx context.Context) error {
-	_, err := s.Indexes().CreateOne(ctx, mongo.IndexModel{
+	_, err := s.Collection.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.M{
 			"name": 1,
 		},
@@ -438,7 +441,7 @@ func (s *Service) ensureIndices(ctx context.Context) error {
 		return err
 	}
 
-	_, err = s.Indexes().CreateOne(ctx, mongo.IndexModel{
+	_, err = s.Collection.Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.M{
 			"slug": 1,
 		},
@@ -479,6 +482,7 @@ func (s *Service) createGym(ctx context.Context, gym *dao.Gym, token *service.To
 	gym.Slug = fmt.Sprintf("state/%s/city/%s/gym/%s", stateSlug, citySlug, gymNameSlug)
 	gym.CreatedAt = time.Now().Local().UTC()
 	gym.UpdatedAt = gym.CreatedAt
+	gym.IsSubscribed = false
 
 	// insert the gym, store the resulting record in 'result' variable
 	var result dao.Gym
@@ -509,7 +513,18 @@ func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload
 		if err := s.RBAC.CreateGymRBAC(ctx, gymID); err != nil {
 			return nil, err
 		}
+
 		if err := s.RBAC.AssignUserToGymRole(ctx, gymID, token.Username, rbac.Owner); err != nil {
+			return nil, err
+		}
+
+		profile, err := profiles.GetProfileByCognitoID(ctx, s.Client, token.Sub)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if err := s.createSubscriptionRecord(ctx, gymID, token.Sub, profile.CustomerId); err != nil {
 			return nil, err
 		}
 
@@ -527,6 +542,40 @@ func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload
 	}
 
 	return nil, err
+}
+
+/**
+* This method needs to create a subscription when the gym is created
+* This way, we can ensure that the user is subscribed to the gym, and we can track the subscription
+* We will NOT set the stripeCustomerId, and stripeSubscriptionId
+* We will set the subscriptionStatus to unpaid this way the isAuthorized function can have additional
+* checks to determine what status a subscription is in and deny access to certain endpoints based on this
+* information. The webhook in the background can identify what gym is being paid for and update the subscription
+* status accordingly.
+**/
+func (s *Service) createSubscriptionRecord(ctx context.Context, gymID string, userID string, customerId string) error {
+	var subscription dao.Subscription
+	gymId, err := bson.ObjectIDFromHex(gymID)
+
+	if err != nil {
+		return fmt.Errorf("error parsing gym ID: %v", err)
+	}
+
+	subscription = dao.Subscription{
+		GymId:              gymId,
+		ProfileId:          userID,
+		StripeCustomerId:   customerId,
+		SubscriptionStatus: "unpaid",
+		CancelAtPeriodEnd:  false,
+		CreatedAt:          time.Now().Local().UTC(),
+		UpdatedAt:          time.Now().Local().UTC(),
+	}
+
+	if err := mongoext.Insert(ctx, s.SubscriptionCollection, subscription, &subscription); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func deleteGymTX(ctx context.Context, ms *mongo.Session, cc *cognito.Client, gymID string) error {

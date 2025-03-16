@@ -81,8 +81,8 @@ func NewResponse(statusCode int, body string, additionalHeaders map[string]strin
 	resp := events.APIGatewayProxyResponse{
 		Headers: map[string]string{
 			"Access-Control-Allow-Origin":  "*",
-			"Access-Control-Allow-Methods": "POST,OPTIONS,GET,DELETE",
-			"Access-Control-Allow-Headers": "X-Amz-Date,X-Api-Key,X-Amz-Security-Token,X-Requested-With,X-Auth-Token,Referer,User-Agent,Origin,Content-Type,Authorization,Accept,Access-Control-Allow-Methods,Access-Control-Allow-Origin,Access-Control-Allow-Headers",
+			"Access-Control-Allow-Methods": "POST, GET, DELETE, PUT, HEAD, OPTIONS",
+			"Access-Control-Allow-Headers": "*",
 		},
 		Body:       body,
 		StatusCode: statusCode,

@@ -56,6 +56,14 @@ Parameters:
       Description: "The URL to redirect to after joining a gym"
       Type: 'String'
       Default: "http://localhost:3000/auth"
+    StripeSecretKey:
+      Description: "The Stripe API secret key"
+      Type: 'String'
+      Default: ""
+    StripeWebhookSecret:
+      Description: "The Stripe webhook secret"
+      Type: 'String'
+      Default: ""
     
 
 Resources:
@@ -68,13 +76,13 @@ Resources:
           ResponseParameters:
             Headers:
               Access-Control-Allow-Origin: "'*'"
-              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Headers: "'*'"
               Access-Control-Allow-Methods: "'POST, GET, DELETE, PUT, HEAD, OPTIONS'"
         DEFAULT_5XX:
           ResponseParameters:
             Headers:
               Access-Control-Allow-Origin: "'*'"
-              Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              Access-Control-Allow-Headers: "'*'"
               Access-Control-Allow-Methods: "'POST, GET, DELETE, PUT, HEAD, OPTIONS'"
       Cors:
         AllowOrigin: "'*'"
@@ -100,6 +108,34 @@ Resources:
         Variables:
           MONGO_ENDPOINT: !Ref MongoEndpoint
       Tracing: Active
+
+  StripeWebhooksLambda:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: go1.x
+    Properties:
+      FunctionName: !Sub grapple-${Environment}-StripeWebhooksLambda
+      CodeUri: ./cmd/stripe-webhooks
+      Handler: bootstrap
+      Runtime: provided.al2
+      Architectures:
+        - x86_64
+      MemorySize: 1024
+      Timeout: 30
+      Environment:
+        Variables:
+          MONGO_ENDPOINT: !Ref MongoEndpoint
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+      Tracing: Active
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /webhooks/stripe
+            Method: POST
+      Policies:
+        - AWSLambdaBasicExecutionRole
 
   GrappleLambda:
     Type: AWS::Serverless::Function
@@ -393,6 +429,13 @@ Resources:
           Properties:
             Path: /profiles/{id}
             Method: DELETE
+            RestApiId: !Ref Gateway
+
+        GetSubscriptions:
+          Type: Api
+          Properties:
+            Path: /subscriptions
+            Method: GET
             RestApiId: !Ref Gateway
 
         # Miscellaneous endpoints

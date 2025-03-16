@@ -16,6 +16,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/rs/zerolog v1.31.0
 	github.com/sendgrid/sendgrid-go v3.14.0+incompatible
+	github.com/stripe/stripe-go/v81 v81.4.0
 	go.mongodb.org/mongo-driver/v2 v2.0.0
 )
 
