@@ -263,6 +263,8 @@ func updateSubscriptionStatus(ctx context.Context, subscription stripe.Subscript
 	status := subscription.Status
 	cancelAtPeriodEnd := subscription.CancelAtPeriodEnd
 
+	// Log the subscription status
+	log.Printf("Subscription %s for customer %s is %s", subscriptionID, customerID, status)
 	// Map Stripe status to your application status
 	var subscriptionStatus string
 	switch status {
