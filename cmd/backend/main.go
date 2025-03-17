@@ -12,9 +12,11 @@ import (
 	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/mapbox"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
+	s3_service "github.com/Grapple-2024/backend/internal/service/s3"
 	"github.com/Grapple-2024/backend/internal/service/search"
 	"github.com/Grapple-2024/backend/internal/service/subscriptions"
 	"github.com/Grapple-2024/backend/internal/service/techniques"
+	"github.com/Grapple-2024/backend/pkg/aws/s3"
 	"github.com/Grapple-2024/backend/pkg/cognito"
 	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/Grapple-2024/backend/pkg/mongo"
@@ -133,14 +135,22 @@ func main() {
 		log.Fatal().Err(err).Msgf("failed to initialize RBAC Service")
 	}
 
-	/**** HTTP Handlers ****/
+	// S3 Client with mutlipart uploads
+	// RBAC Framework service is not an HTTP Handler, but it is injected inside of the HTTP Handlers so that they can manage RBAC
+	s3Client, err := s3.New(awsRegion)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize S3 Client")
+	}
 
+	/**** HTTP Handlers ****/
+	s3, err := s3_service.NewService(ctx, s3Client, gymVideosBucketName)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
+	}
 	techniques, err := techniques.NewService(ctx, mongoClient, gymVideosBucketName, awsRegion)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
 	}
-
-	// Gyms HTTP Handler
 	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, awsRegion, mongoClient, rbac, cognitoClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
@@ -153,7 +163,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gym Requests Service")
 	}
-	series, err := gym_series.NewService(ctx, mongoClient, gymVideosBucketName, publicAssetsBucketName, awsRegion, rbac)
+	series, err := gym_series.NewService(ctx, mongoClient, s3Client, rbac, gymVideosBucketName, publicAssetsBucketName)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gym Series Service")
 	}
@@ -178,6 +188,7 @@ func main() {
 		"search":        search,
 		"mapbox":        mapbox,
 		"subscriptions": subscriptions,
+		"s3":            s3,
 	}
 
 	router := lambda.NewRouter(lambdas)
