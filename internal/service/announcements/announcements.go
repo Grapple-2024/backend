@@ -319,7 +319,10 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 }
 
 func (s *Service) notifyStudentsOnAnnouncement(ctx context.Context, a *Announcement) error {
-	studentsGroup := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, a.GymID, rbac.Students)
+	// convert object id to string
+	gymIdString := a.GymID.Hex()
+	studentsGroup := fmt.Sprintf("%s::%s::%s", rbac.ResourceGym, gymIdString, rbac.Students)
+
 	students, err := s.RBAC.ListUsersInGroup(ctx, studentsGroup)
 	if err != nil {
 		return err
@@ -367,7 +370,6 @@ func (s *Service) notifyStudentsOnAnnouncement(ctx context.Context, a *Announcem
 	// Just for debugging, all mail will be BCC'd to Jordan and Stephen
 	email.AddBCCs([]*mail.Email{
 		mail.NewEmail("Jordan", "jordan@dionysustechnologygroup.com"),
-		mail.NewEmail("Stephen", "stephen@dionysustechnologygroup.com"),
 	}...)
 
 	payload := mail.NewV3Mail().

@@ -3,6 +3,7 @@ package rbac
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/Grapple-2024/backend/internal/service/profiles"
@@ -227,8 +228,15 @@ func (r *RBAC) AssignUserToGymRole(ctx context.Context, gymID, username, roleNam
 
 // ListUsersInGroupByGym returns a list of users that are in a particular group.
 func (r *RBAC) ListUsersInGroup(ctx context.Context, group string) ([]types.UserType, error) {
+	userPoolID, ok := os.LookupEnv("COGNITO_USER_POOL_ID")
+
+	if !ok {
+		return nil, fmt.Errorf("failed to get user pool ID")
+	}
+
 	paginator := cip.NewListUsersInGroupPaginator(r.Client, &cip.ListUsersInGroupInput{
-		GroupName: &group,
+		GroupName:  &group,
+		UserPoolId: &userPoolID,
 	})
 
 	var users []types.UserType
