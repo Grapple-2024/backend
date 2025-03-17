@@ -12,6 +12,7 @@ import (
 	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/mapbox"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
+	s3_service "github.com/Grapple-2024/backend/internal/service/s3"
 	"github.com/Grapple-2024/backend/internal/service/search"
 	"github.com/Grapple-2024/backend/internal/service/subscriptions"
 	"github.com/Grapple-2024/backend/internal/service/techniques"
@@ -142,13 +143,14 @@ func main() {
 	}
 
 	/**** HTTP Handlers ****/
-
+	s3, err := s3_service.NewService(ctx, s3Client, gymVideosBucketName)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
+	}
 	techniques, err := techniques.NewService(ctx, mongoClient, gymVideosBucketName, awsRegion)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
 	}
-
-	// Gyms HTTP Handler
 	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, awsRegion, mongoClient, rbac, cognitoClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
@@ -186,6 +188,7 @@ func main() {
 		"search":        search,
 		"mapbox":        mapbox,
 		"subscriptions": subscriptions,
+		"s3":            s3,
 	}
 
 	router := lambda.NewRouter(lambdas)

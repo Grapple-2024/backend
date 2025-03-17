@@ -9,6 +9,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/rs/zerolog/log"
 )
 
 const maxPartSize int64 = 50 * 1024 * 1024 // 50MB
@@ -47,11 +48,16 @@ func New(region string) (*Client, error) {
 
 // Part 1: Frontend requests multipart upload and receives the upload ID.
 func (c *Client) StartMultipartUpload(ctx context.Context, bucketName, uploadPath, contentType string) (*s3.CreateMultipartUploadOutput, error) {
-	return c.CreateMultipartUpload(context.TODO(), &s3.CreateMultipartUploadInput{
+
+	input := &s3.CreateMultipartUploadInput{
 		Bucket:      aws.String(bucketName),
 		Key:         aws.String(uploadPath),
 		ContentType: aws.String(contentType),
-	})
+	}
+
+	log.Info().Msgf("starting multipart upload with key %s and content type %s in bucket %s", uploadPath, contentType, bucketName)
+
+	return c.CreateMultipartUpload(context.TODO(), input)
 }
 
 // Frontend splits input file into chunks and requests a presigned upload url for each chunk.
@@ -67,13 +73,22 @@ func (c *Client) GeneratePresignedPartURL(ctx context.Context, req *PresignedReq
 		UploadId:   aws.String(req.UploadID),
 		PartNumber: aws.Int32(int32(partNumber)),
 	}
+	log.Info().
+		Str("bucketName", req.BucketName).
+		Str("uploadPath", req.UploadPath).
+		Str("Upload ID", req.UploadID).
+		Str("part num", req.PartNumber).
+		Msgf("Generating presigned url")
+
 	return c.PresignUploadPart(ctx, input)
 }
 
 // Part 3: after all chunks are uploaded by frontend, frontend must call completeUpload, passing the upload ID.
 func (c *Client) CompleteUpload(ctx context.Context, req *CompleteUploadRequest) (*s3.CompleteMultipartUploadOutput, error) {
+
+	log.Info().Msgf("Trying to list s3 upload parts for bucket %s, key %s, and upload id %s", req.BucketName, req.UploadPath, req.UploadID)
 	listPartsOutput, err := c.ListParts(ctx, &s3.ListPartsInput{
-		Bucket:   aws.String(req.UploadPath),
+		Bucket:   aws.String(req.BucketName),
 		Key:      aws.String(req.UploadPath),
 		UploadId: aws.String(req.UploadID),
 	})

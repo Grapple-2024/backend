@@ -438,6 +438,21 @@ Resources:
             Method: GET
             RestApiId: !Ref Gateway
 
+        # S3 multi-part uploads
+        StartUpload:
+          Type: Api
+          Properties:
+            Path: /s3/start-upload
+            Method: GET
+            RestApiId: !Ref Gateway
+
+        CompleteUpload:
+          Type: Api
+          Properties:
+            Path: /s3/complete-upload
+            Method: POST
+            RestApiId: !Ref Gateway
+
         # Miscellaneous endpoints
         Search:
           Type: Api

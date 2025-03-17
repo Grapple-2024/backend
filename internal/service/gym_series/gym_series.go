@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/Grapple-2024/backend/internal/rbac"
@@ -46,6 +45,7 @@ func NewService(ctx context.Context, mc *mongoext.Client, s3Client *s3.Client, r
 
 	svc := &Service{
 		RBAC:                   rbac,
+		S3Client:               s3Client,
 		MongoClient:            mc,
 		Collection:             c,
 		videosBucketName:       videosBucketName,
@@ -384,33 +384,23 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 	// Case 2: Generate a presigned upload URL for a video or thumbnail file within a specified series.
 	case fmt.Sprintf("/gym-series/%s/presign", seriesID):
-		file := req.QueryStringParameters["file"]
-		if file == "" {
-			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=video1.mp4"))
-		}
 		fileType := req.QueryStringParameters["type"]
-		if file == "" {
-			return lambda.ClientError(
-				http.StatusBadRequest,
-				fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=video.mp4&type=video OR ?file=thumbnail.png&type=thumbnail"),
-			)
-		}
 
+		var presigned *v4.PresignedHTTPRequest
 		switch fileType {
 		case "video":
-			uploadID := req.QueryStringParameters["uploadID"]
-			partNumber := req.QueryStringParameters["partNumber"]
+			uploadPath := req.QueryStringParameters["upload_path"]
+			uploadID := req.QueryStringParameters["upload_id"]
+			partNumber := req.QueryStringParameters["part_number"]
 			if partNumber == "" || uploadID == "" {
 				return lambda.ClientError(
 					http.StatusBadRequest,
-					fmt.Sprintf("one or more required query params missing: Example:  ?file=video.mp4&type=vide&partNumber=1&uploadID=abcd1234"),
+					fmt.Sprintf("one or more required query params missing: Example:  ?upload_path=/gyms/123/series/123/video.mp4&type=vide&part_number=1&upload_id=abcd1234"),
 				)
 			}
-			now := time.Now().UnixNano()
-			path := fmt.Sprintf("gyms/%s/series/%s/%s/%d_%s", series.GymID.Hex(), series.ID.Hex(), fileType, now, file)
-			presigned, err := s.S3Client.GeneratePresignedPartURL(ctx, &s3.PresignedRequest{
+			presigned, err = s.S3Client.GeneratePresignedPartURL(ctx, &s3.PresignedRequest{
 				BucketName: s.videosBucketName,
-				UploadPath: path,
+				UploadPath: uploadPath,
 				PartNumber: partNumber,
 				UploadID:   uploadID,
 			})
@@ -420,22 +410,34 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 					fmt.Sprintf("error generating presigned url: %v", err),
 				)
 			}
+			resp := struct {
+				*v4.PresignedHTTPRequest
+				S3ObjectKey string `json:"s3_object_key"`
+			}{
+				PresignedHTTPRequest: presigned,
+				S3ObjectKey:          uploadPath,
+			}
+			result = resp
+		case "thumbnail":
+			file := req.QueryStringParameters["file"]
+			if file == "" {
+				return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("you must specify the file name and extension in ?file parameter, ie ?file=thumbnail.jpeg"))
+			}
 
-			split := strings.Split(presigned.URL, "?")
-			if len(split) == 0 {
-				return lambda.ServerError(fmt.Errorf("presigned url not valid: %s", presigned.URL))
+			now := time.Now().UnixNano()
+			uploadPath := fmt.Sprintf("gyms/%s/series/%s/thumbnails/%d_%s", series.GymID.Hex(), series.ID.Hex(), now, file)
+			presigned, err = service.GeneratePresignedURL(ctx, s.S3Client.PresignClient, s.videosBucketName, "upload", uploadPath)
+			if err != nil {
+				return lambda.ClientError(http.StatusUnprocessableEntity, fmt.Sprintf("failed to generate presigned upload url: %v", err))
 			}
 			resp := struct {
 				*v4.PresignedHTTPRequest
 				S3ObjectKey string `json:"s3_object_key"`
 			}{
 				PresignedHTTPRequest: presigned,
-				S3ObjectKey:          path,
+				S3ObjectKey:          uploadPath,
 			}
-
 			result = resp
-		case "thumbnail":
-
 		default:
 			return lambda.ClientError(
 				http.StatusBadRequest,
@@ -668,7 +670,6 @@ func (s *Service) updateSeriesTransaction(ctx context.Context, payload *GymSerie
 // generatePresignedURLs generates presigned URL for each video in the records slice.
 // It modifies the records slice by reference and returns an error
 func (s *Service) generatePresignedURLs(ctx context.Context, records []GymSeries) error {
-
 	psc := s.S3Client.PresignClient
 	for i, series := range records {
 		for j, video := range series.Videos {
