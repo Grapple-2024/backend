@@ -269,6 +269,7 @@ func updateSubscriptionStatus(ctx context.Context, subscription stripe.Subscript
 	var subscriptionStatus string
 	switch status {
 	case "active":
+	case "complete":
 		if cancelAtPeriodEnd {
 			// Subscription is active but scheduled to cancel at period end
 			subscriptionStatus = "active_cancelling"
