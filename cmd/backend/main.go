@@ -7,6 +7,7 @@ import (
 
 	"github.com/Grapple-2024/backend/internal/rbac"
 	"github.com/Grapple-2024/backend/internal/service/announcements"
+	"github.com/Grapple-2024/backend/internal/service/email"
 	"github.com/Grapple-2024/backend/internal/service/gym_requests"
 	"github.com/Grapple-2024/backend/internal/service/gym_series"
 	"github.com/Grapple-2024/backend/internal/service/gyms"
@@ -176,6 +177,11 @@ func main() {
 		log.Fatal().Err(err).Msgf("failed to initialize Subscriptions Service")
 	}
 
+	emails, err := email.NewService(ctx, mongoClient, sendGridClient)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Emails Service")
+	}
+
 	// Register handlers to their base endpoints
 	lambdas := map[string]lambda.Lambda{
 		// v2 endpoints are using mongodb
@@ -189,6 +195,7 @@ func main() {
 		"mapbox":        mapbox,
 		"subscriptions": subscriptions,
 		"s3":            s3,
+		"emails":        emails,
 	}
 
 	router := lambda.NewRouter(lambdas)

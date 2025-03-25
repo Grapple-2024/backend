@@ -268,8 +268,7 @@ func updateSubscriptionStatus(ctx context.Context, subscription stripe.Subscript
 	// Map Stripe status to your application status
 	var subscriptionStatus string
 	switch status {
-	case "active":
-	case "complete":
+	case "active", "complete":
 		if cancelAtPeriodEnd {
 			// Subscription is active but scheduled to cancel at period end
 			subscriptionStatus = "active_cancelling"

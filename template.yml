@@ -270,6 +270,20 @@ Resources:
             Path: /gym-requests/{id}
             Method: DELETE
             RestApiId: !Ref Gateway
+            
+        AddToEmailList:
+          Type: Api
+          Properties:
+            Path: /emails
+            Method: POST
+            RestApiId: !Ref Gateway
+
+        SendDemoEmail:
+          Type: Api
+          Properties:
+            Path: /emails/demo
+            Method: POST
+            RestApiId: !Ref Gateway
 
         # Announcements
         GetAnnouncement:
