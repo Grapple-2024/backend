@@ -50,7 +50,6 @@ func NewService(ctx context.Context, mc *mongoext.Client, sendGridClient *sendgr
 }
 
 func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-
 	if req.Path == "/emails/demo" {
 		return s.ProcessDemoEmail(ctx, req)
 	}

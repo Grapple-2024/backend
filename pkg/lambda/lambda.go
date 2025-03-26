@@ -42,6 +42,8 @@ func NewRouter(lambdas map[string]Lambda) func(context.Context, events.APIGatewa
 		}
 
 		switch req.HTTPMethod {
+		case http.MethodOptions:
+			return NewResponse(http.StatusOK, "", nil), nil
 		case http.MethodGet:
 			return ProcessGet(ctx, handler, req)
 		case http.MethodPost:

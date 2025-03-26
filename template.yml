@@ -192,7 +192,6 @@ Resources:
             Method: GET
             RestApiId: !Ref Gateway
 
-
         CreateGym:
           Type: Api
           Properties:
@@ -270,7 +269,21 @@ Resources:
             Path: /gym-requests/{id}
             Method: DELETE
             RestApiId: !Ref Gateway
-            
+
+        AddToEmailListOptions:
+          Type: Api
+          Properties:
+            Path: /emails
+            Method: OPTIONS
+            RestApiId: !Ref Gateway
+
+        SendDemoEmailOptions:
+          Type: Api
+          Properties:
+            Path: /emails/demo
+            Method: OPTIONS
+            RestApiId: !Ref Gateway
+
         AddToEmailList:
           Type: Api
           Properties:
