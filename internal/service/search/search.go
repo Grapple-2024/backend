@@ -204,16 +204,21 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 			"$options": "i",
 		}
 	}
-	if params.GymID != bson.NilObjectID {
-		gymsFilter["gym_id"] = params.GymID
-	}
+
 	seriesFilter := buildSeriesFilter(params)
 
+	// print out the gymsFilter in json
+	gymsFilterJSON, err := json.Marshal(gymsFilter)
+	if err != nil {
+		return lambda.ServerError(fmt.Errorf("error marshalling gymsFilter: %v", err))
+	}
+	log.Info().Msgf("gymsFilter: %s", gymsFilterJSON)
 	// Fetch gyms
 	var gymsToReturn []dao.Gym
 	if err := mongoext.Paginate(ctx, s.Gyms, gymsFilter, params.Page, params.PageSize, true, options.Find(), &gymsToReturn); err != nil {
 		return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to find objects: %v", err))
 	}
+	log.Info().Msgf("Found total of %d gyms that match filter %+v", len(gymsToReturn), gymsFilter)
 
 	// Fetch Series
 	var series []gym_series.GymSeries
@@ -226,7 +231,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 	seriesToReturn := []gym_series.GymSeries{}
 	for _, gymSeries := range series {
 		resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymSeries.GymID.Hex(), rbac.ResourceSeries)
-		isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionCreate)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
 		if err != nil || !isAuthorized {
 			if err != nil {
 				log.Error().Err(err).Msgf("Error determining authorization of user %s on resource %s", token.Sub, resourceID)

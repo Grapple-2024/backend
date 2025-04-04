@@ -149,7 +149,7 @@ Resources:
       Architectures:
         - x86_64
       MemorySize: 1024
-      Timeout: 30
+      Timeout: 600
       Environment:
         Variables:
           API_URL: !Ref ApiUrl
