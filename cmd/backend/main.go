@@ -177,7 +177,7 @@ func main() {
 		"emails":        emails,
 	}
 
-	router := lambda.NewRouter(lambdas)
+	router := lambda.NewAdapter(lambda.NewRouter(lambdas))
 
 	port := os.Getenv("PORT")
 	if port == "" {
