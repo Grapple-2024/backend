@@ -29,7 +29,7 @@ applications:
 
 services:
   mongodb:
-    type: mongodb:4.4
+    type: mongodb-enterprise:7.0
 
 routes:
   "https://{default}/":
