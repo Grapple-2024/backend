@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"time"
 
@@ -21,7 +22,6 @@ import (
 	"github.com/Grapple-2024/backend/pkg/cognito"
 	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/Grapple-2024/backend/pkg/mongo"
-	lambda_aws "github.com/aws/aws-lambda-go/lambda"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/sendgrid/sendgrid-go"
@@ -32,8 +32,6 @@ func init() {
 }
 
 const (
-
-	// env variable keys
 	envCognitoUserPoolID      = "COGNITO_USER_POOL_ID"
 	envCognitoClientID        = "COGNITO_CLIENT_ID"
 	envCognitoClientSecretID  = "COGNITO_CLIENT_SECRET"
@@ -47,7 +45,6 @@ const (
 )
 
 func main() {
-	// read all environment variables
 	mongoEndpoint, ok := os.LookupEnv(envMongoEndpoint)
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envMongoEndpoint)
@@ -56,8 +53,6 @@ func main() {
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envSendGridAPIKey)
 	}
-
-	// Cognito Env Vars
 	cognitoClientID, ok := os.LookupEnv(envCognitoClientID)
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envCognitoClientID)
@@ -70,8 +65,6 @@ func main() {
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envCognitoUserPoolID)
 	}
-
-	// S3 Buckets
 	gymVideosBucketName, ok := os.LookupEnv(envVideosBucketName)
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envVideosBucketName)
@@ -80,8 +73,6 @@ func main() {
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envPublicAssetsBucketName)
 	}
-
-	// Miscellaneous
 	awsRegion, ok := os.LookupEnv(envAWSRegion)
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envAWSRegion)
@@ -91,14 +82,10 @@ func main() {
 		log.Fatal().Msgf("missing required env var: %s", envMapBoxAPIKey)
 	}
 
-	/**** Create Clients for each external dependency *****/
-
-	// SendGrid Client
 	sendGridClient := sendgrid.NewSendClient(sendGridAPIKey)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Mongo Client
 	mongoClient, err := mongo.New(ctx, mongoEndpoint)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to connect to mongo endpoint: %q", mongoEndpoint)
@@ -119,7 +106,6 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to create cognito client")
 	}
 
-	// Create services for each api controller/handler
 	mapbox, err := mapbox.NewService(ctx, mapboxAPIKey)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize MapBox Service")
@@ -130,23 +116,19 @@ func main() {
 		log.Fatal().Err(err).Msgf("failed to initialize Profiles Service")
 	}
 
-	// RBAC Framework service is not an HTTP Handler, but it is injected inside of the HTTP Handlers so that they can manage RBAC
 	rbac, err := rbac.New(profiles, cognitoClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize RBAC Service")
 	}
 
-	// S3 Client with mutlipart uploads
-	// RBAC Framework service is not an HTTP Handler, but it is injected inside of the HTTP Handlers so that they can manage RBAC
 	s3Client, err := s3.New(awsRegion)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize S3 Client")
 	}
 
-	/**** HTTP Handlers ****/
 	s3, err := s3_service.NewService(ctx, s3Client, gymVideosBucketName)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
+		log.Fatal().Err(err).Msgf("failed to initialize S3 Service")
 	}
 	techniques, err := techniques.NewService(ctx, mongoClient, gymVideosBucketName, awsRegion)
 	if err != nil {
@@ -176,15 +158,12 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Subscriptions Service")
 	}
-
 	emails, err := email.NewService(ctx, mongoClient, sendGridClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Emails Service")
 	}
 
-	// Register handlers to their base endpoints
 	lambdas := map[string]lambda.Lambda{
-		// v2 endpoints are using mongodb
 		"profiles":      profiles,
 		"gyms":          gyms,
 		"announcements": announcements,
@@ -199,5 +178,13 @@ func main() {
 	}
 
 	router := lambda.NewRouter(lambdas)
-	lambda_aws.Start(router)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Info().Msgf("Starting server on port %s", port)
+	if err := http.ListenAndServe(":"+port, router); err != nil {
+		log.Fatal().Err(err).Msg("server failed")
+	}
 }
