@@ -29,7 +29,7 @@ applications:
 
 services:
   mongodb:
-    type: mongodb-flex:1
+    type: mongodb:6.0
 
 routes:
   "https://{default}/":
