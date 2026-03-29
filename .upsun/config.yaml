@@ -1,0 +1,40 @@
+applications:
+  grapple-backend:
+    type: golang:1.22
+
+    hooks:
+      build: |
+        set -e
+        go build -o bin/server ./cmd/backend
+        go build -o bin/post-signup ./cmd/post-signup-lambda
+        go build -o bin/stripe-webhooks ./cmd/stripe-webhooks
+
+    web:
+      commands:
+        start: ./bin/server
+      upstream:
+        socket_family: tcp
+        protocol: http
+      locations:
+        /:
+          passthru: true
+
+    relationships:
+      mongodb: "mongodb:mongodb"
+
+    mounts:
+      "/tmp":
+        source: local
+        source_path: tmp
+
+services:
+  mongodb:
+    type: mongodb:7.0
+
+routes:
+  "https://{default}/":
+    type: upstream
+    upstream: "grapple-backend:http"
+  "https://www.{default}/":
+    type: redirect
+    to: "https://{default}/"
