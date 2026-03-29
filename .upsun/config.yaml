@@ -19,17 +19,10 @@ applications:
         /:
           passthru: true
 
-    relationships:
-      mongodb: "mongodb:mongodb"
-
     mounts:
       "/tmp":
         source: local
         source_path: tmp
-
-services:
-  mongodb:
-    type: mongodb:5.0
 
 routes:
   "https://{default}/":
