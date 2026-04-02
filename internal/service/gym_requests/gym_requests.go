@@ -316,7 +316,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 	}
 
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, request.GymID.Hex(), rbac.ResourceGymRequests) // gym:<gym_id>:requests
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionUpdate)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionUpdate)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -450,7 +450,7 @@ func (s *Service) notifyCoachesOnNewRequest(ctx context.Context, request *dao.Gy
 
 	var tos []*mail.Email
 	for _, u := range allCoaches {
-		tos = append(tos, mail.NewEmail("Grapple Coach", *u.Username))
+		tos = append(tos, mail.NewEmail("Grapple Coach", u.Username))
 	}
 	if len(tos) == 0 {
 		log.Info().Msgf("No coaches or owners found for gym %v", gymID)

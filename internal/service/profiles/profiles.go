@@ -10,14 +10,12 @@ import (
 
 	"github.com/Grapple-2024/backend/internal/dao"
 	"github.com/Grapple-2024/backend/internal/service"
-	"github.com/Grapple-2024/backend/pkg/cognito"
 	"github.com/Grapple-2024/backend/pkg/lambda"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/Grapple-2024/backend/pkg/utils"
 	"github.com/aws/aws-lambda-go/events"
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/rs/zerolog/log"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -35,13 +33,11 @@ type Service struct {
 
 	publicAssetsBucketName string
 	gymsCollection         *mongo.Collection
-	CognitoClient          *cognito.Client
-	awsRegion              string
-	userPoolID             string
+	awsRegion string
 }
 
 // NewService creates a new instance of a Profile Service given a mongo client
-func NewService(ctx context.Context, mc *mongoext.Client, publicAssetsBucketName, region, userPoolID string, cognitoClient *cognito.Client) (*Service, error) {
+func NewService(ctx context.Context, mc *mongoext.Client, publicAssetsBucketName, region string) (*Service, error) {
 	c := mc.Database("grapple").Collection("profiles")
 
 	// Using the SDK's default configuration, loading additional config
@@ -55,7 +51,6 @@ func NewService(ctx context.Context, mc *mongoext.Client, publicAssetsBucketName
 	svc := &Service{
 		Client:                 mc,
 		Collection:             c,
-		CognitoClient:          cognitoClient,
 		PresignClient:          s3.NewPresignClient(s3.NewFromConfig(cfg)),
 		publicAssetsBucketName: publicAssetsBucketName,
 		awsRegion:              region,
@@ -195,7 +190,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to generate presigned upload url: %v", err))
 		}
 
-		s3ObjectURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.publicAssetsBucketName, "us-west-1", key)
+		s3ObjectURL := fmt.Sprintf("https://%s.s3.%s.amazonaws.com/%s", s.publicAssetsBucketName, s.awsRegion, key)
 		resp := struct {
 			*v4.PresignedHTTPRequest
 			S3ObjectURL string `json:"s3_object_url"`
@@ -297,36 +292,11 @@ func (s *Service) deleteAllDataForProfile(ctx context.Context, profileID string)
 	}
 
 	for _, gym := range gymsCreated {
-		// Delete all Cognito Groups for each Gym the user created
-		if err := cognito.DeleteCognitoGroupsForGym(ctx, s.CognitoClient, gym.ID.Hex()); err != nil {
-			return err
-		}
-
 		// Delete announcements, techniques, and series for each gym the user created
 		if err := s.deleteRecordsByGymID(ctx, gym.ID); err != nil {
 			return err
 		}
 	}
-
-	// Delete the user from Cognito
-	if err := s.deleteCognitoUser(ctx, profile.CognitoID); err != nil {
-		return err
-	}
-
-	// Finally, delete
-
-	return nil
-}
-
-func (s *Service) deleteCognitoUser(ctx context.Context, username string) error {
-	result, err := s.CognitoClient.AdminDeleteUser(ctx, &cognitoidentityprovider.AdminDeleteUserInput{
-		Username:   &username,
-		UserPoolId: &s.userPoolID,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to delete user %q in cognito: %v", username, err)
-	}
-	log.Info().Msgf("Delete Cognito User Result: %v", result.ResultMetadata)
 
 	return nil
 }

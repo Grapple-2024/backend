@@ -18,7 +18,6 @@ import (
 	"github.com/Grapple-2024/backend/internal/service/gym_series"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	"github.com/Grapple-2024/backend/internal/service/techniques"
-	"github.com/Grapple-2024/backend/pkg/cognito"
 	"github.com/Grapple-2024/backend/pkg/lambda"
 	mongoext "github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/aws/aws-lambda-go/events"
@@ -44,20 +43,17 @@ type Service struct {
 	*mongoext.Client
 	Collection             *mongo.Collection
 	SubscriptionCollection *mongo.Collection
-	CognitoClient          *cognito.Client
-
 	publicAssetsBucketName string
 	region                 string
 }
 
 // NewService creates a new instance of a dao.Gym Service given a mongo client
-func NewService(ctx context.Context, publicAssetsBucketName, region string, mc *mongoext.Client, rbac *rbac.RBAC, cognito *cognito.Client) (*Service, error) {
+func NewService(ctx context.Context, publicAssetsBucketName, region string, mc *mongoext.Client, rbac *rbac.RBAC) (*Service, error) {
 	svc := &Service{
 		Client:                 mc,
 		Collection:             mc.Database("grapple").Collection("gyms"),
 		SubscriptionCollection: mc.Database("grapple").Collection("subscriptions"),
 		RBAC:                   rbac,
-		CognitoClient:          cognito,
 		publicAssetsBucketName: publicAssetsBucketName,
 		region:                 region,
 	}
@@ -233,12 +229,12 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 	id := req.PathParameters["id"]
 	gymResourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, gymResourceID, rbac.ActionUpdate)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, gymResourceID, rbac.ActionUpdate)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
 		return lambda.ClientError(http.StatusForbidden,
-			fmt.Sprintf("permission denied: user %q is not authorized for action '%s' on '%s'", token.Username, rbac.ActionUpdate, gymResourceID),
+			fmt.Sprintf("permission denied: user %q is not authorized for action '%s' on '%s'", token.Sub, rbac.ActionUpdate, gymResourceID),
 		)
 	}
 
@@ -261,7 +257,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 		}
 	case fmt.Sprintf("%s/assign-role", gymSubPath):
 		gymRolesResource := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, id, rbac.ResourceRoles)
-		isAuthorized, err := s.IsAuthorized(ctx, token.Username, gymRolesResource, rbac.ActionUpdate)
+		isAuthorized, err := s.IsAuthorized(ctx, token.Sub, gymRolesResource, rbac.ActionUpdate)
 		if err != nil {
 			return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 		} else if !isAuthorized {
@@ -358,7 +354,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 	}
 
 	resourceID := fmt.Sprintf("%s:%s", rbac.ResourceGym, id)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionDelete)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionDelete)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -371,7 +367,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 
 	// return lambda.NewResponse(http.StatusOK, ``, nil), nil
 
-	if err := deleteGymTX(ctx, s.Session, s.CognitoClient, id); err != nil {
+	if err := deleteGymTX(ctx, s.Session, id); err != nil {
 		return lambda.ClientError(http.StatusUnauthorized, fmt.Sprintf("permission denied: %v", err))
 	}
 
@@ -514,7 +510,7 @@ func (s *Service) createGymTX(ctx context.Context, token *service.Token, payload
 			return nil, err
 		}
 
-		if err := s.RBAC.AssignUserToGymRole(ctx, gymID, token.Username, rbac.Owner); err != nil {
+		if err := s.RBAC.AssignUserToGymRole(ctx, gymID, token.Sub, rbac.Owner); err != nil {
 			return nil, err
 		}
 
@@ -578,7 +574,7 @@ func (s *Service) createSubscriptionRecord(ctx context.Context, gymID string, us
 	return nil
 }
 
-func deleteGymTX(ctx context.Context, ms *mongo.Session, cc *cognito.Client, gymID string) error {
+func deleteGymTX(ctx context.Context, ms *mongo.Session, gymID string) error {
 	transactionOptions := options.Transaction().SetReadConcern(&readconcern.ReadConcern{Level: "local"}).SetWriteConcern(&writeconcern.WriteConcern{W: 1})
 
 	db := ms.Client().Database("grapple")
@@ -622,10 +618,6 @@ func deleteGymTX(ctx context.Context, ms *mongo.Session, cc *cognito.Client, gym
 			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete gym requests for gym %s: %v", gymID, err))
 		}
 
-		// 7. Delete all Cognito Groups for a Gym
-		if err := cognito.DeleteCognitoGroupsForGym(ctx, cc, gymID); err != nil {
-			return lambda.ClientError(http.StatusBadRequest, fmt.Sprintf("failed to delete cognito groups for gym: %v", err))
-		}
 		return nil, nil
 	}, transactionOptions)
 

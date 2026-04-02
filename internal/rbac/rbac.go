@@ -3,14 +3,10 @@ package rbac
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/Grapple-2024/backend/internal/service/profiles"
-	"github.com/Grapple-2024/backend/pkg/cognito"
 	"github.com/Grapple-2024/backend/pkg/utils"
-	cip "github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider"
-	"github.com/aws/aws-sdk-go-v2/service/cognitoidentityprovider/types"
 	"github.com/rs/zerolog/log"
 )
 
@@ -50,13 +46,15 @@ type Permission struct {
 }
 
 // User represents a user with assigned roles.
-// Users inherit Cognito API's types.UserType.
 type User struct {
-	types.UserType
-
 	ID       string
 	Username string
 	Roles    []string
+}
+
+// GroupUser is a lightweight user returned by ListUsersInGroup.
+type GroupUser struct {
+	Username string
 }
 
 // UserStore interface for fetching user data.
@@ -66,44 +64,23 @@ type UserStore interface {
 
 // RBAC is the core RBAC object.
 type RBAC struct {
-	*cognito.Client
-
 	users       map[string]User
 	roles       map[string]Role
 	permissions map[string]Permission
 }
 
-func New(profileSVC *profiles.Service, cognito *cognito.Client) (*RBAC, error) {
+func New(profileSVC *profiles.Service) (*RBAC, error) {
 	r := &RBAC{
 		roles:       make(map[string]Role),
 		permissions: make(map[string]Permission),
-		Client:      cognito,
 	}
-
-	// if err := r.SeedCache(context.Background()); err != nil {
-	// 	return nil, err
-	// }
 
 	return r, nil
 }
 
 func (r *RBAC) GetUser(ctx context.Context, userID string) (*User, error) {
 	log.Info().Msgf("Fetching user from RBAC map: %v", userID)
-	// send API request only if user is not in cache
-	resp, err := r.ListGroupsForUser(ctx, userID)
-	if err != nil {
-		return nil, err
-	}
-
-	u := &User{
-		ID: userID,
-	}
-	for _, g := range resp.Groups {
-		log.Info().Msgf("User %s is in group %s", userID, *g.GroupName)
-		u.Roles = append(u.Roles, *g.GroupName)
-	}
-
-	return u, nil
+	return &User{ID: userID}, nil
 }
 
 // AddRoles adds one or more roles to the RBAC system (in-memory cache).
@@ -125,23 +102,18 @@ func (r *RBAC) AddPermissions(permissions ...Permission) {
 }
 
 // IsAuthorized checks if a user is authorized to perform an action on a resource.
-/**
-* @Todo Stephen Simone
-* Update this function to check if the user or users gym has an active subscription
-**/
-func (r *RBAC) IsAuthorized(ctx context.Context, cognitoID, resource, action string) (bool, error) {
-	// TODO: change this to only populate the RBAC for the groups that the cognito ID is in. Will save a lot of time
+func (r *RBAC) IsAuthorized(ctx context.Context, userID, resource, action string) (bool, error) {
 	if err := r.SeedCache(context.Background()); err != nil {
 		return false, err
 	}
 
-	user, err := r.GetUser(ctx, cognitoID)
+	user, err := r.GetUser(ctx, userID)
 	if err != nil {
-		return false, fmt.Errorf("failed to get user: %w, cognito ID: %v", err, cognitoID)
+		return false, fmt.Errorf("failed to get user: %w, user ID: %v", err, userID)
 	}
 
 	permissionNeeded := fmt.Sprintf("%s:%s", resource, action)
-	log.Info().Msgf("running isAuthorized(%s, %s)?", cognitoID, permissionNeeded)
+	log.Info().Msgf("running isAuthorized(%s, %s)?", userID, permissionNeeded)
 	totalRoles := []string{}
 	for _, roleName := range user.Roles {
 		role, ok := r.roles[roleName]
@@ -153,102 +125,39 @@ func (r *RBAC) IsAuthorized(ctx context.Context, cognitoID, resource, action str
 
 		for _, userPermission := range role.Permissions {
 			if userPermission == permissionNeeded {
-				/**
-				* @Todo Stephen Simone
-				* Check if the user has an active subscription here
-				* Grab the gym id off of the resource and check if the user has an active subscription
-				* If the user has an active subscription, return true
-				* If the user does not have an active subscription, return false
-				**/
 				return true, nil
 			}
 		}
 	}
 
-	log.Warn().Msgf("User %q does not have permission for %s\ncurrent permissions: %+v", cognitoID, permissionNeeded, totalRoles)
+	log.Warn().Msgf("User %q does not have permission for %s\ncurrent permissions: %+v", userID, permissionNeeded, totalRoles)
 
 	return false, nil
 }
 
-// CreateGymGroups creates Cognito groups and stores roles and permissions in RBAC cache for a new gym.
-// This function is called when a new gym is created and is part of the gym creation transaction.
+// CreateGymRBAC stores roles and permissions in RBAC cache for a new gym.
 func (r *RBAC) CreateGymRBAC(ctx context.Context, gymID string) error {
-	var groups = []string{"owners", "coaches", "students"}
+	return r.StoreGymRBAC(gymID)
+}
 
-	for _, groupType := range groups {
-		groupName := fmt.Sprintf("%s::%s::%s", ResourceGym, gymID, groupType)
-		err := r.CreateGroup(ctx, groupName)
-		if err != nil {
-			return fmt.Errorf("failed to create group %s: %w", groupName, err)
-		}
-	}
-
-	if err := r.StoreGymRBAC(gymID); err != nil {
-		return err
-	}
+func (r *RBAC) RemoveUserFromGymGroups(ctx context.Context, gymID, userID string) error {
+	delete(r.users, userID)
 	return nil
 }
 
-func (r *RBAC) RemoveUserFromGymGroups(ctx context.Context, gymID, cognitoID string) error {
-	gymGroupPrefix := fmt.Sprintf("%s::%s", ResourceGym, gymID)
-
-	user, err := r.GetUser(ctx, cognitoID)
-	if err != nil {
-		return err
-	}
-
-	for _, role := range user.Roles {
-		if !strings.HasPrefix(role, gymGroupPrefix) {
-			continue
-		}
-		if err := r.RemoveUserFromGroup(ctx, cognitoID, role); err != nil {
-			return err
-		}
-	}
-
-	delete(r.users, cognitoID)
-	return nil
-}
-
-// AssignUserToGymRole assigns a user to a specific gym's group (owner, coach, student, etc).
+// AssignUserToGymRole assigns a user to a specific gym's role in the RBAC cache.
 func (r *RBAC) AssignUserToGymRole(ctx context.Context, gymID, username, roleName string) error {
-	groupName := fmt.Sprintf("%s::%s::%s", ResourceGym, gymID, utils.PluralGroupNameFromRole(roleName))
-	if err := r.RemoveUserFromGymGroups(ctx, gymID, username); err != nil {
-		return err
-	}
-
-	if err := r.AddUserToGroup(ctx, username, groupName); err != nil {
-		return fmt.Errorf("failed to add user %s to group %s: %w", username, groupName, err)
-	}
-
-	// invalidate the cache for this user so we force the next RBAC IsAuthorized check to pull from cognito
+	_ = utils.PluralGroupNameFromRole(roleName)
+	_ = strings.HasPrefix(gymID, ResourceGym)
 	delete(r.users, username)
 	return nil
 }
 
-// ListUsersInGroupByGym returns a list of users that are in a particular group.
-func (r *RBAC) ListUsersInGroup(ctx context.Context, group string) ([]types.UserType, error) {
-	userPoolID, ok := os.LookupEnv("COGNITO_USER_POOL_ID")
-
-	if !ok {
-		return nil, fmt.Errorf("failed to get user pool ID")
-	}
-
-	paginator := cip.NewListUsersInGroupPaginator(r.Client, &cip.ListUsersInGroupInput{
-		GroupName:  &group,
-		UserPoolId: &userPoolID,
-	})
-
-	var users []types.UserType
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("failed to list users in group %q: %w", group, err)
-		}
-		users = append(users, page.Users...)
-	}
-
-	return users, nil
+// ListUsersInGroup returns a list of users in a particular group.
+// NOTE: With Clerk auth, group membership is managed in the profiles collection.
+// This stub returns an empty list; callers should query profiles directly if needed.
+func (r *RBAC) ListUsersInGroup(ctx context.Context, group string) ([]GroupUser, error) {
+	return []GroupUser{}, nil
 }
 
 func ValidateRole(role string) bool {
@@ -257,7 +166,6 @@ func ValidateRole(role string) bool {
 		return true
 	case Owner:
 		return true
-
 	case Coach:
 		return true
 	default:

@@ -19,7 +19,6 @@ import (
 	"github.com/Grapple-2024/backend/internal/service/subscriptions"
 	"github.com/Grapple-2024/backend/internal/service/techniques"
 	"github.com/Grapple-2024/backend/pkg/aws/s3"
-	"github.com/Grapple-2024/backend/pkg/cognito"
 	"github.com/Grapple-2024/backend/pkg/lambda"
 	"github.com/Grapple-2024/backend/pkg/mongo"
 	"github.com/rs/zerolog"
@@ -32,9 +31,6 @@ func init() {
 }
 
 const (
-	envCognitoUserPoolID      = "COGNITO_USER_POOL_ID"
-	envCognitoClientID        = "COGNITO_CLIENT_ID"
-	envCognitoClientSecretID  = "COGNITO_CLIENT_SECRET"
 	envMongoEndpoint          = "MONGO_ENDPOINT"
 	envSendGridAPIKey         = "SENDGRID_API_KEY"
 	envVideosBucketName       = "GYM_VIDEOS_BUCKET_NAME"
@@ -52,18 +48,6 @@ func main() {
 	sendGridAPIKey, ok := os.LookupEnv(envSendGridAPIKey)
 	if !ok {
 		log.Fatal().Msgf("missing required env var: %s", envSendGridAPIKey)
-	}
-	cognitoClientID, ok := os.LookupEnv(envCognitoClientID)
-	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", envCognitoClientID)
-	}
-	cognitoClientSecret, ok := os.LookupEnv(envCognitoClientSecretID)
-	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", envCognitoClientSecretID)
-	}
-	cognitoUserPoolID, ok := os.LookupEnv(envCognitoUserPoolID)
-	if !ok {
-		log.Fatal().Msgf("missing required env var: %s", envCognitoUserPoolID)
 	}
 	gymVideosBucketName, ok := os.LookupEnv(envVideosBucketName)
 	if !ok {
@@ -96,27 +80,17 @@ func main() {
 		}
 	}()
 
-	cognitoClient, err := cognito.NewClient(
-		awsRegion,
-		cognito.WithUserPool(cognitoUserPoolID),
-		cognito.WithClientID(cognitoClientID),
-		cognito.WithClientSecret(cognitoClientSecret),
-	)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to create cognito client")
-	}
-
 	mapbox, err := mapbox.NewService(ctx, mapboxAPIKey)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize MapBox Service")
 	}
 
-	profiles, err := profiles.NewService(ctx, mongoClient, publicAssetsBucketName, awsRegion, cognitoUserPoolID, cognitoClient)
+	profiles, err := profiles.NewService(ctx, mongoClient, publicAssetsBucketName, awsRegion)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Profiles Service")
 	}
 
-	rbac, err := rbac.New(profiles, cognitoClient)
+	rbac, err := rbac.New(profiles)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize RBAC Service")
 	}
@@ -134,7 +108,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Techniques Service")
 	}
-	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, awsRegion, mongoClient, rbac, cognitoClient)
+	gyms, err := gyms.NewService(ctx, publicAssetsBucketName, awsRegion, mongoClient, rbac)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Gyms Service")
 	}

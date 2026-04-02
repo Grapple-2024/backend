@@ -78,7 +78,7 @@ func (s *Service) ProcessGetAll(ctx context.Context, req events.APIGatewayProxyR
 
 	// check permissions for read
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, gymID, rbac.ResourceAnnouncements)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionRead)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("failed to verify authorization on user: %v", err))
 	} else if !isAuthorized {
@@ -161,7 +161,7 @@ func (s *Service) ProcessGetByID(ctx context.Context, req events.APIGatewayProxy
 
 	// check permissions for read
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, announcement.GymID.Hex(), rbac.ResourceAnnouncements)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionRead)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionRead)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -205,7 +205,7 @@ func (s *Service) ProcessPost(ctx context.Context, req events.APIGatewayProxyReq
 
 	// check permissions
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, announcement.GymID.Hex(), rbac.ResourceAnnouncements)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionCreate)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionCreate)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -258,7 +258,7 @@ func (s *Service) ProcessPut(ctx context.Context, req events.APIGatewayProxyRequ
 
 	// check permissions
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, announcement.GymID.Hex(), rbac.ResourceAnnouncements)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionUpdate)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionUpdate)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -301,7 +301,7 @@ func (s *Service) ProcessDelete(ctx context.Context, req events.APIGatewayProxyR
 
 	// check permissions
 	resourceID := fmt.Sprintf("%s:%s:%s", rbac.ResourceGym, announcement.GymID.Hex(), rbac.ResourceAnnouncements)
-	isAuthorized, err := s.IsAuthorized(ctx, token.Username, resourceID, rbac.ActionDelete)
+	isAuthorized, err := s.IsAuthorized(ctx, token.Sub, resourceID, rbac.ActionDelete)
 	if err != nil {
 		return lambda.ClientError(http.StatusForbidden, fmt.Sprintf("permission denied: %v", err))
 	} else if !isAuthorized {
@@ -362,7 +362,7 @@ func (s *Service) notifyStudentsOnAnnouncement(ctx context.Context, a *Announcem
 	// aggregate list of sendgrid mail.Email types to send to SendGrid API.
 	var tos []*mail.Email
 	for _, s := range students {
-		tos = append(tos, mail.NewEmail("Student", *s.Username))
+		tos = append(tos, mail.NewEmail("Student", s.Username))
 	}
 	email := mail.NewPersonalization()
 	email.AddTos(tos...)

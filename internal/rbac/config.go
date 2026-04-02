@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
-	"strings"
 	"text/template"
 
 	"github.com/rs/zerolog/log"
@@ -123,60 +122,19 @@ func (r *RBAC) StoreGymRBAC(gymID string) error {
 	return nil
 }
 
-// SeedCache loads the permissions and roles caches for the RBAC framework to use during runtime.
-// It dynamically determines each gym by reading the Cognito groups API and populates the roles and permissions for each gym.
-// It also populates any static roles/permissions, eg "gym-creator" and gym:create.
+// SeedCache loads the static permissions and roles caches for the RBAC framework to use during runtime.
+// Dynamic gym roles are added via CreateGymRBAC when a gym is created.
+// TODO: On startup, seed dynamic gym roles by querying gyms from MongoDB instead of Cognito.
 func (r *RBAC) SeedCache(ctx context.Context) error {
 	rbacConfig, err := GetRBACConfig()
 	if err != nil {
 		return err
 	}
 
-	// add the static roles and permissions first
 	r.AddRoles(rbacConfig.Roles.Static...)
 	r.AddPermissions(rbacConfig.Permissions.Static...)
 
-	// Add dynamic roles and permissions for each Gym found in Cognito
-	resp, err := r.ListGroups(ctx)
-	if err != nil {
-		return err
-	}
-
-	log.Info().Msgf("Found a total of %d groups in Cognito", len(resp.Groups))
-
-	gymRBACs := map[string]RBACConfig{}
-	for _, g := range resp.Groups {
-		parts := strings.Split(*g.GroupName, "::")
-		if len(parts) < 3 {
-			// log.Debug().Msgf("Found non-dynamic group %s in Cognito! Skipping.", *g.GroupName)
-			continue
-		}
-		gymID := parts[1]
-
-		if _, ok := gymRBACs[gymID]; ok {
-			continue
-		}
-
-		// render the configuration templates
-		rolesConfig, err := r.RenderRolesTemplate(gymID)
-		if err != nil {
-			return err
-		}
-		permissionsConfig, err := r.RenderPermissionsTemplate(gymID)
-		if err != nil {
-			return err
-		}
-
-		gymRBACs[gymID] = RBACConfig{
-			Roles:       rolesConfig,
-			Permissions: permissionsConfig,
-		}
-	}
-
-	for _, rbacConfig := range gymRBACs {
-		r.AddPermissions(rbacConfig.Permissions.DynamicGymID...)
-		r.AddRoles(rbacConfig.Roles.DynamicGymID...)
-	}
+	log.Info().Msgf("Seeded %d static roles and %d static permissions", len(rbacConfig.Roles.Static), len(rbacConfig.Permissions.Static))
 
 	return nil
 }

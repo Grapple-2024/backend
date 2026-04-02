@@ -99,15 +99,12 @@ func IsState(fl validator.FieldLevel) bool {
 	return re.MatchString(fl.Field().String())
 }
 
-// Token represents the AWS Cognito user token
+// Token represents the Clerk JWT token claims
 type Token struct {
-	Username   string   `mapstructure:"username"`
-	Email      string   `mapstructure:"email"`
-	Roles      []string `mapstructure:"cognito:roles"`
-	Groups     []string `mapstructure:"cognito:groups"`
-	GivenName  string   `mapstructure:"given_name"`
-	FamilyName string   `mapstructure:"family_name"`
-	Sub        string   `mapstructure:"sub"`
+	Email      string `mapstructure:"email"`
+	GivenName  string `mapstructure:"given_name"`
+	FamilyName string `mapstructure:"family_name"`
+	Sub        string `mapstructure:"sub"`
 }
 
 func GetToken(hdrs map[string]string) (*Token, error) {
@@ -123,10 +120,7 @@ func GetToken(hdrs map[string]string) (*Token, error) {
 
 	tokenString := strings.TrimSpace(bearer[1])
 
-	regionID := "us-west-1"
-	userPoolID := os.Getenv("COGNITO_USER_POOL_ID")
-	jwksURL := fmt.Sprintf("https://cognito-idp.%s.amazonaws.com/%s/.well-known/jwks.json", regionID, userPoolID)
-	// Create the keyfunc.Keyfunc.
+	jwksURL := os.Getenv("CLERK_JWKS_URL")
 	jwks, err := keyfunc.NewDefault([]string{jwksURL})
 	if err != nil {
 		return nil, err
