@@ -90,7 +90,7 @@ func main() {
 		log.Fatal().Err(err).Msgf("failed to initialize Profiles Service")
 	}
 
-	rbac, err := rbac.New(profiles)
+	rbac, err := rbac.New(mongoClient)
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize RBAC Service")
 	}

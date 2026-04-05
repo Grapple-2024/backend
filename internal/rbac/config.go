@@ -10,6 +10,7 @@ import (
 	"text/template"
 
 	"github.com/rs/zerolog/log"
+	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
 type RBACConfig struct {
@@ -122,19 +123,57 @@ func (r *RBAC) StoreGymRBAC(gymID string) error {
 	return nil
 }
 
-// SeedCache loads the static permissions and roles caches for the RBAC framework to use during runtime.
-// Dynamic gym roles are added via CreateGymRBAC when a gym is created.
-// TODO: On startup, seed dynamic gym roles by querying gyms from MongoDB instead of Cognito.
+// SeedCache loads static permissions/roles and all dynamic gym roles from MongoDB.
+// It runs once: subsequent calls are no-ops (guarded by r.seeded).
 func (r *RBAC) SeedCache(ctx context.Context) error {
+	if r.seeded {
+		return nil
+	}
+
 	rbacConfig, err := GetRBACConfig()
 	if err != nil {
 		return err
 	}
-
 	r.AddRoles(rbacConfig.Roles.Static...)
 	r.AddPermissions(rbacConfig.Permissions.Static...)
 
-	log.Info().Msgf("Seeded %d static roles and %d static permissions", len(rbacConfig.Roles.Static), len(rbacConfig.Permissions.Static))
+	// Load dynamic roles for every gym that already exists in MongoDB.
+	gymIDs, err := r.allGymIDs(ctx)
+	if err != nil {
+		return fmt.Errorf("SeedCache: failed to list gym IDs: %w", err)
+	}
+	for _, gymID := range gymIDs {
+		if err := r.StoreGymRBAC(gymID); err != nil {
+			log.Warn().Msgf("SeedCache: could not load RBAC for gym %q: %v", gymID, err)
+		}
+	}
 
+	r.seeded = true
+	log.Info().Msgf("RBAC cache seeded: %d static roles, %d static permissions, %d gyms",
+		len(rbacConfig.Roles.Static), len(rbacConfig.Permissions.Static), len(gymIDs))
 	return nil
+}
+
+// allGymIDs returns the hex IDs of every gym in MongoDB.
+func (r *RBAC) allGymIDs(ctx context.Context) ([]string, error) {
+	gyms := r.mongoClient.Database("grapple").Collection("gyms")
+
+	cursor, err := gyms.Find(ctx, bson.M{})
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var ids []string
+	for cursor.Next(ctx) {
+		var doc struct {
+			ID bson.ObjectID `bson:"_id"`
+		}
+		if err := cursor.Decode(&doc); err != nil {
+			log.Warn().Msgf("allGymIDs: failed to decode: %v", err)
+			continue
+		}
+		ids = append(ids, doc.ID.Hex())
+	}
+	return ids, cursor.Err()
 }
