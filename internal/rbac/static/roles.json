@@ -16,7 +16,11 @@
                 "gym:{{.GymID}}:announcements:read",
                 "gym:{{.GymID}}:announcements:create",
                 "gym:{{.GymID}}:announcements:update",
-                "gym:{{.GymID}}:announcements:delete"
+                "gym:{{.GymID}}:announcements:delete",
+                "gym:{{.GymID}}:plans:read",
+                "gym:{{.GymID}}:plans:create",
+                "gym:{{.GymID}}:plans:update",
+                "gym:{{.GymID}}:plans:delete"
             ]
         },
         {
@@ -30,7 +34,10 @@
                 "gym:{{.GymID}}:announcements:read",
                 "gym:{{.GymID}}:announcements:create",
                 "gym:{{.GymID}}:announcements:update",
-                "gym:{{.GymID}}:announcements:delete"
+                "gym:{{.GymID}}:announcements:delete",
+                "gym:{{.GymID}}:plans:read",
+                "gym:{{.GymID}}:plans:create",
+                "gym:{{.GymID}}:plans:update"
             ]
         },
         {

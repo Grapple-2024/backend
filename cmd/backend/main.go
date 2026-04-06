@@ -13,6 +13,7 @@ import (
 	"github.com/Grapple-2024/backend/internal/service/gym_series"
 	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/mapbox"
+	membership_plans "github.com/Grapple-2024/backend/internal/service/membership_plans"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	s3_service "github.com/Grapple-2024/backend/internal/service/s3"
 	"github.com/Grapple-2024/backend/internal/service/search"
@@ -136,19 +137,24 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Emails Service")
 	}
+	membershipPlans, err := membership_plans.NewService(ctx, mongoClient, rbac)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Membership Plans Service")
+	}
 
 	lambdas := map[string]lambda.Lambda{
-		"profiles":      profiles,
-		"gyms":          gyms,
-		"announcements": announcements,
-		"techniques":    techniques,
-		"gym-requests":  requests,
-		"gym-series":    series,
-		"search":        search,
-		"mapbox":        mapbox,
-		"subscriptions": subscriptions,
-		"s3":            s3,
-		"emails":        emails,
+		"profiles":         profiles,
+		"gyms":             gyms,
+		"announcements":    announcements,
+		"techniques":       techniques,
+		"gym-requests":     requests,
+		"gym-series":       series,
+		"search":           search,
+		"mapbox":           mapbox,
+		"subscriptions":    subscriptions,
+		"s3":               s3,
+		"emails":           emails,
+		"membership-plans": membershipPlans,
 	}
 
 	router := lambda.NewAdapter(lambda.NewRouter(lambdas))

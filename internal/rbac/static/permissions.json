@@ -49,6 +49,22 @@
         {
             "resource": "gym:{{.GymID}}:announcements",
             "action": "delete"
+        },
+        {
+            "resource": "gym:{{.GymID}}:plans",
+            "action": "read"
+        },
+        {
+            "resource": "gym:{{.GymID}}:plans",
+            "action": "create"
+        },
+        {
+            "resource": "gym:{{.GymID}}:plans",
+            "action": "update"
+        },
+        {
+            "resource": "gym:{{.GymID}}:plans",
+            "action": "delete"
         }
     ]
 }
