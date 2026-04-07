@@ -13,6 +13,7 @@ import (
 	"github.com/Grapple-2024/backend/internal/service/gym_series"
 	"github.com/Grapple-2024/backend/internal/service/gyms"
 	"github.com/Grapple-2024/backend/internal/service/mapbox"
+	member_billing "github.com/Grapple-2024/backend/internal/service/member_billing"
 	membership_plans "github.com/Grapple-2024/backend/internal/service/membership_plans"
 	"github.com/Grapple-2024/backend/internal/service/profiles"
 	s3_service "github.com/Grapple-2024/backend/internal/service/s3"
@@ -141,6 +142,10 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Membership Plans Service")
 	}
+	memberBilling, err := member_billing.NewService(ctx, mongoClient, rbac)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Member Billing Service")
+	}
 
 	lambdas := map[string]lambda.Lambda{
 		"profiles":         profiles,
@@ -155,6 +160,7 @@ func main() {
 		"s3":               s3,
 		"emails":           emails,
 		"membership-plans": membershipPlans,
+		"member-billing":   memberBilling,
 	}
 
 	router := lambda.NewAdapter(lambda.NewRouter(lambdas))

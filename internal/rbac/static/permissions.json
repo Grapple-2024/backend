@@ -65,6 +65,22 @@
         {
             "resource": "gym:{{.GymID}}:plans",
             "action": "delete"
+        },
+        {
+            "resource": "gym:{{.GymID}}:billing",
+            "action": "read"
+        },
+        {
+            "resource": "gym:{{.GymID}}:billing",
+            "action": "create"
+        },
+        {
+            "resource": "gym:{{.GymID}}:billing",
+            "action": "update"
+        },
+        {
+            "resource": "gym:{{.GymID}}:billing",
+            "action": "delete"
         }
     ]
 }
