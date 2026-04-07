@@ -93,6 +93,18 @@
         {
             "resource": "gym:{{.GymID}}:attendance",
             "action": "delete"
+        },
+        {
+            "resource": "gym:{{.GymID}}:promotions",
+            "action": "read"
+        },
+        {
+            "resource": "gym:{{.GymID}}:promotions",
+            "action": "create"
+        },
+        {
+            "resource": "gym:{{.GymID}}:promotions",
+            "action": "delete"
         }
     ]
 }

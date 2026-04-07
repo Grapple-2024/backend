@@ -27,7 +27,10 @@
                 "gym:{{.GymID}}:billing:delete",
                 "gym:{{.GymID}}:attendance:read",
                 "gym:{{.GymID}}:attendance:create",
-                "gym:{{.GymID}}:attendance:delete"
+                "gym:{{.GymID}}:attendance:delete",
+                "gym:{{.GymID}}:promotions:read",
+                "gym:{{.GymID}}:promotions:create",
+                "gym:{{.GymID}}:promotions:delete"
             ]
         },
         {
@@ -50,7 +53,10 @@
                 "gym:{{.GymID}}:billing:update",
                 "gym:{{.GymID}}:attendance:read",
                 "gym:{{.GymID}}:attendance:create",
-                "gym:{{.GymID}}:attendance:delete"
+                "gym:{{.GymID}}:attendance:delete",
+                "gym:{{.GymID}}:promotions:read",
+                "gym:{{.GymID}}:promotions:create",
+                "gym:{{.GymID}}:promotions:delete"
             ]
         },
         {
@@ -59,7 +65,8 @@
                 "gym:{{.GymID}}:read",
                 "gym:{{.GymID}}:series:read",
                 "gym:{{.GymID}}:announcements:read",
-                "gym:{{.GymID}}:attendance:create"
+                "gym:{{.GymID}}:attendance:create",
+                "gym:{{.GymID}}:promotions:read"
             ]
         }
     ]
