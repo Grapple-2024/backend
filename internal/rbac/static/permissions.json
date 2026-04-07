@@ -81,6 +81,18 @@
         {
             "resource": "gym:{{.GymID}}:billing",
             "action": "delete"
+        },
+        {
+            "resource": "gym:{{.GymID}}:attendance",
+            "action": "read"
+        },
+        {
+            "resource": "gym:{{.GymID}}:attendance",
+            "action": "create"
+        },
+        {
+            "resource": "gym:{{.GymID}}:attendance",
+            "action": "delete"
         }
     ]
 }

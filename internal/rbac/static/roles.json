@@ -24,7 +24,10 @@
                 "gym:{{.GymID}}:billing:read",
                 "gym:{{.GymID}}:billing:create",
                 "gym:{{.GymID}}:billing:update",
-                "gym:{{.GymID}}:billing:delete"
+                "gym:{{.GymID}}:billing:delete",
+                "gym:{{.GymID}}:attendance:read",
+                "gym:{{.GymID}}:attendance:create",
+                "gym:{{.GymID}}:attendance:delete"
             ]
         },
         {
@@ -44,7 +47,10 @@
                 "gym:{{.GymID}}:plans:update",
                 "gym:{{.GymID}}:billing:read",
                 "gym:{{.GymID}}:billing:create",
-                "gym:{{.GymID}}:billing:update"
+                "gym:{{.GymID}}:billing:update",
+                "gym:{{.GymID}}:attendance:read",
+                "gym:{{.GymID}}:attendance:create",
+                "gym:{{.GymID}}:attendance:delete"
             ]
         },
         {
@@ -52,7 +58,8 @@
             "permissions": [
                 "gym:{{.GymID}}:read",
                 "gym:{{.GymID}}:series:read",
-                "gym:{{.GymID}}:announcements:read"
+                "gym:{{.GymID}}:announcements:read",
+                "gym:{{.GymID}}:attendance:create"
             ]
         }
     ]
