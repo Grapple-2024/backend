@@ -31,7 +31,8 @@
                 "gym:{{.GymID}}:promotions:read",
                 "gym:{{.GymID}}:promotions:create",
                 "gym:{{.GymID}}:promotions:delete",
-                "gym:{{.GymID}}:dashboard:read"
+                "gym:{{.GymID}}:dashboard:read",
+                "gym:{{.GymID}}:members:read"
             ]
         },
         {
@@ -58,7 +59,8 @@
                 "gym:{{.GymID}}:promotions:read",
                 "gym:{{.GymID}}:promotions:create",
                 "gym:{{.GymID}}:promotions:delete",
-                "gym:{{.GymID}}:dashboard:read"
+                "gym:{{.GymID}}:dashboard:read",
+                "gym:{{.GymID}}:members:read"
             ]
         },
         {

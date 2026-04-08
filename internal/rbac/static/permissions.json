@@ -109,6 +109,10 @@
         {
             "resource": "gym:{{.GymID}}:dashboard",
             "action": "read"
+        },
+        {
+            "resource": "gym:{{.GymID}}:members",
+            "action": "read"
         }
     ]
 }
