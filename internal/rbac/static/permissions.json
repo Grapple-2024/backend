@@ -105,6 +105,10 @@
         {
             "resource": "gym:{{.GymID}}:promotions",
             "action": "delete"
+        },
+        {
+            "resource": "gym:{{.GymID}}:dashboard",
+            "action": "read"
         }
     ]
 }
