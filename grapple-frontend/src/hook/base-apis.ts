@@ -54,6 +54,10 @@ export const membersApi = axios.create({
   baseURL: `${host}/members`,
 });
 
+export const adminApi = axios.create({
+  baseURL: `${host}/admin-api`,
+});
+
 const handle401 = (apiName: string) => ({
   response: (response: any) => response,
   error: async (error: any) => {

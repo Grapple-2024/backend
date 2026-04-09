@@ -16,6 +16,7 @@ import (
 	"github.com/Grapple-2024/backend/internal/service/attendance"
 	member_billing "github.com/Grapple-2024/backend/internal/service/member_billing"
 	membership_plans "github.com/Grapple-2024/backend/internal/service/membership_plans"
+	"github.com/Grapple-2024/backend/internal/service/admin"
 	"github.com/Grapple-2024/backend/internal/service/dashboard"
 	"github.com/Grapple-2024/backend/internal/service/members"
 	"github.com/Grapple-2024/backend/internal/service/promotions"
@@ -166,6 +167,10 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msgf("failed to initialize Members Service")
 	}
+	adminSvc, err := admin.NewService(ctx, mongoClient)
+	if err != nil {
+		log.Fatal().Err(err).Msgf("failed to initialize Admin Service")
+	}
 
 	lambdas := map[string]lambda.Lambda{
 		"profiles":         profiles,
@@ -185,6 +190,7 @@ func main() {
 		"promotions":       promotionsSvc,
 		"dashboard":        dashboardSvc,
 		"members":          membersSvc,
+		"admin-api":        adminSvc,
 	}
 
 	router := lambda.NewAdapter(lambda.NewRouter(lambdas))
