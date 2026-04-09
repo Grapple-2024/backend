@@ -1,12 +1,15 @@
 applications:
+
+  # ── Go API backend ──────────────────────────────────────────────────────────
   grapple-backend:
-    type: golang:1.22
+    source:
+      root: "/"
+    type: "golang:1.22"
 
     hooks:
       build: |
         set -e
         go build -o bin/server ./cmd/backend
-        go build -o bin/post-signup ./cmd/post-signup-lambda
         go build -o bin/stripe-webhooks ./cmd/stripe-webhooks
 
     web:
@@ -24,8 +27,42 @@ applications:
         source: local
         source_path: tmp
 
+  # ── Next.js frontend ────────────────────────────────────────────────────────
+  grapple-frontend:
+    source:
+      root: "frontend/grapple-frontend"
+    type: "nodejs:20"
+
+    hooks:
+      build: |
+        set -e
+        npm ci
+        npm run build
+
+    web:
+      commands:
+        start: node_modules/.bin/next start -p $PORT
+      upstream:
+        socket_family: tcp
+        protocol: http
+      locations:
+        /:
+          passthru: true
+
+    mounts:
+      "/.next/cache":
+        source: local
+        source_path: next_cache
+
+# ── Routes ──────────────────────────────────────────────────────────────────
+# IMPORTANT: after first deploy, update NEXT_PUBLIC_API_HOST in Upsun to:
+#   https://api.<your-project-default-domain>
+# The {default} domain moves to the frontend; backend shifts to api.{default}.
 routes:
   "https://{default}/":
+    type: upstream
+    upstream: "grapple-frontend:http"
+  "https://api.{default}/":
     type: upstream
     upstream: "grapple-backend:http"
   "https://www.{default}/":
