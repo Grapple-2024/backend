@@ -1,0 +1,89 @@
+.systemToggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.systemBtn {
+  flex: 1;
+  padding: 8px 0;
+  background: #fff;
+  border: none;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  color: #555;
+}
+
+.systemBtn:first-child {
+  border-right: 1px solid #ccc;
+}
+
+.systemBtnActive {
+  background: #111;
+  color: #fff;
+}
+
+.beltGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.beltOption {
+  padding: 5px 10px;
+  border: 2px solid #e0e0e0;
+  border-radius: 20px;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.beltOptionSelected {
+  border-color: #111;
+}
+
+.stripeRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.stripeBtn {
+  width: 36px;
+  height: 36px;
+  border: 2px solid #e0e0e0;
+  border-radius: 50%;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stripeBtnSelected {
+  border-color: #111;
+  background: #111;
+  color: #fff;
+}
+
+.formLabel {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #666;
+  margin-bottom: 6px;
+}

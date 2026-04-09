@@ -1,0 +1,137 @@
+.container {
+  border-radius: 10px;
+  background-color: #F1F5F9;
+  position: relative;
+  padding: 0;
+  height: 100%;
+}
+
+.scheduleTitle {
+  font-size: 24px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.scheduleList {
+  height: 100%;
+  overflow-y: scroll;
+  margin-top: 20px;
+}
+
+.timeDivider {
+  border-bottom: 1px dotted #ddd;
+  margin-bottom: 10px;
+}
+
+.timeSlot {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.timeLabel {
+  text-align: right;
+  margin-right: 10px;
+  color: #7A7A7A;
+  font-weight: bold;
+}
+
+.timeText {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.classItem {
+  background-color: #ffffff;
+  color: #000;
+  padding: 5px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+  margin-bottom: 10px;
+}
+
+.classDot {
+  width: 10px;
+  height: 10px;
+  background-color: #f24b4b;
+  border-radius: 50%;
+  margin-right: 20px;
+}
+
+.classContent {
+  flex-grow: 1;
+}
+
+.classTitle {
+  margin: 0;
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.classTime {
+  margin: 0;
+  color: #7A7A7A;
+  font-size: 12px;
+}
+
+.noClasses {
+  background-color: #ffffff;
+  color: #000;
+  padding: 15px;
+  border-radius: 8px;
+  text-align: center;
+  box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+@media (max-width: 768px) {
+  .container[data-daily="true"] {
+    background-color: transparent;
+    padding: 0 10px;
+  }
+
+  .container[data-daily="true"] .scheduleTitle {
+    font-size: 20px;
+    padding: 0 10px;
+  }
+
+  .container[data-daily="true"] .scheduleList {
+    margin-top: 10px;
+  }
+
+  .container[data-daily="true"] .timeSlot {
+    grid-template-columns: 70px 1fr;
+    gap: 10px;
+  }
+
+  .container[data-daily="true"] .timeLabel {
+    font-size: 12px;
+  }
+
+  .container[data-daily="true"] .classItem {
+    padding: 12px;
+    margin-bottom: 8px;
+  }
+
+  .container[data-daily="true"] .classDot {
+    margin-right: 12px;
+  }
+
+  .container[data-daily="true"] .classTitle {
+    font-size: 14px;
+    margin-bottom: 4px;
+  }
+
+  .container[data-daily="true"] .classTime {
+    font-size: 12px;
+  }
+
+  .container[data-daily="true"] .noClasses {
+    padding: 12px;
+    margin: 10px 0;
+  }
+}

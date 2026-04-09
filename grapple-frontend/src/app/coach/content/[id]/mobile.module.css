@@ -1,0 +1,204 @@
+/* mobile.module.css */
+
+/* General container styles for mobile and portrait mode */
+.videoContainer {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Row container styles */
+.rowContainer {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Video player row styles */
+.videoPlayerRow {  
+  margin: 10px 0;
+  padding: 0;
+  max-height: 60vh;
+  overflow: hidden;
+  aspect-ratio: '16 / 9';
+}
+
+.videoPlayerRow video {
+  width: 100%;
+  max-height: 60vh; /* Ensures video does not take up more than 60% of the viewport height */
+  object-fit: cover;
+}
+
+/* Video information styles */
+.videoInfoRow {
+  margin: 0;
+  padding: 20px;
+}
+
+.titleRow {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  padding: 0;
+}
+
+.titleCol {
+  margin: 0;
+  padding: 0;
+}
+
+.tagsCol {
+  display: flex;
+  justify-content: flex-end;
+  margin: 0;
+  padding: 0;
+}
+
+/* Coach details row */
+.coachRow {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 0;
+}
+
+.avatarCol {
+  padding: 0;
+}
+
+.coachAvatar {
+  height: 50px;
+  width: 50px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.coachNameCol {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.coachName {
+  font-size: 14px;
+  font-weight: bold;
+}
+
+/* Action buttons */
+.actionButtonsCol {
+  display: flex;
+  justify-content: center;
+  margin: 10px 0;
+}
+
+.actionButton {
+  background-color: white;
+  border-radius: 18px;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.shareButton {
+  margin-left: 20px;
+  background-color: white;
+}
+
+.icon,
+.shareIcon {
+  font-size: 22px;
+  cursor: pointer;
+  background-color: white;
+}
+
+.buttonText {
+  font-size: 16px;
+  margin: 0 0 0 5px;
+  background-color: white;
+}
+
+/* Description row */
+.descriptionRow {
+  margin: 10px 0;
+  padding: 20px 10px;
+  background-color: #F1F4F9;
+  border-radius: 18px;
+}
+
+/* Sidebar styles */
+.sidebarRow {
+  margin: 0;
+  padding: 0;
+}
+
+@media (max-width: 768px) and (orientation: portrait) {
+  /* Description row for mobile in portrait mode */
+  .descriptionRow {
+    margin: 10px 0;
+    padding: 20px 10px;
+    background-color: #F1F4F9;
+    border-radius: 18px;
+  }
+}
+
+/* Landscape mode styles */
+@media (max-width: 768px) and (orientation: landscape) {
+  .videoContainer {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 10px;
+  }
+
+  .rowContainer {
+    flex-wrap: nowrap;
+  }
+
+  .videoPlayerRow {
+    width: 60%; /* Allocate 60% of the width to the video player */
+    margin-right: 20px;
+    display: flex;
+    justify-content: center;
+  }
+
+  .videoPlayerRow video {
+    width: 100%;
+    max-height: 80vh; /* Adjust to fit landscape mode height */
+    object-fit: cover;
+  }
+
+  .videoInfoRow {
+    width: 40%; /* Allocate 40% of the width to the video info and sidebar */
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+
+  .sidebarRow {
+    margin-top: 10px;
+  }
+
+  .descriptionRow {
+    margin: 0;
+    padding: 10px;
+    background-color: #F1F4F9;
+    border-radius: 18px;
+  }
+
+  .actionButtonsCol {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+  }
+
+  .actionButton,
+  .shareButton {
+    padding: 5px 10px;
+  }
+}
+

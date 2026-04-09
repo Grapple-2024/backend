@@ -1,0 +1,68 @@
+.create-series-enter {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+.create-series-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms, transform 300ms;
+}
+.create-series-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+.create-series-exit-active {
+  opacity: 0;
+  transform: translateY(-20px);
+  transition: opacity 300ms, transform 300ms;
+}
+
+.filter-bar {
+  padding: 20px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  border-radius: 10px; 
+  z-index: 100;
+  background-color: white;
+}
+
+/* Create series transition */
+.create-series-enter {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+.create-series-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms, transform 300ms;
+}
+.create-series-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+.create-series-exit-active {
+  opacity: 0;
+  transform: translateY(-20px);
+  transition: opacity 300ms, transform 300ms;
+}
+
+/* Series item transition */
+.series-enter {
+  opacity: 0;
+  transform: translateY(-20px);
+}
+.series-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 500ms, transform 500ms;
+}
+.series-exit {
+  opacity: 1;
+  transform: translateY(0);
+}
+.series-exit-active {
+  opacity: 0;
+  transform: translateY(-20px);
+  transition: opacity 500ms, transform 500ms;
+}
+
+

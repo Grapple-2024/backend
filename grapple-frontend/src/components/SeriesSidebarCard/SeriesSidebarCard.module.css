@@ -1,0 +1,158 @@
+@keyframes scaleUp {
+  0% {
+    transform: scale(1);
+  }
+  100% {
+    transform: scale(1.03);
+  }
+}
+
+@keyframes highlight {
+  0% {
+    background-color: #f5f5f5;
+  }
+  100% {
+    background-color: #d4e2fc;
+  }
+}
+
+.sidebar {
+  width: 100%;
+  background-color: white;
+  padding: 10px;
+  overflow-y: auto;
+  border-radius: 8px;
+  height: 100%;
+}
+
+.videoItem {
+  display: flex;
+  margin-bottom: 10px;
+  width: 100%;
+  color: black;
+  background-color: white;
+  padding: 5px;
+  border-radius: 8px;
+  align-items: center;
+  transition: background-color 0.3s ease, transform 0.3s ease;
+}
+
+
+.selected {
+  animation: scaleUp 0.3s ease-in-out, highlight 0.3s ease-in-out;
+  transform: scale(1.03);
+  margin-bottom: 30px;
+}
+
+.upNext {
+  font-size: 16px;
+  color: #777;
+  margin-bottom: 5px;
+  padding-left: 10px;
+}
+
+.thumbnailWrapper {
+  position: relative;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+.thumbnailWrapper:hover {
+  transform: scale(1.02);
+  cursor: pointer;
+}
+
+.thumbnail {
+  width: 150px;
+  height: 84px; /* Maintain aspect ratio */
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.duration {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background-color: rgba(0, 0, 0, 0.75);
+  color: #ffffff;
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-size: 12px;
+}
+
+.videoInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.title {
+  font-size: 12px;
+  font-weight: bold;
+  max-height: 100%;
+  overflow: hidden;
+  margin: 0;
+  margin-bottom: 5px;
+}
+
+.subTitle {
+  font-size: 10px;
+  max-height: 100%;
+  overflow: hidden;
+  margin: 0;
+  margin-bottom: 5px;
+}
+
+.disciplines {
+  font-size: 8px;
+  color: #777;
+  margin-bottom: 10px;
+}
+
+.coachInfo {
+  display: flex;
+  align-items: center;
+}
+
+.coachAvatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+
+.coachName {
+  font-size: 12px;
+  color: #aaaaaa;
+}
+
+.addVideoButton {
+  background-color: black;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 59px;
+  border: none;
+  display: flex;
+  align-items: center;
+}
+
+.addVideoButton:hover {
+  background: #6B6B6B;
+  color: white;
+}
+
+@media screen and (max-width: 768px) {
+  .sidebar {
+    height: auto;
+    margin: 0px;
+  }
+
+  .videoItem {
+    margin-bottom: 10px;
+    width: 100%;
+  }
+
+  .videoInfo {
+    width: 100%;
+    margin-left: 10px
+  }
+}

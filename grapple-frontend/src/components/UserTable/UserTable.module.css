@@ -1,0 +1,376 @@
+.tableControls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.searchContainer {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.searchInputWrapper {
+  position: relative;
+  width: 400px;
+  flex: 1;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #6c757d;
+  z-index: 2;
+}
+
+.searchInputWrapper input {
+  padding-left: 36px;
+  width: 100%;
+}
+
+.searchButton {
+  border-radius: 20px !important;
+  padding-left: 24px !important;
+  padding-right: 24px !important;
+  background-color: black !important;
+  border: none !important;
+}
+
+.searchButton:hover {
+  background-color: #333 !important;
+}
+
+.tableWrapper {
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  overflow-x: auto; /* Enable horizontal scrolling on mobile */
+}
+
+.table {
+  width: 100%;
+}
+
+.table th {
+  font-size: 14px;
+  color: #6c757d;
+  font-weight: 500;
+  padding: 12px 16px;
+  background: white;
+}
+
+.table td {
+  padding: 12px 16px;
+  border-top: 1px solid #f1f3f5;
+}
+
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.profileImage {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.userName {
+  font-weight: 500;
+}
+
+.contactInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.email {
+  font-size: 14px;
+}
+
+.phone {
+  font-size: 14px;
+  color: #6c757d;
+}
+
+.membershipBadge {
+  padding: 6px 12px;
+  border-radius: 16px;
+  font-size: 14px;
+  background-color: #f8f9fa;
+  display: inline-block;
+}
+
+.roleSelect {
+  min-width: 120px;
+  border-radius: 4px;
+  border: 1px solid #dee2e6;
+  padding: 6px 12px;
+}
+
+.inviteButton {
+  color: #0d6efd;
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 6px 12px;
+}
+
+.inviteButton:hover {
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+
+.filterContainer {
+  display: flex;
+  gap: 16px;
+  max-width: 40%;
+  width: 40%;
+  margin-left: 25px;
+  overflow-x: scroll;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.filterItem {
+  padding: 6px 12px;
+  color: #666666;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.filterItem:hover {
+  color: white;
+  background: black;
+}
+
+.filterItem.active {
+  color: white;
+  font-weight: 500;
+  background: black;
+}
+
+.button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #6c757d;
+  background-color: transparent;
+  text-decoration: underline;
+  border: none;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 4px;
+}
+
+.button:hover,
+.button:focus,
+.button:active {
+  color: #4a4a4a;
+  text-decoration-thickness: 2px;
+  background-color: rgba(108, 117, 125, 0.1);
+}
+
+.tableControls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.sortableHeader {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s;
+}
+
+.sortableHeader:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.headerContent {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: space-between;
+  padding: 0.5rem;
+}
+
+.sortIcon {
+  display: flex;
+  align-items: center;
+  color: #6c757d;
+  font-size: 0.875rem;
+}
+
+.headerContent:hover .sortIcon {
+  opacity: 1;
+}
+
+/* UserTable.module.css */
+.paginationControls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1rem;
+  padding: 1rem;
+}
+
+.pageSizeSelector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pageSizeSelect {
+  width: 80px;
+  margin: 0 0.5rem;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pageInfo {
+  margin: 0 1rem;
+}
+
+/* New styles for top buttons container and QR button */
+.topButtons {
+  display: none;
+}
+
+.qrButton {
+  background-color: black;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s ease;
+  margin-left: 8px;
+}
+
+.qrButton:hover {
+  background-color: #333;
+}
+
+/* Mobile styles */
+@media screen and (max-width: 768px) {
+  .tableWrapper {
+    padding: 8px;
+    margin: 0 -16px; /* Negative margin to make table full width on mobile */
+  }
+
+  .table th,
+  .table td {
+    padding: 8px;
+    font-size: 12px;
+  }
+
+  .userInfo {
+    gap: 8px;
+  }
+
+  .profileImage {
+    width: 24px;
+    height: 24px;
+  }
+
+  .userName {
+    font-size: 12px;
+  }
+
+  .email {
+    font-size: 12px;
+  }
+
+  .membershipBadge {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+
+  /* Make the action buttons more compact */
+  .table td:last-child {
+    white-space: nowrap;
+  }
+
+  .table td:last-child button {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+
+  /* Stack filters horizontally on mobile */
+  .filterContainer {
+    flex-direction: row;      /* Horizontal layout */
+    flex-wrap: nowrap;        /* Prevent wrapping */
+    white-space: nowrap;      /* Force inline display */
+    overflow-x: auto;         /* Enable horizontal scrolling */
+    margin-top: 8px;
+    width: 100%;              /* Full width */
+    max-width: 100%;          /* Override any lower max-width */
+    margin-left: 0;           /* Remove extra left margin */
+    gap: 8px;
+  }
+
+  .filterItem {
+    width: auto;
+    text-align: center;
+  }
+
+  /* Adjust table control spacing */
+  .tableControls {
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .searchContainer {
+    width: 100%;
+  }
+
+  .searchInputWrapper {
+    width: 100%;
+  }
+
+  .topButtons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+}
+
+/* Handle very small screens */
+@media screen and (max-width: 480px) {
+  .table th,
+  .table td {
+    padding: 6px;
+    font-size: 11px;
+  }
+
+  .profileImage {
+    width: 20px;
+    height: 20px;
+  }
+
+  .membershipBadge {
+    padding: 2px 6px;
+    font-size: 11px;
+  }
+}

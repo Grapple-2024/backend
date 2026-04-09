@@ -1,0 +1,133 @@
+body {
+  font-family: "Poppins", sans-serif;
+  font-style: normal;
+  font-weight: 400;
+}
+
+h1 {
+  font-family: "Poppins", sans-serif;
+  font-style: normal;
+  font-weight: 400;
+}
+
+h2 {
+  font-family: "Poppins", sans-serif;
+  font-style: normal;
+  font-weight: 400;
+}
+
+h3 {
+  font-family: "Poppins", sans-serif;
+  font-style: normal;
+  font-weight: 400;
+}
+
+h4 {
+  font-family: "Poppins", sans-serif;
+  font-style: normal;
+  font-weight: 400;
+}
+
+h5 {
+  font-family: "Poppins", sans-serif;
+  font-style: normal;
+  font-weight: 400;
+}
+
+h6 {
+  font-family: "Poppins", sans-serif;
+  font-style: normal;
+  font-weight: 400;
+}
+
+p {
+  font-family: "Poppins", sans-serif;
+  font-style: normal;
+  font-weight: 400;
+}
+
+div {
+  font-family: "Poppins", sans-serif;
+  font-style: normal;
+  font-weight: 400;
+}
+
+button.nav-link {
+  background-color: transparent !important;
+  color: black !important;
+}
+
+This will affect the entire document
+::-webkit-scrollbar {
+  -webkit-appearance: none;
+}
+
+::-webkit-scrollbar:horizontal {
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, .5);
+  border-radius: 10px;
+  border: 2px solid #ffffff;
+}
+
+::-webkit-scrollbar-track {
+  background-color: #ffffff;
+  border-radius: 10px; 
+}
+
+.page-link {
+  color: black !important;
+}
+
+.active>.page-link {
+  background-color: black !important;
+  color: white !important;
+  border-color: black !important;
+}
+
+.card-hover {
+  transition: transform 0.3s ease-in-out;
+}
+
+.card-hover:hover {
+  background-color: #e9ecef;
+  cursor: pointer;
+  transform: scale(1.02);
+}
+
+.dropdown-item.active,
+.dropdown-item:active,
+.dropdown-item:focus {
+  background-color: black !important;
+  color: white !important;
+}
+
+
+
+.videoJs :global(.vjs-tech) {
+  object-fit: contain;
+}
+
+/* Make control bar more touch-friendly */
+.videoJs :global(.vjs-control-bar) {
+  height: 3em;
+}
+
+.videoJs :global(.vjs-button) {
+  height: 3em;
+  width: 3em;
+}
+
+/* Ensure play button is clearly visible */
+.videoJs :global(.vjs-big-play-button) {
+  font-size: 2em;
+  line-height: 2em;
+  height: 2em;
+  width: 2em;
+  border-radius: 50%;
+  margin-left: -1em;
+  margin-top: -1em;
+}
+

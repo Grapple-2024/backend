@@ -1,0 +1,116 @@
+.seriesWrapperContainer {
+  padding: 10px;
+  background-color: #F1F5F9;
+}
+
+.title {
+  font-size: 24px;
+  margin-bottom: 20px;
+  font-weight: bold;
+}
+
+.seriesList {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.seriesWrapper {
+  display: flex;
+  background: white;
+  border-radius: 15px;
+  overflow: hidden;
+  padding: 10px;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  align-items: center;
+  cursor: pointer;
+}
+
+.seriesWrapper:hover {
+  transform: scale(1.02);
+  box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.thumbnailContainer {
+  position: relative;
+  margin-right: 15px;
+  flex-shrink: 0;
+}
+
+.thumbnail {
+  width: 150px;
+  height: 84px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.difficulty {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.videoDuration {
+  position: absolute;
+  bottom: 5px;
+  right: 5px;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.videoInfo {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  flex: 1;
+}
+
+.seriesTitle {
+  font-size: 16px;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.disciplineBadge {
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: #FFF;
+  font-weight: bold;
+}
+
+.coachInfo {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: #666;
+  margin-top: auto;
+}
+
+.coachAvatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-right: 5px;
+}
+
+.coachName {
+  font-size: 12px;
+  color: #666;
+}
+
+.noSeries {
+  text-align: center;
+  font-size: 16px;
+  color: #999;
+}

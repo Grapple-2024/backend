@@ -1,0 +1,81 @@
+/* PricingCard.module.css */
+
+.card {
+  background-color: #f1f5f9;
+  color: var(--black);
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.5s ease-in, transform 0.5s ease-in;
+}
+
+.cardVisible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.cardCenter {
+  height: auto;
+  margin-top: 0;
+}
+
+.cardNotCenter {
+  height: auto;
+  margin-top: 30px;
+}
+
+.cardImg {
+  width: 100%;
+  height: auto;
+  max-height: 150px;
+  object-fit: cover;
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.cardTitle {
+  font-weight: normal;
+}
+
+.cardButton {
+  color: white;
+  border-color: #F24B4B;
+  background-color: black;
+  margin-top: auto;
+}
+
+.cardButtonOutline {
+  background-color: black;
+  border-color: #F24B4B;
+  color: white;
+}
+
+.cardLeftRight {
+  width: 85%;
+  margin: auto;
+}
+
+.cardMiddle {
+  width: 100%;
+  margin: auto;
+}
+
+@media (max-width: 767px) {
+  .card {
+    height: auto;
+    margin-top: 20px;
+  }
+
+  .cardCenter, .cardNotCenter {
+    height: auto;
+    margin-top: 20px;
+  }
+
+  .cardLeftRight, .cardMiddle {
+    width: 100%;
+    margin: auto;
+  }
+}

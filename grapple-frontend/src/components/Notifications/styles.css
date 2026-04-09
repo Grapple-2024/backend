@@ -1,0 +1,28 @@
+/* Ensure the switch retains its shape and functionality */
+.form-check-input::before {
+  outline: none;
+  box-shadow: none;
+  background-color: black;
+}
+
+.form-check-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.form-check-input:checked {
+  background-color: black;
+  border-color: black;
+}
+
+.form-check-label {
+  color: black;
+  margin-left: 0.5em;
+}
+
+.form-check-input:focus {
+  border-color: black;
+}
+.form-check-input:checked::before {
+  background-color: black;
+}

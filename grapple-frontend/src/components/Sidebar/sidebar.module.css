@@ -1,0 +1,304 @@
+/* General Sidebar Styles */
+.sidebarContainer {
+  width: 100%;
+  height: 100vh;
+  background-color: white;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  border-right: 2px solid #CBD5E0;
+}
+
+.sidebarOpen {
+  transform: translateX(0);
+  width: 100%; /* Full width when open */
+}
+
+.sidebarClosed {
+  width: 100%; /* Mini sidebar width */
+  transform: translateX(0); /* Ensure mini-sidebar stays visible */
+}
+
+/* Hide unnecessary details in collapsed state */
+.sidebarClosed .profileDetails,
+.sidebarClosed .navLinkTitle,
+.sidebarClosed .signOutText {
+  display: none;
+}
+
+.navLinkSidebarIconCollapsed {
+  display: none;
+}
+
+.sidebarClosed .navLinkSidebar {
+  width: 100%;
+  justify-content: center; /* Center icons in mini sidebar */
+}
+
+.navLinkSidebarIcon {
+  font-size: 24px; /* Adjust icon size */
+}
+
+/* Sidebar Profile Section */
+.profileDetails {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.sidebarClosed .profileDetails {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(-20px);
+}
+
+/* Avatar Row */
+.avatarRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 8vh;
+  background-color: white;
+  border-bottom: 2px solid #CBD5E0;
+  position: relative;
+}
+
+.sidebarClosed .avatarRow {
+  height: 8vh;
+}
+
+/* Gym Selector */
+.gymSelectorContainer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0;
+  cursor: pointer;
+  background-color: white;
+  padding-left: 20px;
+  padding-right: 20px;
+  transition: background-color 0.2s ease;
+}
+
+.gymSelectorContainer:active {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 15px;
+  cursor: pointer;
+  background-color: #f8f9fa;
+  transition: background-color 0.2s ease;
+}
+
+
+.gymSelectorContainer:hover {
+  background-color: #e8e8e8;
+}
+
+.gymNameColumn {
+  display: flex;
+  align-items: center;
+  flex-grow: 1;
+  overflow: hidden;
+  padding-left: 20px;
+}
+
+.gymName {
+  font-size: 16px;
+  font-weight: 500;
+  color: #333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.createGymItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 15px;
+  cursor: pointer;
+  color: #333;
+  font-weight: 500;
+  border-bottom: 1px solid #e2e8f0;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.createGymItem:hover {
+  background-color: #f8f9fa;
+  color: #000;
+}
+
+.createGymItem:active {
+  background-color: #e8e8e8;
+}
+
+.navLinkSidebar {
+  width: 100%;
+  padding: 10px;
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  border-top-right-radius: 30px;
+  border-bottom-right-radius: 30px;
+  transition: background 0.3s, opacity 0.3s ease-in-out; 
+  cursor: pointer;
+}
+
+.navLinkSidebar:hover {
+  background: black;
+  border-top-right-radius: 30px;
+  border-bottom-right-radius: 30px;
+  color: white;
+}
+
+.navLinkSidebarActiveOpen {
+  background: black;
+  border-top-right-radius: 30px;
+  border-bottom-right-radius: 30px;
+  color: white;
+}
+
+.navLinkSidebarActiveClosed {
+  background: black;
+  border-top-right-radius: 30px;
+  border-bottom-right-radius: 30px;
+}
+
+.navLinkTitle {
+  margin: 0 auto;
+  font-size: 16px;
+  font-weight: bold;
+}
+
+/* Hide Text in Mini Sidebar */
+.sidebarClosed .navLinkTitle {
+  display: none;
+}
+
+
+.dropdownContainer {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  background-color: white;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  z-index: 1100; /* Dropdown appears above everything */
+}
+
+.dropdownItem {
+  padding: 12px 15px;
+  cursor: pointer;
+  color: #333;
+  transition: background-color 0.2s ease;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.dropdownItem:hover {
+  background-color: #f8f9fa;
+}
+
+/* Sign Out Container - Full Sidebar Open */
+.signOutContainerOpen {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  width: calc(100% - 40px); /* Full width with padding */
+  padding: 10px;
+  cursor: pointer;
+  color: #F24B4B;
+  transition: background-color 0.2s ease;
+}
+
+.signOutContainerOpen:hover {
+  background-color: #fdecea;
+}
+
+/* Sign Out Container - Mini Sidebar Closed */
+.signOutContainerClosed {
+  display: flex;
+  align-items: center;
+  justify-content: center; /* Center icon in mini sidebar */
+  position: absolute;
+  bottom: 20px;
+  left: 0;
+  width: 100%;
+  padding: 10px 0;
+  cursor: pointer;
+  color: #F24B4B;
+  transition: background-color 0.2s ease;
+}
+
+.signOutContainerClosed:hover {
+  background-color: #fdecea;
+}
+
+/* Sign Out Text Container */
+.signOutTextContainer {
+  display: flex;
+  align-items: center;
+  gap: 10px; /* Space between icon and text */
+}
+
+.signOutText {
+  font-weight: bold;
+  font-size: 16px;
+  color: #F24B4B;
+}
+
+
+@media (max-height: 700px) {
+  .avatarRow {
+    height: 10vh !important;
+    border-bottom: 2px solid #CBD5E0 !important;
+  }
+}
+
+/* Mobile-Specific Sidebar Styles */
+@media (max-width: 768px) {
+  .sidebarContainer {
+    max-width: 400px;
+    height: 100%;
+    background-color: white;
+    transform: translateX(-100%);
+    z-index: 1000;
+    box-shadow: 2px 0 5px rgba(0, 0, 0, 0.2);
+  }
+
+  .sidebarOpen {
+    transform: translateX(0);
+  }
+
+  .sidebarClosed {
+    transform: translateX(-100%); /* Hide sidebar in mini mode */
+  }
+
+  /* Dropdown Fix */
+  .dropdownContainer {
+    z-index: 1100;
+  }
+
+  /* Sign Out Mobile Fix */
+  .signOutContainer {
+    bottom: 20px;
+    left: 20px;
+    width: calc(100% - 40px);
+  }
+
+  .sidebarClosed .signOutContainer {
+    justify-content: center;
+  }
+
+  /* Adjust Avatar Row */
+  .avatarRow {
+    height: 10vh;
+  }
+}

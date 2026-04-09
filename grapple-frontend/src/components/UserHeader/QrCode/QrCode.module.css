@@ -1,0 +1,95 @@
+.qrWrapper {
+  background-color: #f8f9fc;
+  padding: 1rem;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  cursor: pointer !important;
+}
+
+.qrWrapper:hover {
+  background-color: #f0f2f8;
+  cursor: pointer !important;
+}
+
+.title {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #666;
+}
+
+.qrContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+  cursor: pointer !important;
+  background: white;
+  border-radius: 0.375rem;
+}
+
+.modal :global(.modal-content) {
+  border-radius: 8px;
+  border: none;
+}
+
+.modal :global(.modal-header) {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.modalBody {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem 1.5rem 1.5rem;
+  cursor: pointer;
+}
+
+.modalQrContainer {
+  background: white;
+  padding: 1rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+}
+
+.qrCode {
+  border-radius: 0.25rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  width: 100%;
+}
+
+.mainButton {
+  background-color: black !important;
+  border-color: black !important;
+  color: white !important;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  flex: 1;
+}
+
+.button {
+  background-color: black !important;
+  border-color: black !important;
+  color: white !important;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  flex: 1;
+  max-width: 120px;
+}
+
+.button:hover {
+  background-color: #333 !important;
+  border-color: #333 !important;
+}

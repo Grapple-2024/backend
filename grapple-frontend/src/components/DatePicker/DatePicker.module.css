@@ -1,0 +1,88 @@
+.weekPicker {
+  width: 100%;
+  background-color: #F1F5F9;
+  border-radius: 10px;
+  text-align: left;
+  height: 10vh;
+  padding: 0px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.monthYear {
+  font-size: 24px;
+  font-weight: bold;
+  text-align: left;
+}
+
+.navIcons {
+  display: flex;
+  gap: 10px;
+}
+
+.navIcon {
+  font-size: 30px;
+  color: #000; /* Set the chevron color to black */
+  background-color: #fff; /* Set the background color to white */
+  border-radius: 50%; /* Make it circular */
+  padding: 5px; /* Add padding to create spacing */
+  box-shadow: 0 0 5px rgba(0, 0, 0, 0.2); /* Add a subtle shadow */
+  cursor: pointer;
+  transition: color 0.3s ease, box-shadow 0.3s ease; /* Add transitions */
+}
+
+.navIcon:hover {
+  color: #333; /* Slightly darker color on hover */
+}
+
+.disabledIcon {
+  color: #ccc; /* Light grey color for disabled state */
+  cursor: not-allowed;
+  pointer-events: none; /* Disable click events */
+  box-shadow: none; /* Remove shadow for disabled state */
+}
+
+.days {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 60px;
+  padding: 10px;
+  border-radius: 12px; /* Rounded corners for the selected day */
+  cursor: pointer;
+  transition: background-color 0.3s ease, color 0.3s ease; /* Add transitions */
+}
+
+.dayName {
+  font-size: 14px;
+  color: #888;
+  margin-bottom: 5px;
+}
+
+.dayDate {
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.selected {
+  background-color: #000;
+  color: #fff;
+}
+
+.disabled {
+  color: #ccc; /* Light grey color for disabled days */
+  pointer-events: none;
+  cursor: not-allowed;
+}

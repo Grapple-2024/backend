@@ -1,0 +1,162 @@
+.container {
+  height: 100%;
+  min-height: 0;
+}
+
+.videoContainer {
+  margin: 0;
+  height: 50vh;
+}
+
+.spacer {
+  margin: 0;
+  padding: 0;
+  height: 2vh;
+}
+
+.titleRow {
+  margin: 0;
+  height: 2vh;
+}
+
+.titleCol {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+}
+
+.videoTitle {
+  font-size: 28px;
+  margin-left: 20px;
+  margin-bottom: 0;
+}
+
+.disciplineCol {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.coachInfo {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  height: 8vh;
+}
+
+.coachAvatar {
+  height: 65px;
+  width: 65px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-right: 15px;
+}
+
+.coachName {
+  font-size: 16px;
+  font-weight: bold;
+}
+
+.buttonContainer {
+  display: flex;
+  justify-content: flex-end;
+  padding-right: 20px;
+  padding-bottom: 0;
+}
+
+.actionButton {
+  border-radius: 18px;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  background-color: white;
+  margin-left: 10px;
+}
+
+.actionButton:hover {
+  background-color: #F1F5F9;
+}
+
+.actionButtonShare {
+  margin-left: 20px;
+  border-radius: 18px;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  background-color: white;
+}
+
+.actionIcon {
+  font-size: 22px;
+  cursor: pointer;
+  margin-right: 5px;
+}
+
+.actionText {
+  font-size: 16px;
+  margin-bottom: 0;
+  margin-left: 5px;
+  cursor: pointer;
+}
+
+.actionIcon {
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.actionText {
+  font-size: 16px;
+  margin-bottom: 0;
+  margin-left: 5px;
+  cursor: pointer;
+}
+
+.descriptionContainer {
+  margin-left: 0;
+  background-color: white;
+  border-top-right-radius: 35px;
+  border-top-left-radius: 35px;
+  height: 16vh;
+  padding: 30px;
+}
+
+.descriptionContent {
+  height: 100%;
+}
+
+@media (max-height: 700px) {
+  
+  .descriptionContainer {
+    margin-left: 0;
+    background-color: white;
+    border-top-right-radius: 35px;
+    border-top-left-radius: 35px;
+    height: 8vh !important;
+    padding: 30px;
+    margin-top: 30px;
+  }
+
+  .spacer {
+    margin: 0;
+    padding: 0;
+    height: 3vh !important;
+  }
+
+  .coachInfo {
+    height: 3vh !important;
+  }
+
+  .titleRow {
+    margin: 0;
+    height: 2vh;
+  }
+}

@@ -1,11 +1,11 @@
-cmd/auth
-
-cmd/wipe-db
-
-samconfig.yml
+backend/bin/
 
 .aws-sam/*
 .aws-sam
+samconfig.yml
+
+# frontend
+grapple-frontend/.next/
+grapple-frontend/node_modules/
 
 .DS_Store
-main

@@ -1,0 +1,59 @@
+.colContainer {
+  display: flex;
+  align-items: center;
+}
+
+.title {
+  margin: 0;
+  padding: 0;
+  font-weight: bold;
+}
+
+.buttonCol {
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 20px;
+}
+
+.buttonStyle {
+  background-color: black;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 59px;
+  border: none;
+  display: flex;
+  align-items: center;
+}
+
+.buttonStyle:hover {
+  background: #6B6B6B;
+  color: white;
+}
+
+/* Add this to change background color when dropdown is open */
+.dropdown.show .buttonStyle {
+  background-color: #6B6B6B;
+  color: white;
+}
+
+.imageIcon {
+  margin-right: 10px;
+}
+
+.buttonText {
+  margin-top: 1px;
+  padding: 0;
+}
+
+@media (max-width: 768px) {
+  .buttonCol {
+    margin-top: 10px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+  }
+}

@@ -1,0 +1,26 @@
+.statsContainer {
+    margin-bottom: 24px;
+}
+
+.statsWrapper {
+    background-color: white;
+    border-radius: 10px;
+    padding: 10px;
+}
+
+.statBox {
+    background: white;
+    padding: 16px;
+    border-radius: 8px;
+}
+
+.statLabel {
+    font-size: 14px;
+    color: #6c757d;
+    margin-bottom: 8px;
+}
+
+.statValue {
+    font-size: 24px;
+    font-weight: 600;
+}

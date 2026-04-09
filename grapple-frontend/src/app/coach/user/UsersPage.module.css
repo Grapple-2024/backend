@@ -1,0 +1,24 @@
+.container {
+    padding: 24px;
+    background-color: #f8f9fa;
+}
+  
+.header {
+    height: 30vh;
+}
+
+.table {
+    height: 52vh;
+}
+
+@media (max-width: 768px) {
+  
+    .header {
+        height: 20vh;
+    }
+  
+    .table {
+        height: 60vh;
+    }
+    
+}

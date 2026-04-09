@@ -1,0 +1,44 @@
+.profile-header {
+  padding: 30px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  margin-bottom: 20px;
+  background-color: #fff;
+}
+
+.header-row {
+  margin-bottom: 10px;
+}
+
+.address-col {
+  text-align: right;
+}
+
+.disciplines-row {
+  margin-top: 20px;
+}
+
+.disciplines-list {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.discipline-item {
+  margin-left: 10px;
+}
+
+/* Media Queries for Mobile View */
+@media (max-width: 767px) {
+  .address-col {
+    text-align: left;
+    margin-top: 20px;
+  }
+
+  .disciplines-row {
+    order: 2; /* Move the disciplines row to the bottom */
+  }
+
+  .header-row {
+    order: 1; /* Ensure header row is at the top */
+  }
+}

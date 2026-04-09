@@ -1,0 +1,99 @@
+/* Subscribe.module.css */
+
+.container {
+  background-color: #f1f5f9;
+  padding: 50px;
+  border-radius: 10px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.header {
+  color: #F24B4B;
+  font-size: 2.5rem;
+}
+
+.paragraph {
+  color: #7C7C7C;
+  font-size: 1.25rem;
+}
+
+.form {
+  display: flex;
+  align-items: center;
+}
+
+.formGroup {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.label {
+  color: #000;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.input {
+  padding: 10px;
+  border-radius: 5px;
+  border: 1px solid #7C7C7C;
+  font-size: 1rem;
+}
+
+.text {
+  font-size: 0.875rem;
+  color: #7C7C7C;
+}
+
+.link {
+  color: #F24B4B;
+  text-decoration: underline;
+}
+
+.button {
+  margin-top: 4px;
+  padding: 10px 20px;
+  margin-left: 20px;
+  font-weight: bold;
+  border-radius: 5px;
+  background-color: black;
+  border-color: #F24B4B;
+}
+.button:hover {
+  background-color: #F24B4B;
+  border-color: black;
+  color: black; /* Change text color to match the new background */
+}
+
+@media (max-width: 767px) {
+  .container {
+    padding: 20px;
+  }
+
+  .header {
+    font-size: 1.75rem;
+    text-align: center;
+  }
+
+  .paragraph {
+    font-size: 1rem;
+    text-align: center;
+  }
+
+  .form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .formGroup {
+    margin-bottom: 10px;
+  }
+
+  .button {
+    margin-left: 0;
+    margin-top: 10px;
+    width: 100%;
+  }
+}

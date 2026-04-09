@@ -1,0 +1,72 @@
+/* Main container for tabs */
+.searchTabs {
+  width: 100%;
+}
+
+/* Target Bootstrap classes within our container */
+.searchTabs :global(.nav-tabs) {
+  display: flex !important;
+  flex-direction: row !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  list-style: none !important;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.searchTabs :global(.nav-item) {
+  flex: 1 1 auto !important;
+  text-align: center !important;
+  margin: 0 !important;
+}
+
+.searchTabs :global(.nav-link) {
+  display: block !important;
+  padding: 0.5rem 1rem !important;
+  border: 1px solid transparent;
+  border-top-left-radius: 0.25rem;
+  border-top-right-radius: 0.25rem;
+  color: #6c757d;
+}
+
+.searchTabs :global(.nav-link.active) {
+  color: #495057;
+  background-color: #fff;
+  border-color: #dee2e6 #dee2e6 #fff;
+}
+
+/* Custom menu styles */
+.menuItem {
+  padding: 8px;
+  cursor: pointer;
+  transition: background-color 0.3s, color 0.3s;
+  color: black;
+}
+
+.menuItem:hover {
+  background-color: black;
+  color: white;
+}
+
+.menuContainer {
+  padding: 8px;
+}
+
+.noResults {
+  padding: 10px;
+  text-align: center;
+  color: #6c757d;
+}
+
+/* Mobile styles */
+@media (max-width: 768px) {
+  .searchTabs :global(.nav-tabs) {
+    display: flex !important;
+    flex-direction: row !important;
+  }
+
+  .searchTabs :global(.nav-item) {
+    width: 50% !important;
+    float: none !important;
+    display: block !important;
+  }
+}

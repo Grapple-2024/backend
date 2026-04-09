@@ -1,0 +1,8 @@
+.disciplines {
+  display: flex;
+  gap: 5px; /* Space between discipline badges */
+  margin-bottom: 10px;
+  text-align: center;
+  font-size: 8px;
+  padding: 0;
+}

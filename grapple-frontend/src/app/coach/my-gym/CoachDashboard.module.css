@@ -1,0 +1,81 @@
+/* CoachDesktopDashboard.module.css */
+
+.container {
+  margin: 0;
+  padding: 0;
+}
+
+.leftColumn {
+  height: 100%;
+  padding: 0;
+}
+
+.rightColumn {
+  border-left: 2px solid #CBD5E0;
+  padding: 0;
+  margin: 0;
+  height: 100%;
+}
+
+.datePickerRow {
+  margin: 0;
+  padding-right: 30px;
+  padding-left: 30px;
+  padding-top: 10px;
+  height: 16vh;
+}
+
+.scheduleRow {
+  margin: 0;
+  padding-right: 30px;
+  padding-left: 30px;
+  padding-top: 30px;
+  height: 54vh;
+}
+
+.upgradeRow {
+  margin: 0;
+  padding: 0px 30px 10px 30px;
+  height: 22vh;
+}
+
+@media (max-height: 700px) {
+  .scheduleRow {
+    margin: 0;
+    padding-right: 30px;
+    padding-left: 30px;
+    padding-top: 30px;
+    height: 52vh;
+  }
+}
+
+@media (max-width: 768px) {
+  .container {
+    margin: 0;
+    padding: 0; 
+    max-width: 100vw;
+  }
+
+  .datePickerRow { 
+    margin: 0;
+    padding: 0 20px 0 20px;
+    max-width: 100%; 
+    height: 18vh;
+  }
+
+  .scheduleRow { 
+    border-left: 2px solid #CBD5E0; 
+    padding: 0;
+    margin: 0; 
+    height: auto;
+  }
+
+  .upgradeRow {
+    display: none;
+  }
+
+  .leftColumn {
+    margin: 0;
+    padding: 0;
+  }
+}

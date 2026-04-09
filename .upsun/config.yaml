@@ -3,7 +3,7 @@ applications:
   # ── Go API backend ──────────────────────────────────────────────────────────
   grapple-backend:
     source:
-      root: "/"
+      root: "backend"
     type: "golang:1.22"
 
     hooks:
@@ -30,7 +30,7 @@ applications:
   # ── Next.js frontend ────────────────────────────────────────────────────────
   grapple-frontend:
     source:
-      root: "frontend/grapple-frontend"
+      root: "grapple-frontend"
     type: "nodejs:20"
 
     hooks:

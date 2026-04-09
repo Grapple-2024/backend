@@ -1,0 +1,19 @@
+.expandableText {
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+  padding: 0;
+}
+
+.textContent {
+  margin: 0;
+  padding: 0;
+  max-width: 100%;
+}
+
+.toggleButton {
+  color: black;
+  cursor: pointer;
+  text-decoration: underline;
+  margin-left: 5px;
+}

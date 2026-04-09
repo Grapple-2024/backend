@@ -1,0 +1,112 @@
+.container {
+  height: 90%;
+}
+
+.title {
+  text-align: center;
+  padding: 10px 0;
+}
+
+.content {
+  height: 100%;
+}
+
+.imageCol {
+  position: relative;
+  width: 50%;
+  height: 90vh;
+  display: flex;
+  align-items: center;
+}
+
+.imageContainer {
+  position: relative;
+  width: 100%;
+  height: 100%; /* Full height of parent */
+  min-height: 500px; /* Minimum height to ensure visibility */
+}
+
+.image {
+  width: 100%;
+  height: 100% !important; /* Override Next.js default styles */
+  object-fit: cover;
+  border-radius: 25px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 0;
+}
+
+.selectionCol {
+  margin-right: 5%;
+  position: relative;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.selectionContainer {
+  background: white;
+  padding: 30px;
+  border-radius: 15px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.subtitle {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.radioContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  align-items: flex-start;
+}
+
+.radioOption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.radioOption input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  color: black;
+  cursor: pointer;
+}
+
+.radioOption label {
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.radioOption input[type="radio"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: black;
+ }
+
+.nextButton {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  background: black;
+  color: white;
+  border: none;
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.nextButton:hover {
+  transform: scale(1.1);
+}

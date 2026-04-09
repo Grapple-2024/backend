@@ -1,0 +1,130 @@
+.seriesWrapperContainer {
+  padding: 0px;
+  background-color: #F1F5F9;
+  height: 25vh; /* Increased the overall container height */
+}
+
+.title {
+  font-size: 30px;
+  margin-bottom: 20px;
+  font-weight: bold;
+}
+
+.seriesList {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 15px;
+  overflow-x: auto;
+  height: 100%; /* Ensure the series list takes up full height */
+}
+
+.seriesWrapper {
+  flex: 0 0 auto;
+  width: 220px; /* Optional: Increase width to balance with height */
+  height: 100%;
+  background: white;
+  border-radius: 15px;
+  overflow: hidden;
+  padding: 3px; 
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.seriesWrapper:hover {
+  transform: scale(1.05);
+  box-shadow: 0px 4px 15px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+}
+
+.thumbnailContainer {
+  position: relative;
+  padding: 5px;
+  border-radius: 10px; 
+  height: 60%; /* Adjust height to allow for more space for text */
+}
+
+.thumbnail {
+  width: 100%;
+  height: 100%;
+  border-radius: 10px; 
+  object-fit: cover;
+}
+
+.difficulty {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: bold;
+  z-index: 2;
+}
+
+.videoDuration {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: white;
+  padding: 5px 8px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.textContainer {
+  padding: 10px;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.seriesTitle {
+  font-size: 14px;
+  font-weight: bold;
+  margin-bottom: 5px;
+}
+
+.disciplineBadge {
+  padding: 5px 10px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: #FFF;
+  font-weight: bold;
+}
+
+.infoRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center; /* Align items to the center */
+  font-size: 12px;
+  color: #666;
+  margin-top: auto;
+}
+
+.coachAvatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: cover;
+  margin-right: 5px; /* Space between avatar and coach name */
+}
+
+.coachName {
+  display: flex;
+  align-items: flex-end;
+  font-size: 12px;
+  color: #666;
+  margin-right: auto; /* Pushes the difficulty to the right */
+}
+
+.noSeries {
+  text-align: center;
+  font-size: 16px;
+  color: #999;
+}

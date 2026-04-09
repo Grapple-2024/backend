@@ -1,0 +1,46 @@
+.react-calendar {
+  border: none;
+  width: 100%;
+  overflow-y: auto;
+  max-height: 300px;
+}
+.react-daterange-picker__wrapper {
+  border: none;
+}
+
+.react-calendar__tile {
+  background: none;
+  border: none;
+  color: #333;
+}
+
+.react-calendar__tile--now {
+  background: none;
+}
+
+.react-calendar__tile--hasActive {
+  background: #FFEBE9;
+  border-radius: 10px;
+}
+
+.react-calendar__tile--active {
+  background-color: #FFEBE9 !important;
+  border-radius: 10px;
+}
+
+.react-calendar__tile--active:enabled:focus {
+  background-color: #FFEBE9 !important;
+  border-radius: 10px;
+}
+
+.highlightedTile {
+  background-color: #FFEBE9;
+  border-radius: 10px;
+}
+
+@media (max-width: 768px) {
+  .react-calendar {
+    width: 100%;
+    max-height: 200px; /* Set a maximum height for mobile */
+  }
+}

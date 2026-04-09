@@ -1,0 +1,215 @@
+.container {
+  padding: 30px;
+  max-width: 1200px;
+}
+
+.header {
+  margin-bottom: 28px;
+}
+
+.title {
+  margin: 0 0 4px 0;
+  font-weight: 600;
+  font-size: 22px;
+}
+
+.subtitle {
+  margin: 0;
+  color: #6c757d;
+  font-size: 14px;
+}
+
+/* ── Metric Cards ──────────────────────────────────────────── */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.card {
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 20px 22px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cardLabel {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #888;
+}
+
+.cardValue {
+  font-size: 28px;
+  font-weight: 700;
+  color: #111;
+  line-height: 1.1;
+}
+
+.cardSub {
+  font-size: 12px;
+  color: #aaa;
+}
+
+.cardValueDanger {
+  color: #dc3545;
+}
+
+/* ── Charts ────────────────────────────────────────────────── */
+.charts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.chartCard {
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 20px 22px;
+  background: #fff;
+}
+
+.chartTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 16px;
+}
+
+/* ── Needs Attention ───────────────────────────────────────── */
+.attentionPanel {
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.attentionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 22px;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.attentionTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+  margin: 0;
+}
+
+.attentionSection {
+  padding: 16px 22px;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.attentionSection:last-child {
+  border-bottom: none;
+}
+
+.attentionSectionLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #888;
+  margin-bottom: 10px;
+}
+
+.attentionRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f8f8f8;
+  gap: 8px;
+}
+
+.attentionRow:last-child {
+  border-bottom: none;
+}
+
+.attentionName {
+  font-size: 13px;
+  font-weight: 500;
+  color: #111;
+}
+
+.attentionMeta {
+  font-size: 12px;
+  color: #888;
+}
+
+.attentionRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.emptyText {
+  font-size: 13px;
+  color: #aaa;
+  margin: 0;
+}
+
+.allClear {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  gap: 8px;
+  text-align: center;
+  color: #888;
+}
+
+.allClearIcon {
+  font-size: 32px;
+}
+
+.pendingLink {
+  color: #000;
+  font-weight: 600;
+  text-decoration: underline;
+  font-size: 13px;
+}
+
+/* ── Loading ───────────────────────────────────────────────── */
+.loadingWrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 50vh;
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+  .cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .charts {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .container {
+    padding: 16px;
+  }
+  .cards {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+  .cardValue {
+    font-size: 22px;
+  }
+}

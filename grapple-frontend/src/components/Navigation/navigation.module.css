@@ -1,0 +1,233 @@
+.navbar {
+  width: 100%;
+  padding: 10px 20px;
+  height: 8vh;
+  background-color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: relative;
+  border-bottom: 2px solid #CBD5E0;
+}
+
+.searchContainer {
+  display: flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 20px;
+  position: absolute;
+  z-index: 1000;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.notificationAndAvatar {
+  display: flex;
+  align-items: center;
+  gap: 15px; /* Space between bell icon and avatar */
+}
+
+.bellContainer {
+  position: relative;
+  cursor: pointer;
+  margin-right: 10px;
+}
+
+.bellIcon {
+  cursor: pointer;
+}
+
+.notificationBadge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background-color: red;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 12px;
+}
+
+.avatar {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+@media (orientation: landscape) {
+  .navbar {
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 10px 20px;
+  }
+
+  .navbarTop {
+    flex: 1;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .logoContainer {
+    margin-right: auto; /* Move logo to the left */
+  }
+
+  .notificationAndAvatar {
+    gap: 10px;
+  }
+
+  .avatar {
+    width: 35px; /* Slightly smaller in landscape */
+    height: 35px;
+  }
+
+  .searchContainer {
+    width: 60%; /* Take up less space */
+  }
+
+  .cancelButton {
+    background-color: transparent;
+    border: none;
+    color: #333;
+    cursor: pointer;
+    font-size: 14px;
+    margin-left: 10px;
+  }
+}
+
+@media (max-height : 700px) {
+  .navbar {
+    width: 100%;
+    padding: 10px 20px;
+    height: 10vh;
+    background-color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    border-bottom: 2px solid #CBD5E0;
+  }
+}
+
+@media (max-width: 768px) {
+ /* Ensure Navbar stays single-row */
+  .navbar {
+    position: fixed;
+    height: 8vh; /* Compact height */
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 5px 15px;
+    z-index: 900;
+  }
+
+  .navbarTop {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  /* Arrow Icon for Sidebar Toggle */
+  .sidebarToggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 10px; /* Space from other elements */
+  }
+  
+  .arrowIcon {
+    position: absolute; /* Fix position relative to the sidebar */
+    top: 20px; /* Position vertically */
+    right: 10px; /* Align to the right inside the sidebar */
+    z-index: 1100; /* Ensure it appears above other elements */
+    color: black;
+    background-color: white;
+    border-radius: 100%;
+    padding: 0;
+    margin: 0;
+    transition: color 0.3s ease, transform 0.3s ease;
+  }
+  
+  .arrowIcon:hover {
+    color: #000; /* Darken on hover */
+  }
+  
+  .sidebarClosed .arrowIcon {
+    left: 10px; /* Position when sidebar is collapsed */
+    right: auto;
+  }
+  
+
+  .arrowOpen {
+    transform: rotate(180deg);
+  }
+
+  /* Search Icon */
+  .searchIcon {
+    font-size: 20px;
+    margin-right: 10px;
+    cursor: pointer;
+  }
+
+  /* Notification Bell */
+  .bellContainer {
+    position: relative;
+    margin-right: 10px;
+  }
+
+  .notificationBadge {
+    top: -3px;
+    right: -3px;
+    width: 16px;
+    height: 16px;
+    font-size: 10px;
+  }
+
+  /* Avatar */
+  .avatar {
+    width: 35px;
+    height: 35px;
+  }
+
+  /* Fix overlapping search container */
+  .searchContainer {
+    position: absolute;
+    top: 8vh;
+    width: 100vw;
+    transform: translateX(-50%);
+    background-color: white;
+    z-index: 1001; /* High z-index to avoid overlap */
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    padding: 5px 10px;
+    border-radius: 0 !important;
+  }
+
+  /* Compact elements in the header */
+  .notificationAndAvatar {
+    display: flex;
+    align-items: center;
+    gap: 8px; /* Reduced spacing */
+  }
+
+  .cancelButton {
+    background-color: transparent;
+    border: none;
+    color: #333;
+    cursor: pointer;
+    font-size: 16px;
+    margin-left: 30px;
+  }
+  
+
+  @media (max-height: 768px) {
+    .navbar {
+      height: 10vh; /* Slightly larger for shorter screens */
+    }
+  }
+
+}

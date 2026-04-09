@@ -1,0 +1,105 @@
+.modalContent {
+  border-radius: 12px;
+  border: none;
+  box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.modalHeader {
+  border-bottom: none;
+  padding: 1.5rem 1.5rem 0.5rem;
+}
+
+.modalCloseButton {
+  padding: 1rem;
+}
+
+.modalTitle {
+  font-weight: 600;
+}
+
+.modalFooter {
+  border-top: none;
+  padding: 1rem 1.5rem 1.5rem;
+}
+
+.uploadContainer {
+  padding: 1rem;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.hiddenInput {
+  display: none;
+}
+
+.dropZone {
+  border: 2px dashed #e2e8f0;
+  border-radius: 12px;
+  padding: 2rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.dropZone:hover {
+  border-color: #000;
+  background-color: #f8f9fa;
+}
+
+.dropZoneText {
+  margin: 1rem 0 0.5rem 0;
+  font-weight: 500;
+  color: #333;
+}
+
+.dropZoneSubtext {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.previewContainer {
+  position: relative;
+  width: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  background-color: #f8f9fa;
+}
+
+.previewImage {
+  object-fit: cover;
+}
+
+.primaryButton {
+  background: black;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 25px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.primaryButton:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.secondaryButton {
+  background: white;
+  color: black;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 25px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+.primaryButton:hover:not(:disabled),
+.secondaryButton:hover {
+  transform: scale(1.05);
+}

@@ -1,0 +1,109 @@
+/* General Navbar styles */
+.navbar {
+  width: 100%;
+  padding: 10px 10px;
+  background-color: white;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+}
+
+.navbarTop {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Placeholder for menu button */
+.burgerPlaceholder {
+  width: 50px; /* Consistent width for alignment */
+}
+
+.logoContainer {
+  margin-top: 7px;
+}
+
+.logo {
+  height: 45px;
+  max-height: 100%;
+}
+
+.notificationAndAvatar {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.bellContainer {
+  position: relative;
+  cursor: pointer;
+}
+
+.bellIcon {
+  cursor: pointer;
+}
+
+.notificationBadge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background-color: red;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 12px;
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.searchIcon {
+  font-size: 24px;
+  cursor: pointer;
+}
+
+.searchContainer {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cancelButton {
+  background-color: transparent;
+  border: none;
+  color: #333;
+  cursor: pointer;
+  font-size: 16px;
+  margin-left: 10px;
+}
+
+.sidebarToggle {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.arrowIcon {
+  width: 30px;
+  height: 30px;
+  transition: transform 0.3s ease;
+}
+
+.arrowOpen {
+  transform: rotate(180deg); /* Flip the arrow when sidebar is open */
+}
+
+
+/* Landscape mode adjustments */
+

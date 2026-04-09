@@ -1,0 +1,57 @@
+.belt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.strip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 3px;
+  overflow: hidden;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.stripHalf {
+  width: 14px;
+  height: 14px;
+}
+
+.stripFull {
+  width: 28px;
+  height: 14px;
+  border-radius: 3px;
+}
+
+/* white needs a border */
+.whiteStrip {
+  border: 1px solid #ccc;
+}
+
+.stripes {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 2px;
+}
+
+.pip {
+  width: 6px;
+  height: 14px;
+  background: #fff;
+  border-radius: 1px;
+  opacity: 0.85;
+}
+
+/* For white belt — dark pips */
+.pipDark {
+  background: #555;
+  opacity: 1;
+}
+
+.label {
+  text-transform: capitalize;
+}

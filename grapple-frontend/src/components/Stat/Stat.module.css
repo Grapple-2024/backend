@@ -1,0 +1,53 @@
+.statContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  background-color: white;
+  border: 2px solid #CBD5E0;
+  border-top: none;
+  border-right: none;
+  text-align: center;
+  width: 100%;
+  height: 100%;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: bold;
+  margin-bottom: 10px;
+  color: #7A7A7A; /* Title color */
+}
+
+.value {
+  font-size: 36px;
+  font-weight: bold;
+  color: black; /* Value color */
+  margin-bottom: 5px;
+}
+
+.subtitle {
+  font-size: 14px;
+  color: #7A7A7A; /* Subtitle color */
+}
+
+@media (max-width: 768px) {
+  .statContainer {
+    padding: 10px;
+  }
+
+  .title {
+    font-size: 16px;
+    margin-bottom: 5px;
+    height: 50px;
+  }
+
+  .value {
+    font-size: 24px;
+    margin-bottom: 5px;
+  }
+
+  .subtitle {
+    font-size: 12px;
+  }
+}

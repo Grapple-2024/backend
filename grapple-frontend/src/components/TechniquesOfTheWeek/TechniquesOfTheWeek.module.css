@@ -1,0 +1,82 @@
+/* TechniquesOfTheWeek.module.css */
+
+/* Keyframe Animation */
+@keyframes easeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.createRow {
+  animation: easeIn 0.5s ease-in-out;
+}
+
+/* General container styling */
+.seriesWrapperContainer {
+  background-color: #F1F5F9;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: bold;
+  margin-bottom: 20px;
+}
+
+.seriesList {
+  display: flex;
+  flex-direction: column;
+  background-color: #F1F5F9;
+  height: 100%;
+  padding-top: 10px;
+  padding-right: 10px;
+  padding-left: 10px;
+  padding-bottom: 0px;
+}
+
+.noSeries {
+  text-align: center;
+  height: 200px;
+}
+
+/* Media query for mobile devices */
+@media (max-width: 768px) {
+  .seriesWrapperContainer {
+    padding: 0px;
+    max-width: 100vw;
+    overflow: none;
+  }
+
+  .createRow {
+    margin-left: 10px;
+    margin-right: 10px;
+    margin-bottom: 0px;
+    animation: easeIn 0.5s ease-in-out;
+  }
+
+  .title {
+    font-size: 20px;
+    margin-bottom: 15px;
+  }
+
+  .seriesList {
+    padding: 0px; 
+    margin-top: 20px;
+  }
+
+  .noSeries {
+    height: 150px; /* Adjust height for mobile */
+    font-size: 16px; /* Smaller font size for mobile */
+  }
+
+  .techniqueCard {
+    margin: 0px 10px 10px; /* Reduced margin for mobile */
+    padding: 0; /* No padding for mobile */
+  }
+}
