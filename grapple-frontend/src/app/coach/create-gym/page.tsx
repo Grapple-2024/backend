@@ -82,14 +82,13 @@ const CreateGym = () => {
   const profile = useGetUserProfile();
 
   useEffect(() => {
-    if (
-      formData.address_line_1 !== '' ||
-      formData.name !== ''
-    ) {
-      setIsNextAvailable(false);
-    } else {
-      setIsNextAvailable(true);
-    }
+    const allFilled =
+      formData.name !== '' &&
+      formData.address_line_1 !== '' &&
+      formData.city !== '' &&
+      formData.state !== '' &&
+      formData.zip !== '';
+    setIsNextAvailable(!allFilled);
   }, [formData]);
 
   const searchAddress = async (query: string) => {
