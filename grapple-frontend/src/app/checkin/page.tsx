@@ -75,7 +75,7 @@ export default function CheckInPage() {
         {state === 'success' && (
           <>
             <div className={styles.icon}>✅</div>
-            <h2 className={styles.heading}>You're checked in!</h2>
+            <h2 className={styles.heading}>You&apos;re checked in!</h2>
             <p className={styles.body}>Your attendance has been recorded. See you on the mats.</p>
           </>
         )}
@@ -83,7 +83,7 @@ export default function CheckInPage() {
           <>
             <div className={styles.icon}>👍</div>
             <h2 className={styles.heading}>Already checked in</h2>
-            <p className={styles.body}>You've already been checked in today. See you on the mats.</p>
+            <p className={styles.body}>You&apos;ve already been checked in today. See you on the mats.</p>
           </>
         )}
         {state === 'error' && (

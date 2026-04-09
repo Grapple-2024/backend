@@ -89,7 +89,7 @@ export default function DashboardClient() {
           <span className={styles.cardSub}>paid this month</span>
         </div>
         <div className={styles.card}>
-          <span className={styles.cardLabel}>Today's Attendance</span>
+          <span className={styles.cardLabel}>Today&apos;s Attendance</span>
           <span className={styles.cardValue}>{d.today_attendance}</span>
           <span className={styles.cardSub}>check-ins today</span>
         </div>
