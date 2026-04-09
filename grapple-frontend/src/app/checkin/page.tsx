@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
@@ -11,7 +11,7 @@ import styles from './CheckIn.module.css';
 
 type State = 'loading' | 'success' | 'already' | 'error';
 
-export default function CheckInPage() {
+function CheckInContent() {
   const searchParams = useSearchParams();
   const gymId = searchParams.get('gym_id');
   const { userId, isLoaded, isSignedIn } = useAuth();
@@ -95,5 +95,17 @@ export default function CheckInPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function CheckInPage() {
+  return (
+    <Suspense fallback={
+      <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 80 }}>
+        <Spinner animation="border" />
+      </div>
+    }>
+      <CheckInContent />
+    </Suspense>
   );
 }
